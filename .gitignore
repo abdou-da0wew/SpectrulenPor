@@ -53,3 +53,10 @@ app.*.map.json
 .env
 *.keystore
 key.properties
+
+# Flutter web/android generated
+android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+android/local.properties
+
+# API keys (never commit real keys — see assets/config/secrets.example.json)
+assets/config/secrets.json

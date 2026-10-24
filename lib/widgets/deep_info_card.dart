@@ -4,6 +4,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import '../l10n/app_localizations.dart';
 import '../models/recognition_state.dart';
 import '../utils/app_theme.dart' as palette;
+import '../utils/app_typography.dart';
 
 /// Renders the streaming deep-reasoning markdown returned by OpenRouter.
 /// Shows a progress indicator while we wait for the first chunk.
@@ -53,8 +54,8 @@ class DeepInfoCard extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 10),
                 child: Text(
                   AppLocalizations.of(context).deepHint,
-                  style: theme.textTheme.bodyMedium
-                      ?.copyWith(color: palette.AppColors.inkSoft),
+                  style: AppTypography.paragraphOf(context,
+                      color: palette.AppColors.inkSoft),
                 ),
               )
             else
@@ -62,8 +63,10 @@ class DeepInfoCard extends StatelessWidget {
                 data: markdown,
                 selectable: true,
                 styleSheet: MarkdownStyleSheet(
-                  p: theme.textTheme.bodyLarge
-                      ?.copyWith(color: palette.AppColors.inkDark),
+                  // Long AI paragraphs read best in Space Mono (EN) /
+                  // Zain (AR) per the user's font mapping.
+                  p: AppTypography.paragraphOf(context,
+                      color: palette.AppColors.inkDark),
                   h2: theme.textTheme.titleMedium?.copyWith(
                     color: palette.AppColors.dustyLavender,
                     fontWeight: FontWeight.w700,
@@ -72,8 +75,8 @@ class DeepInfoCard extends StatelessWidget {
                     color: palette.AppColors.dustyMauve,
                     fontWeight: FontWeight.w700,
                   ),
-                  listBullet: theme.textTheme.bodyLarge
-                      ?.copyWith(color: palette.AppColors.inkDark),
+                  listBullet: AppTypography.paragraphOf(context,
+                      color: palette.AppColors.inkDark),
                   strong: const TextStyle(
                     fontWeight: FontWeight.w700,
                     color: palette.AppColors.inkDark,

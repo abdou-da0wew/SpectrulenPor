@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:developer';
 
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:http/http.dart' as http;
 
 /// Streams the AI presentation pass from OpenRouter.
@@ -23,13 +24,27 @@ import 'package:http/http.dart' as http;
 ///
 /// Endpoint: POST https://openrouter.ai/api/v1/chat/completions (SSE).
 class OpenRouterService {
-  OpenRouterService({required this.apiKey});
+  OpenRouterService({String? apiKey, http.Client Function()? clientFactory})
+      : apiKey = apiKey ?? defaultApiKey,
+        clientFactory = clientFactory;
+
+  /// Key resolution: Settings (SharedPreferences) →
+  /// `assets/config/secrets.json` → `--dart-define` → ''. Empty in source so
+  /// pushes pass GitHub push protection.
+  static const String defaultApiKey =
+      String.fromEnvironment('OPENROUTER_LLM_KEY');
 
   /// Mutable so Settings can hot-swap the key without restart.
   String apiKey;
 
-  static const String _endpoint =
-      'https://openrouter.ai/api/v1/chat/completions';
+  /// Injectable http.Client factory (unit tests swap in a MockClient).
+  @visibleForTesting
+  http.Client Function()? clientFactory;
+
+  /// Real host on mobile/desktop; relative CORS-proxy path in web preview.
+  static String get endpoint => kIsWeb
+      ? '/openrouter/v1/chat/completions'
+      : 'https://openrouter.ai/api/v1/chat/completions';
 
   /// The full fallback chain in priority order.
   static const List<String> modelChain = [
@@ -121,7 +136,7 @@ class OpenRouterService {
     String? telemetry,
     required String lang,
   }) async* {
-    final request = http.Request('POST', Uri.parse(_endpoint))
+    final request = http.Request('POST', Uri.parse(endpoint))
       ..headers.addAll({
         'Authorization': 'Bearer $apiKey',
         'Content-Type': 'application/json',
@@ -145,7 +160,7 @@ class OpenRouterService {
         ],
       });
 
-    final client = http.Client();
+    final client = clientFactory?.call() ?? http.Client();
     try {
       final streamed = await client.send(request).timeout(
             const Duration(seconds: 20),
@@ -167,19 +182,27 @@ class OpenRouterService {
         if (payload == '[DONE]') break;
         try {
           final json = jsonDecode(payload) as Map<String, dynamic>;
-          final delta = json['choices']?[0]?['delta']?['content'] as String?;
+          // Null-safe: usage-only tail chunks carry an EMPTY choices list.
+          final choices = json['choices'] as List?;
+          final delta = (choices != null && choices.isNotEmpty)
+              ? (choices[0]?['delta']?['content']) as String?
+              : null;
           if (delta != null && delta.isNotEmpty) yield delta;
 
-          // Final chunk carries usage incl. reasoning token count.
+          // Final chunk carries usage incl. reasoning token count. Both
+          // key casings seen in the wild are accepted:
+          //   OpenRouter camelCase: usage.completionTokensDetails.reasoningTokens
+          //   OpenAI snake_case:    usage.completion_tokens_details.reasoning_tokens
           final usage = json['usage'];
           if (usage is Map<String, dynamic>) {
-            final details = usage['completionTokensDetails'];
-            if (details is Map<String, dynamic>) {
-              final rt = details['reasoningTokens'];
-              if (rt is num && rt > 0) lastReasoningTokens = rt.toInt();
-            }
+            final details = (usage['completionTokensDetails'] ??
+                    usage['completion_tokens_details'])
+                as Map<String, dynamic>?;
+            final rt = (details?['reasoningTokens'] ??
+                    details?['reasoning_tokens']) as num?;
+            if (rt != null && rt > 0) lastReasoningTokens = rt.toInt();
           }
-        } on FormatException catch (e) {
+        } catch (e) {
           log('SSE parse: $e');
         }
       }

@@ -1,7 +1,7 @@
 name: smart_glass_app
 description: SpectruLenPor — Smart glasses for spectrum analysis and detection of chemical elements and compounds. ESP32-CAM glasses / phone camera → Moondream3 cloud vision (local Moondream fallback) → OpenRouter text+reasoning presentation → streamed fish-audio TTS.
 publish_to: 'none'
-version: 3.0.0+1
+version: 3.1.0+1
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -66,3 +66,24 @@ flutter:
   assets:
     - assets/
     - assets/models/
+    - assets/config/          # secrets.json (gitignored) + example template
+    - assets/fonts/
+
+# Bundled Google Fonts (no runtime download needed — works fully offline).
+#   Jaro       -> stylish display / headings (EN)
+#   Rubik      -> all other normal text (EN)
+#   Space Mono -> long text paragraphs (EN)
+#   Zain       -> ALL Arabic text
+google_fonts:
+  fonts:
+    - asset: assets/fonts/Jaro-Regular.ttf
+    - asset: assets/fonts/Rubik-Regular.ttf
+    - asset: assets/fonts/Rubik-Medium.ttf
+    - asset: assets/fonts/Rubik-SemiBold.ttf
+    - asset: assets/fonts/Rubik-Bold.ttf
+    - asset: assets/fonts/SpaceMono-Regular.ttf
+    - asset: assets/fonts/SpaceMono-Bold.ttf
+    - asset: assets/fonts/SpaceMono-Italic.ttf
+    - asset: assets/fonts/Zain-Regular.ttf
+    - asset: assets/fonts/Zain-Bold.ttf
+    - asset: assets/fonts/Zain-ExtraBold.ttf

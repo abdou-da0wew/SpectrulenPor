@@ -12,6 +12,7 @@ import '../services/openrouter_service.dart';
 import '../services/openrouter_tts_service.dart';
 import '../services/phone_camera_service.dart';
 import '../utils/app_theme.dart' as palette;
+import '../utils/app_typography.dart';
 
 /// Settings — v3 pipeline configuration:
 ///   * Moondream3 cloud API key (primary vision)
@@ -28,22 +29,32 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _mdKeyCtl;
-  late final TextEditingController _orKeyCtl;
+  late final TextEditingController _orLlmCtl;
+  late final TextEditingController _orTtsCtl;
 
   @override
   void initState() {
     super.initState();
     final prefs = context.read<SharedPreferences>();
     _mdKeyCtl = TextEditingController(
-        text: prefs.getString('moondream_api_key') ?? '');
-    _orKeyCtl =
-        TextEditingController(text: prefs.getString('openrouter_api_key') ?? '');
+        text: prefs.getString('moondream_api_key') ??
+            MoondreamService.instance.apiKey);
+    _orLlmCtl = TextEditingController(
+        text: prefs.getString('openrouter_llm_key') ??
+            prefs.getString('openrouter_api_key') ??
+            context.read<OpenRouterService>().apiKey);
+    _orTtsCtl = TextEditingController(
+        text: prefs.getString('openrouter_tts_key') ??
+            (OpenRouterTtsService.instance.isConfigured
+                ? '•••••••• (configured)'
+                : ''));
   }
 
   @override
   void dispose() {
     _mdKeyCtl.dispose();
-    _orKeyCtl.dispose();
+    _orLlmCtl.dispose();
+    _orTtsCtl.dispose();
     super.dispose();
   }
 
@@ -142,7 +153,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
 
-          // ---------------- OpenRouter ----------------
+          // ---------------- OpenRouter (LLM + TTS keys) ----------------
           _sectionHeader(theme, Icons.key, 'OpenRouter API'),
           Card(
             child: Padding(
@@ -151,22 +162,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   TextField(
-                    controller: _orKeyCtl,
+                    controller: _orLlmCtl,
                     obscureText: true,
                     decoration: InputDecoration(
-                      labelText: l.openRouterApiKeyLabel,
-                      helperText: l.openRouterApiKeyHint,
+                      labelText: l.openRouterLlmKeyLabel,
+                      helperText: l.openRouterLlmKeyHint,
                       border: const OutlineInputBorder(),
                     ),
                     onChanged: (v) {
-                      prefs.setString('openrouter_api_key', v);
+                      prefs.setString('openrouter_llm_key', v);
                       context.read<OpenRouterService>().apiKey = v;
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _orTtsCtl,
+                    obscureText: true,
+                    decoration: InputDecoration(
+                      labelText: l.openRouterTtsKeyLabel,
+                      helperText: l.openRouterTtsKeyHint,
+                      border: const OutlineInputBorder(),
+                    ),
+                    onChanged: (v) {
+                      prefs.setString('openrouter_tts_key', v);
                       OpenRouterTtsService.instance.configure(apiKey: v);
                     },
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Moondream3 produces the factual analysis; this LLM only '
+                    'Moondream3 produces the factual analysis; the LLM only '
                     'presents it — short prompts, low latency, streamed.',
                     style: theme.textTheme.bodySmall
                         ?.copyWith(color: palette.AppColors.inkSoft),
@@ -225,6 +249,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                       ),
                     ),
+                ],
+              ),
+            ),
+          ),
+
+          // ---------------- Diagnostics ----------------
+          _sectionHeader(theme, Icons.monitor_heart, l.diagnosticsHeader),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _diagRow(theme, l.diagnosticsCloud,
+                      md.isCloudConfigured ? l.moondreamCloudEnabled : l.moondreamCloudDisabled),
+                  _diagRow(theme, l.diagnosticsLastModel,
+                      state.upstreamStatus == UpstreamStatus.idle
+                          ? '—'
+                          : state.lastModelUsed),
+                  _diagRow(theme, l.diagnosticsReasoningTokens,
+                      state.reasoningTokens?.toString() ?? '—'),
+                  _diagRow(theme, l.diagnosticsTts,
+                      OpenRouterTtsService.ttsModel),
                 ],
               ),
             ),
@@ -412,10 +459,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
               padding: const EdgeInsets.all(14),
               child: Text(
                 l.aboutBody,
-                style: theme.textTheme.bodySmall?.copyWith(
-                    color: palette.AppColors.inkSoft, height: 1.5),
+                style: AppTypography.paragraphOf(context,
+                    color: palette.AppColors.inkSoft),
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _diagRow(ThemeData theme, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 150,
+            child: Text(label,
+                style: theme.textTheme.bodySmall?.copyWith(
+                    color: palette.AppColors.inkSoft,
+                    fontWeight: FontWeight.w700)),
+          ),
+          Expanded(
+            child: Text(value,
+                style: theme.textTheme.bodySmall?.copyWith(
+                    color: palette.AppColors.dustyLavender,
+                    fontWeight: FontWeight.w600)),
           ),
         ],
       ),

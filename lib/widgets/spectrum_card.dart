@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
-import '../models/recognition_state.dart';
+
 import '../models/spectrum_reading.dart';
 import '../utils/app_theme.dart' as palette;
 

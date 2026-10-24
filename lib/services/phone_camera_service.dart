@@ -58,12 +58,10 @@ class PhoneCameraService {
     debugPrint('[PhoneCamera] live — ${ctrl.value.previewSize}');
   }
 
-  CameraImage? _latest;
   int _sequence = 0;
 
   void _onCameraImage(CameraImage image) {
     if (_encoding) return; // one encode in flight — drop stale frames
-    _latest = image;
     _encoding = true;
 
     final args = _EncodeArgs(
@@ -186,7 +184,7 @@ Uint8List? _encodeIsolate(_EncodeArgs a) {
       rgb = img.copyRotate(rgb, angle: 90 * (a.quarterTurns % 4));
     }
 
-    return Uint8List.fromList(img.encodeJpeg(rgb, quality: 82));
+    return Uint8List.fromList(img.encodeJpg(rgb, quality: 82));
   } catch (e) {
     debugPrint('[PhoneCamera] isolate encode failed: $e');
     return null;

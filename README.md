@@ -140,12 +140,31 @@ Android 7+ (API 24). First launch requests camera + nearby-devices permissions.
 
 ### Add the API keys (2 minutes)
 
-1. **Moondream** (primary vision): create a key at
-   [docs.moondream.ai → cloud](https://docs.moondream.ai/) → paste in
-   Settings → *Moondream3 cloud*. Model `moondream3.1-9B-A2B` is selected
-   automatically (falls back to `moondream3-preview` on older keys).
-2. **OpenRouter** (presentation + TTS): free key at
-   [openrouter.ai/keys](https://openrouter.ai/keys) → paste in Settings.
+The three demo keys live in **`assets/config/secrets.json`** — a gitignored
+build asset (GitHub push-protection blocks committed API keys). This machine
+already has it; on a fresh clone:
+
+```bash
+cp assets/config/secrets.example.json assets/config/secrets.json
+# then paste your keys into the JSON
+```
+
+Resolution order per key: **Settings (SharedPreferences) → secrets.json →
+`--dart-define` → '' (offline mode)**. Two separate OpenRouter keys are used
+so LLM chat rate limits never stall the voice:
+
+1. **Moondream** (primary vision): [docs.moondream.ai → cloud](https://docs.moondream.ai/)
+2. **OpenRouter LLM key** (gemma → inkling → nemotron chain): [openrouter.ai/keys](https://openrouter.ai/keys)
+3. **OpenRouter TTS key** (streamed fish-audio narration): same site
+
+Or inject at build time instead of the JSON:
+
+```bash
+flutter build apk --release \
+  --dart-define=MOONDREAM_API_KEY=... \
+  --dart-define=OPENROUTER_LLM_KEY=... \
+  --dart-define=OPENROUTER_TTS_KEY=...
+```
 
 Without keys the app still works fully offline through the local cascade
 (local Moondream GGUF → ONNX → ML Kit) with native Android TTS.
@@ -201,7 +220,22 @@ git clone --depth 1 --recursive https://github.com/ggerganov/llama.cpp
 Until deployed, the cascade is: **Moondream3 cloud → ONNX → ML Kit**, so
 nothing blocks without it.
 
-## 4. Translations (Flutter l10n)
+## 4. Typography (bundled Google Fonts)
+
+All four families ship in `assets/fonts/` (declared under `google_fonts:` in
+pubspec — zero runtime fetching, fully offline, deterministic UI):
+
+| Font | Role |
+|---|---|
+| **Jaro** | the stylish font — brand, app bar, display/headline tiers (EN) |
+| **Rubik** | all other normal text (EN) |
+| **Space Mono** | long text paragraphs — AI analysis body, About (EN) |
+| **Zain** | ALL Arabic text (display, body and paragraphs — full Arabic glyph coverage) |
+
+Mapping lives in `lib/utils/app_typography.dart` and is applied both at the
+theme level (`buildAppTheme(locale)`) and per-widget for paragraph text.
+
+## 5. Translations (Flutter l10n)
 
 Strings live in ARB files — edit and rebuild, no code changes:
 
@@ -214,6 +248,56 @@ lib/l10n/app_ar.arb   ← العربية (RTL)
 `l10n.yaml`, `generate: true` in pubspec). For non-context code (TTS
 prompts), `await AppLocalizations.load(const Locale('ar'))` returns the
 Arabic table directly.
+
+## 6. Full test suite (what was verified)
+
+Everything below was executed against the real SDK and real cloud APIs:
+
+**Static + unit + widget — `flutter analyze` clean, `flutter test` 68/68 passing**
+
+| Suite | Covers |
+|---|---|
+| `test/models/` | SpectrumReading parse/percent/thresholds/matter-state/hazard keywords · FrameData |
+| `test/l10n/` | every key non-empty in EN **and** AR, AR≠EN, parameterized `latencyFirstToken`, delegate locales |
+| `test/utils/` | font mapping: Jaro/Rubik/SpaceMono (EN) + Zain (AR), theme merge, context helpers |
+| `test/services/` | Moondream SSE parsing + 429/401/400-model-downgrade · OpenRouter chain fallback (500→next model), reasoning-token capture (both key casings), startModel pinning · TTS request shape + markdown strip + error swallow · vision cascade ordering (cloud first, gates, templates) |
+| `test/models/recognition_state_test.dart` | settings persistence, clamps, demo-key hot-config, frame throttle, sensor hazard banner, flashlight, source switching |
+| `test/widgets/` | full app shell: home renders brand/cards, AR flip renders **RTL**, settings shows keys/chain/diagnostics, lazy-list scrolling |
+
+**Real API results (2026-10-25, `tool/real_api_smoke_test.dart` + curl)**
+
+| Check | Result |
+|---|---|
+| Moondream `/caption` | ✅ 30 ms TTFT — "A red circle is centered on a white background…" |
+| Moondream `/query` + reasoning | ✅ structured answer + reasoning trace (object→text normalized) |
+| Moondream `/detect` | ✅ 1 box @ (0.34, 0.28)–(0.66, 0.72) |
+| Moondream SSE streaming | ✅ `data:{"chunk":…}` frames decoded |
+| OpenRouter `gemma-4-26b-a4b-it:free` | ⚠️ 429 upstream-limited → chain falls through |
+| OpenRouter `inkling-small:free` | ⚠️ 403 agentic-only → chain falls through |
+| OpenRouter `nemotron-3-nano-omni-30b-a3b-reasoning:free` | ✅ streamed reply, **576 reasoning tokens** captured |
+| fish-audio `/audio/speech` | ✅ 74–107 KB MP3s (EN + AR), markdown stripped |
+| **Audio proof** | ✅ MP3s transcribed back via ASR — EN: *"Warning: This is SpectruLenPor speaking through the streamed fish-audio pipeline"* · AR: *"مرحبًا أنا سبكترو لِن بور مساعدتك للتحليل الطيفي…"* |
+
+**Real browser screenshots (Flutter web build, headless Chromium)**
+
+Captured during the build→serve→screenshot→read→fix loop
+(`scripts/preview_server.py` + agent-browser): home EN (Jaro brand title,
+Space Mono analysis body), settings EN (pre-filled keys, chain radios,
+diagnostics), settings AR + home AR in **full RTL with Zain**, live
+EN↔AR toggle, locale persistence across reloads, zero console errors.
+
+## 7. Browser preview (no device needed)
+
+```bash
+flutter build web --release
+python3 ../scripts/preview_server.py     # serves build/web + CORS-proxies
+                                          # /moondream/v1/* and /openrouter/v1/*
+# open http://localhost:8090
+```
+
+On web the services automatically switch to the relative proxy paths
+(`kIsWeb` in `MoondreamService` / `OpenRouterService` / TTS), so the
+browser demo calls the same cloud pipeline as the phone build.
 
 ---
 

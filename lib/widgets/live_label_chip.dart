@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
 import '../models/recognition_state.dart';
 import '../utils/app_theme.dart' as palette;
+import '../utils/app_typography.dart';
 
 /// Small chip that shows the instant on-device label coming from the
 /// specialized ONNX model / Moondream / ML Kit, with a source icon.
@@ -54,8 +55,8 @@ class LiveLabelChip extends StatelessWidget {
                 const SizedBox(height: 3),
                 Text(
                   label ?? AppLocalizations.of(context).idleLabel,
-                  style: theme.textTheme.bodyLarge
-                      ?.copyWith(color: palette.AppColors.inkDark),
+                  style: AppTypography.bodyOf(context,
+                      fontSize: 15, color: palette.AppColors.inkDark),
                 ),
               ],
             ),

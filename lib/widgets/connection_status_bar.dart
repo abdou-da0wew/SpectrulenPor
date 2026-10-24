@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
-import '../models/recognition_state.dart';
+import '../models/bluetooth_status.dart';
 import '../utils/app_theme.dart' as palette;
 
 /// Header pill showing the BLE connection state of the glasses,
@@ -113,4 +113,14 @@ class ConnectionStatusBar extends StatelessWidget {
         return Icons.error_outline;
     }
   }
+
+  String _label(BuildContext context, BluetoothStatus s) =>
+      switch (s) {
+        BluetoothStatus.disconnected =>
+          AppLocalizations.of(context).glassesNotConnected,
+        BluetoothStatus.scanning => AppLocalizations.of(context).scanning,
+        BluetoothStatus.connecting => AppLocalizations.of(context).connecting,
+        BluetoothStatus.connected => AppLocalizations.of(context).connected,
+        BluetoothStatus.error => AppLocalizations.of(context).btError,
+      };
 }

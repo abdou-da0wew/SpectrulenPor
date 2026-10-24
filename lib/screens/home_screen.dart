@@ -1,4 +1,5 @@
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
@@ -48,12 +49,19 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _requestPermissions() async {
-    await [
-      Permission.bluetoothScan,
-      Permission.bluetoothConnect,
-      Permission.location,
-      Permission.camera,
-    ].request();
+    // permission_handler has no web/VM engine — skip there (browser preview
+    // grants camera via its own prompt; tests run without plugins).
+    if (kIsWeb) return;
+    try {
+      await [
+        Permission.bluetoothScan,
+        Permission.bluetoothConnect,
+        Permission.location,
+        Permission.camera,
+      ].request();
+    } catch (e) {
+      debugPrint('permission request unavailable: $e');
+    }
   }
 
   @override

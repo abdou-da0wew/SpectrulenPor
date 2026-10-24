@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'l10n/app_localizations.dart';
+import 'config/app_secrets.dart';
 import 'models/recognition_state.dart';
 import 'screens/home_screen.dart';
 import 'screens/settings_screen.dart';
@@ -23,24 +25,32 @@ final ValueNotifier<Locale> appLocale =
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // All four families (Jaro / Rubik / Space Mono / Zain) ship in assets —
+  // never hit the network for fonts (deterministic UI, offline demo safe).
+  GoogleFonts.config.allowRuntimeFetching = false;
+
   final prefs = await SharedPreferences.getInstance();
+  final secrets = await AppSecrets.load();
 
   await LocalVisionService.instance.init();
   await OnnxVisionService.instance.init(); // silent no-op if model missing
   await NativeTtsService.instance.init();
   await OpenRouterTtsService.instance.init();
-  MoondreamService.instance.apiKey =
-      prefs.getString('moondream_api_key') ?? '';
+  MoondreamService.instance.apiKey = prefs.getString('moondream_api_key') ??
+      (secrets['moondream'] ?? MoondreamService.defaultApiKey);
 
   appLocale.value = Locale(prefs.getString('locale') ?? 'en');
 
-  runApp(SpectruLenPorApp(prefs: prefs));
+  runApp(SpectruLenPorApp(prefs: prefs, secrets: secrets));
 }
 
 class SpectruLenPorApp extends StatelessWidget {
   final SharedPreferences prefs;
+  final Map<String, String> _secrets;
 
-  const SpectruLenPorApp({super.key, required this.prefs});
+  const SpectruLenPorApp({super.key, required this.prefs,
+      required Map<String, String> secrets})
+      : _secrets = secrets;
 
   @override
   Widget build(BuildContext context) {
@@ -59,11 +69,19 @@ class SpectruLenPorApp extends StatelessWidget {
         Provider<MoondreamService>.value(value: MoondreamService.instance),
         Provider<OpenRouterService>(
           create: (ctx) => OpenRouterService(
-            apiKey: prefs.getString('openrouter_api_key') ?? '',
+            apiKey: prefs.getString('openrouter_llm_key') ??
+                prefs.getString('openrouter_api_key') ??
+                _secrets['openrouter_llm'] ??
+                OpenRouterService.defaultApiKey,
           ),
         ),
         Provider<OpenRouterTtsService>.value(
-          value: OpenRouterTtsService.instance,
+          value: OpenRouterTtsService.instance
+            ..configure(
+              apiKey: prefs.getString('openrouter_tts_key') ??
+                  _secrets['openrouter_tts'] ??
+                  OpenRouterTtsService.defaultApiKey,
+            ),
         ),
         Provider<NativeTtsService>.value(value: NativeTtsService.instance),
         ChangeNotifierProvider(
@@ -84,7 +102,7 @@ class SpectruLenPorApp extends StatelessWidget {
           onGenerateTitle: (ctx) =>
               '${AppLocalizations.of(ctx).appName} — Smart Scientific Glasses',
           debugShowCheckedModeBanner: false,
-          theme: buildAppTheme(),
+          theme: buildAppTheme(locale),
           locale: locale,
           supportedLocales: AppLocalizations.supportedLocales,
           localizationsDelegates: AppLocalizations.localizationsDelegates,

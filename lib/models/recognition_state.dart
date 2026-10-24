@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/bluetooth_status.dart';
 import '../models/frame_data.dart';
 import '../models/spectrum_reading.dart';
 import '../services/bluetooth_camera_service.dart';
@@ -13,8 +14,7 @@ import '../services/openrouter_service.dart';
 import '../services/openrouter_tts_service.dart';
 import '../services/phone_camera_service.dart';
 
-/// Connection state of the BLE camera.
-enum BluetoothStatus { disconnected, scanning, connecting, connected, error }
+export '../models/bluetooth_status.dart';
 
 /// Where the current description came from.
 enum VisionSource {
@@ -118,12 +118,17 @@ class RecognitionState extends ChangeNotifier {
     _upstreamStartModel = prefs.getInt('upstream_start_model') ?? 0;
     _localeCode = prefs.getString('locale') ?? 'en';
 
-    // Hot-configure the cloud tiers from stored keys.
-    MoondreamService.instance.apiKey =
-        prefs.getString('moondream_api_key') ?? '';
-    openRouterTts.configure(
-      apiKey: prefs.getString('openrouter_api_key') ?? '',
-    );
+    // Hot-configure the cloud tiers from stored keys. When the user never
+    // typed a key, keep whatever main() seeded from assets/config/secrets.json
+    // (or --dart-define) — never clobber it with an empty string.
+    final mdKey = prefs.getString('moondream_api_key');
+    if (mdKey != null) MoondreamService.instance.apiKey = mdKey;
+    final llmKey = prefs.getString('openrouter_llm_key') ??
+        prefs.getString('openrouter_api_key');
+    if (llmKey != null) openRouter.apiKey = llmKey;
+    final ttsKey = prefs.getString('openrouter_tts_key') ??
+        prefs.getString('openrouter_api_key');
+    if (ttsKey != null) openRouterTts.configure(apiKey: ttsKey);
   }
 
   // ----------------------------- Camera sources -----------------------------
@@ -186,14 +191,16 @@ class RecognitionState extends ChangeNotifier {
     });
     bluetooth.frameStream.listen(_onFrame);
     phoneCamera.frameStream.listen(_onFrame);
-    bluetooth.sensorStream.listen((reading) {
-      _lastReading = reading;
-      // Sensor-level hazard check (UV / IR thresholds).
-      if (reading.anyHazard && !_hazardActive) {
-        _announceHazard('Sensor threshold exceeded (UV/IR).');
-      }
-      notifyListeners();
-    });
+    bluetooth.sensorStream.listen(_onSensor);
+  }
+
+  void _onSensor(SpectrumReading reading) {
+    _lastReading = reading;
+    // Sensor-level hazard check (UV / IR thresholds).
+    if (reading.anyHazard && !_hazardActive) {
+      _announceHazard('Sensor threshold exceeded (UV/IR).');
+    }
+    notifyListeners();
   }
 
   // ----------------------------- Bluetooth -----------------------------
@@ -359,11 +366,12 @@ class RecognitionState extends ChangeNotifier {
 
   /// Speaks and drains any *complete* sentence waiting in the buffer.
   /// This is what brings first audio to ~1s: no waiting for the full reply.
-  String _spokenUpTo = '';
+  /// Index into the streaming reply up to which we already spoke.
+  int _spokenUpTo = 0;
   Future<void> _speakCompletedSentences(StringBuffer buffer) async {
     final text = buffer.toString();
-    if (text.length <= _spokenUpTo.length) return;
-    final pending = text.substring(_spokenUpTo.length);
+    if (text.length <= _spokenUpTo) return;
+    final pending = text.substring(_spokenUpTo);
 
     // Sentence terminators for EN + AR.
     final match = RegExp(r'[.!?؟][^.!?؟]*$').firstMatch(pending);
@@ -411,9 +419,19 @@ class RecognitionState extends ChangeNotifier {
   Future<void> captureAndAnalyzeNow() async {
     final frame = _lastFrame;
     if (frame == null) return;
-    _spokenUpTo = '';
+    _spokenUpTo = 0;
     await _runLocalVision(frame);
   }
+
+  // ----------------------------- Test hooks -----------------------------
+
+  /// Inject a frame as if a camera source had streamed it (unit tests).
+  @visibleForTesting
+  void debugPushFrame(FrameData frame) => _onFrame(frame);
+
+  /// Inject a sensor reading as if the glasses had streamed it (unit tests).
+  @visibleForTesting
+  void debugPushSensor(SpectrumReading reading) => _onSensor(reading);
 
   @override
   void dispose() {

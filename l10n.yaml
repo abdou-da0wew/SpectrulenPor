@@ -5,7 +5,6 @@ arb-dir: lib/l10n
 template-arb-file: app_en.arb
 output-localization-file: app_localizations.dart
 output-class: AppLocalizations
-synthetic-package: false          # place generated files inside lib/l10n/ so they live in git
 output-dir: lib/l10n
 preferred-supported-locales: [en, ar]
 nullable-getter: false            # AppLocalizations.of(ctx).key (no `!` needed)

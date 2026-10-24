@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+import 'app_typography.dart';
+
 
 /// SpectrulenPor brand palette (user-supplied).
 ///
@@ -56,7 +60,12 @@ class AppColors {
 }
 
 /// Builds the Material 3 light theme for SpectrulenPor.
-ThemeData buildAppTheme() {
+///
+/// Font mapping (user-specified):
+///   * EN — Rubik body + Jaro display/headlines + Space Mono paragraphs
+///     (applied per-widget via [AppTypography.paragraph]).
+///   * AR — Zain everywhere (RTL-safe, full Arabic glyph coverage).
+ThemeData buildAppTheme([Locale locale = const Locale('en')]) {
   const seed = AppColors.dustyLavender;
 
   final colorScheme = ColorScheme.light(
@@ -91,22 +100,23 @@ ThemeData buildAppTheme() {
     scaffoldBackgroundColor: AppColors.alabasterGrey,
   );
 
+  final textTheme = AppTypography.textThemeFor(locale, base.textTheme)
+      .apply(bodyColor: AppColors.inkDark, displayColor: AppColors.inkDark);
+
+  final appBarTitle = AppTypography.isArabic(locale)
+      ? GoogleFonts.zain(
+          fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white)
+      : GoogleFonts.jaro(
+          fontSize: 21, fontWeight: FontWeight.w400, color: Colors.white);
+
   return base.copyWith(
-    textTheme: base.textTheme.apply(
-      bodyColor: AppColors.inkDark,
-      displayColor: AppColors.inkDark,
-    ),
-    appBarTheme: const AppBarTheme(
+    textTheme: textTheme,
+    appBarTheme: AppBarTheme(
       backgroundColor: AppColors.dustyLavender,
       foregroundColor: Colors.white,
       elevation: 0,
       centerTitle: false,
-      titleTextStyle: TextStyle(
-        fontSize: 20,
-        fontWeight: FontWeight.w700,
-        color: Colors.white,
-        letterSpacing: 0.3,
-      ),
+      titleTextStyle: appBarTitle,
     ),
     cardTheme: CardThemeData(
       color: AppColors.surfaceLight,
@@ -122,7 +132,8 @@ ThemeData buildAppTheme() {
       style: FilledButton.styleFrom(
         backgroundColor: AppColors.dustyLavender,
         foregroundColor: Colors.white,
-        textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+        textStyle: AppTypography.body(locale,
+            fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
@@ -131,7 +142,8 @@ ThemeData buildAppTheme() {
       style: OutlinedButton.styleFrom(
         foregroundColor: AppColors.dustyLavender,
         side: const BorderSide(color: AppColors.dustyLavender, width: 1.4),
-        textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+        textStyle: AppTypography.body(locale,
+            fontSize: 15, fontWeight: FontWeight.w600),
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
@@ -184,8 +196,8 @@ ThemeData buildAppTheme() {
     chipTheme: base.chipTheme.copyWith(
       backgroundColor: AppColors.dustGrey,
       selectedColor: AppColors.dustyMauve,
-      labelStyle: const TextStyle(color: AppColors.inkDark),
-      secondaryLabelStyle: const TextStyle(color: Colors.white),
+      labelStyle: AppTypography.body(locale, color: AppColors.inkDark),
+      secondaryLabelStyle: AppTypography.body(locale, color: Colors.white),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
     ),
     snackBarTheme: SnackBarThemeData(

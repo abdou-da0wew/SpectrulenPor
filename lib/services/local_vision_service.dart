@@ -1,13 +1,11 @@
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
-import 'package:google_mlkit_image_labeling/google_mlkit_image_labeling.dart';
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
-import 'package:path_provider/path_provider.dart';
 
 import 'moondream_service.dart';
+import 'onnx_prediction.dart';
 import 'onnx_vision_service.dart';
+import 'vision_mlkit.dart';
 
 /// Vision cascade for SpectruLenPor — who looks at the frame, in order:
 ///
@@ -17,18 +15,36 @@ import 'onnx_vision_service.dart';
 ///      `com.spectraglass/llama` (llama.cpp + mmproj). Works offline.
 ///   3. **ONNX Runtime Mobile** — specialized quantized classifier
 ///      (<100 ms, offline) when assets/models/ is populated.
-///   4. **ML Kit** (always available) — image labeling + OCR last resort.
+///   4. **ML Kit** (always available on device) — image labeling + OCR.
 ///
 /// The winning engine's factual output is what OpenRouter (gemma → inkling
-/// → nemotron chain) merely PRESENTS in nicer spoken words. ML Kit OCR runs
-/// on top of every frame regardless of which labeler won, so chemical
-/// bottle labels / warning signs are always read out.
+/// → nemotron chain) merely PRESENTS in nicer spoken words.
+///
+/// All tiers are injectable so the unit-test suite can exercise the full
+/// cascade ordering with fakes.
 class LocalVisionService {
-  LocalVisionService._();
+  final MoondreamService _md;
+  final OnnxVisionService _onnx;
+  final MlKitAnalyzer _mlkit;
+
+  /// Production singleton.
+  LocalVisionService._()
+      : _md = MoondreamService.instance,
+        _onnx = OnnxVisionService.instance,
+        _mlkit = MlKitAnalyzer();
+
   static final LocalVisionService instance = LocalVisionService._();
 
-  late final ImageLabeler _labeler;
-  late final TextRecognizer _ocr;
+  /// Test constructor with fake tiers.
+  @visibleForTesting
+  LocalVisionService.forTest({
+    MoondreamService? moondream,
+    OnnxVisionService? onnx,
+    MlKitAnalyzer? mlkit,
+  })  : _md = moondream ?? MoondreamService.instance,
+        _onnx = onnx ?? OnnxVisionService.instance,
+        _mlkit = mlkit ?? MlKitAnalyzer();
+
   bool _ready = false;
   bool get isReady => _ready;
 
@@ -50,13 +66,8 @@ class LocalVisionService {
   bool get moondreamAvailable =>
       moondreamModelPath != null && moondreamModelPath!.isNotEmpty;
 
-  MoondreamService get _md => MoondreamService.instance;
-
   Future<void> init() async {
-    _labeler = ImageLabeler(
-      options: ImageLabelerOptions(confidenceThreshold: 0.55),
-    );
-    _ocr = TextRecognizer(script: TextRecognitionScript.latin);
+    await _mlkit.init();
     _ready = true;
     debugPrint('[LocalVision] ready — Moondream3-cloud-first cascade.');
   }
@@ -81,9 +92,7 @@ class LocalVisionService {
         // blocks the first spoken sentence (latency).
         _runDeepQuery(jpegBytes, isAr: isAr);
         final cc = cap.caption.trim();
-        return isAr
-            ? 'موندريم يرى: $cc'
-            : 'Moondream sees: $cc';
+        return isAr ? 'موندريم يرى: $cc' : 'Moondream sees: $cc';
       }
     }
 
@@ -101,7 +110,7 @@ class LocalVisionService {
     }
 
     // 3) ONNX — specialized quantized classifier (<100 ms, offline).
-    final onnx = await OnnxVisionService.instance.classify(jpegBytes, k: 3);
+    final onnx = await _onnx.classify(jpegBytes, k: 3);
     lastTopK = onnx ?? const [];
     if (onnx != null && onnx.isNotEmpty) {
       lastEngine = 'onnx';
@@ -120,10 +129,16 @@ class LocalVisionService {
               '(${(best.confidence * 100).toStringAsFixed(0)}% confidence)$alt';
     }
 
-    // 4) ML Kit — image labeling + OCR, always available.
-    lastEngine = 'mlkit';
-    lastTopK = const [];
-    return _describeWithMlKit(jpegBytes, isAr);
+    // 4) ML Kit — image labeling + OCR, always available on device.
+    final ml = await _mlkit.describe(jpegBytes, isAr: isAr);
+    if (ml != null) {
+      lastEngine = 'mlkit';
+      lastTopK = const [];
+      return ml;
+    }
+
+    lastEngine = 'idle';
+    return null;
   }
 
   /// Fire-and-forget deep query on the cloud tier. Fills
@@ -146,33 +161,6 @@ class LocalVisionService {
     }
   }
 
-  Future<String> _describeWithMlKit(Uint8List jpegBytes, bool isAr) async {
-    final tmp = await _writeTempJpg(jpegBytes);
-    final inputImage = InputImage.fromFile(tmp);
-
-    final labels = await _labeler.processImage(inputImage);
-    final ocr = await _ocr.processImage(inputImage);
-    await tmp.delete();
-
-    final buf = StringBuffer();
-    if (labels.isNotEmpty) {
-      final top = labels.take(3).map((l) => l.label.toLowerCase()).join(', ');
-      buf.write(isAr ? 'أرى أمامك: $top' : 'In front of you I see $top');
-    } else {
-      buf.write(isAr
-          ? 'لا أستطيع تصنيف هذا بثقة كافية.'
-          : 'I can see something but cannot classify it confidently.');
-    }
-
-    final text = ocr.text.trim();
-    if (text.isNotEmpty && text.length < 200) {
-      buf.write(isAr
-          ? '. نص مرئي: "${text.replaceAll('\n', ' ')}".'
-          : '. Visible text: "${text.replaceAll('\n', ' ')}".');
-    }
-    return buf.toString();
-  }
-
   /// Enable the local Moondream path (call once the GGUF is on the device).
   Future<void> enableMoondream(String ggufPath) async {
     moondreamModelPath = ggufPath;
@@ -183,17 +171,7 @@ class LocalVisionService {
     moondreamModelPath = null;
   }
 
-  Future<File> _writeTempJpg(Uint8List bytes) async {
-    final dir = await getTemporaryDirectory();
-    final path =
-        '${dir.path}/frame_${DateTime.now().microsecondsSinceEpoch}.jpg';
-    final f = File(path);
-    await f.writeAsBytes(bytes, flush: true);
-    return f;
-  }
-
   void dispose() {
-    _labeler.close();
-    _ocr.close();
+    _mlkit.dispose();
   }
 }

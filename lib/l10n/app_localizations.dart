@@ -1,26 +1,71 @@
-// This file is a hand-written bootstrap of what `flutter gen-l10n` produces
-// from lib/l10n/app_*.arb. When `flutter pub get` runs (with `generate: true`
-// in pubspec.yaml), the generator will overwrite this file with an equivalent
-// generated implementation. Both produce the same public API:
-//
-//   final l = AppLocalizations.of(context);
-//   print(l.appName);
-//   final lAr = await AppLocalizations.load(const Locale('ar'));
-//   print(lAr.hazardSpeech);
-//
-// We ship it manually so the project compiles before the first `flutter pub get`.
-
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:intl/intl.dart' as intl;
 
-/// AppLocalizations — bilingual (en / ar) string table for SpectruLenPor.
+import 'app_localizations_ar.dart';
+import 'app_localizations_en.dart';
+
+// ignore_for_file: type=lint
+
+/// Callers can lookup localized strings with an instance of AppLocalizations
+/// returned by `AppLocalizations.of(context)`.
+///
+/// Applications need to include `AppLocalizations.delegate()` in their app's
+/// `localizationDelegates` list, and the locales they support in the app's
+/// `supportedLocales` list. For example:
+///
+/// ```dart
+/// import 'l10n/app_localizations.dart';
+///
+/// return MaterialApp(
+///   localizationsDelegates: AppLocalizations.localizationsDelegates,
+///   supportedLocales: AppLocalizations.supportedLocales,
+///   home: MyApplicationHome(),
+/// );
+/// ```
+///
+/// ## Update pubspec.yaml
+///
+/// Please make sure to update your pubspec.yaml to include the following
+/// packages:
+///
+/// ```yaml
+/// dependencies:
+///   # Internationalization support.
+///   flutter_localizations:
+///     sdk: flutter
+///   intl: any # Use the pinned version from flutter_localizations
+///
+///   # Rest of dependencies
+/// ```
+///
+/// ## iOS Applications
+///
+/// iOS applications define key application metadata, including supported
+/// locales, in an Info.plist file that is built into the application bundle.
+/// To configure the locales supported by your app, you’ll need to edit this
+/// file.
+///
+/// First, open your project’s ios/Runner.xcworkspace Xcode workspace file.
+/// Then, in the Project Navigator, open the Info.plist file under the Runner
+/// project’s Runner folder.
+///
+/// Next, select the Information Property List item, select Add Item from the
+/// Editor menu, then select Localizations from the pop-up menu.
+///
+/// Select and expand the newly-created Localizations item then, for each
+/// locale your application supports, add a new item and select the locale
+/// you wish to add from the pop-up menu in the Value field. This list should
+/// be consistent with the languages listed in the AppLocalizations.supportedLocales
+/// property.
 abstract class AppLocalizations {
-  AppLocalizations(String locale) : _localeName = locale;
+  AppLocalizations(String locale)
+      : localeName = intl.Intl.canonicalizedLocale(locale.toString());
 
-  final String _localeName;
+  final String localeName;
 
   static AppLocalizations of(BuildContext context) {
     return Localizations.of<AppLocalizations>(context, AppLocalizations)!;
@@ -29,88 +74,454 @@ abstract class AppLocalizations {
   static const LocalizationsDelegate<AppLocalizations> delegate =
       _AppLocalizationsDelegate();
 
+  /// A list of this localizations delegate along with the default localizations
+  /// delegates.
+  ///
+  /// Returns a list of localizations delegates containing this delegate along with
+  /// GlobalMaterialLocalizations.delegate, GlobalCupertinoLocalizations.delegate,
+  /// and GlobalWidgetsLocalizations.delegate.
+  ///
+  /// Additional delegates can be added by appending to this list in
+  /// MaterialApp. This list does not have to be used at all if a custom list
+  /// of delegates is preferred or required.
   static const List<LocalizationsDelegate<dynamic>> localizationsDelegates =
       <LocalizationsDelegate<dynamic>>[
     delegate,
     GlobalMaterialLocalizations.delegate,
-    GlobalWidgetsLocalizations.delegate,
     GlobalCupertinoLocalizations.delegate,
+    GlobalWidgetsLocalizations.delegate,
   ];
 
+  /// A list of this localizations delegate's supported locales.
   static const List<Locale> supportedLocales = <Locale>[
     Locale('en'),
-    Locale('ar'),
+    Locale('ar')
   ];
 
-  /// Load resources for the given locale asynchronously (for non-context use).
-  static Future<AppLocalizations> load(Locale locale) {
-    final AppLocalizations l =
-        locale.languageCode == 'ar' ? AppLocalizationsAr() : AppLocalizationsEn();
-    return SynchronousFuture<AppLocalizations>(l);
-  }
-
-  // ----------------------------- keys -----------------------------
+  /// App brand name
+  ///
+  /// In en, this message translates to:
+  /// **'SpectruLenPor'**
   String get appName;
+
+  /// Official project title (EN)
+  ///
+  /// In en, this message translates to:
+  /// **'Smart glasses for spectrum analysis and detection of chemical elements and compounds'**
   String get appTagline;
+
+  /// No description provided for @glassesNotConnected.
+  ///
+  /// In en, this message translates to:
+  /// **'Glasses not connected'**
   String get glassesNotConnected;
+
+  /// No description provided for @scanning.
+  ///
+  /// In en, this message translates to:
+  /// **'Scanning for glasses…'**
   String get scanning;
+
+  /// No description provided for @connecting.
+  ///
+  /// In en, this message translates to:
+  /// **'Connecting…'**
   String get connecting;
+
+  /// No description provided for @connected.
+  ///
+  /// In en, this message translates to:
+  /// **'Connected'**
   String get connected;
+
+  /// No description provided for @btError.
+  ///
+  /// In en, this message translates to:
+  /// **'Bluetooth error'**
   String get btError;
+
+  /// No description provided for @connectGlasses.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect glasses'**
   String get connectGlasses;
+
+  /// No description provided for @disconnect.
+  ///
+  /// In en, this message translates to:
+  /// **'Disconnect'**
   String get disconnect;
+
+  /// No description provided for @waitingFrame.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for a frame… (use phone camera to test without glasses)'**
   String get waitingFrame;
+
+  /// No description provided for @phoneCamera.
+  ///
+  /// In en, this message translates to:
+  /// **'Phone camera'**
   String get phoneCamera;
+
+  /// No description provided for @glassesCam.
+  ///
+  /// In en, this message translates to:
+  /// **'Glasses'**
   String get glassesCam;
+
+  /// No description provided for @localVision.
+  ///
+  /// In en, this message translates to:
+  /// **'Local vision — instant'**
   String get localVision;
+
+  /// No description provided for @idleLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Idle — waiting for next frame.'**
   String get idleLabel;
+
+  /// No description provided for @deepReasoning.
+  ///
+  /// In en, this message translates to:
+  /// **'AI analysis'**
   String get deepReasoning;
+
+  /// No description provided for @deepHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Point at a substance, then tap \"Analyze now\" for full spectrum-based analysis.'**
   String get deepHint;
+
+  /// No description provided for @describeNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Analyze now'**
   String get describeNow;
+
+  /// No description provided for @analyzing.
+  ///
+  /// In en, this message translates to:
+  /// **'Analyzing…'**
   String get analyzing;
+
+  /// No description provided for @soundOn.
+  ///
+  /// In en, this message translates to:
+  /// **'Sound on'**
   String get soundOn;
+
+  /// No description provided for @muted.
+  ///
+  /// In en, this message translates to:
+  /// **'Muted'**
   String get muted;
+
+  /// No description provided for @settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Settings'**
   String get settings;
+
+  /// No description provided for @spectrum.
+  ///
+  /// In en, this message translates to:
+  /// **'Spectrum channels'**
   String get spectrum;
+
+  /// No description provided for @uvChannel.
+  ///
+  /// In en, this message translates to:
+  /// **'UV'**
   String get uvChannel;
+
+  /// No description provided for @irChannel.
+  ///
+  /// In en, this message translates to:
+  /// **'IR'**
   String get irChannel;
+
+  /// No description provided for @noSensorData.
+  ///
+  /// In en, this message translates to:
+  /// **'No sensor telemetry yet — UV/IR readings appear when the glasses stream them.'**
   String get noSensorData;
+
+  /// No description provided for @stateMatter.
+  ///
+  /// In en, this message translates to:
+  /// **'State of matter'**
   String get stateMatter;
+
+  /// No description provided for @stateUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown'**
   String get stateUnknown;
+
+  /// No description provided for @stateSolid.
+  ///
+  /// In en, this message translates to:
+  /// **'Solid'**
   String get stateSolid;
+
+  /// No description provided for @stateLiquid.
+  ///
+  /// In en, this message translates to:
+  /// **'Liquid'**
   String get stateLiquid;
+
+  /// No description provided for @stateGas.
+  ///
+  /// In en, this message translates to:
+  /// **'Gas'**
   String get stateGas;
+
+  /// No description provided for @hazardClear.
+  ///
+  /// In en, this message translates to:
+  /// **'No hazard detected'**
   String get hazardClear;
+
+  /// No description provided for @hazardDetected.
+  ///
+  /// In en, this message translates to:
+  /// **'Hazard detected!'**
   String get hazardDetected;
+
+  /// No description provided for @hazardSpeech.
+  ///
+  /// In en, this message translates to:
+  /// **'Warning! Hazardous material detected. Step back carefully.'**
   String get hazardSpeech;
+
+  /// No description provided for @flashlight.
+  ///
+  /// In en, this message translates to:
+  /// **'Flashlight'**
   String get flashlight;
+
+  /// No description provided for @waitingSensors.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for sensor data…'**
   String get waitingSensors;
+
+  /// No description provided for @credits.
+  ///
+  /// In en, this message translates to:
+  /// **'SpectruLenPor · Malak Adel Sayed Hassan · Grade 1 secondary, Class 3/1 · Ashmounin Secondary School'**
   String get credits;
+
+  /// No description provided for @visionSourceMoondream.
+  ///
+  /// In en, this message translates to:
+  /// **'Moondream3 cloud'**
   String get visionSourceMoondream;
+
+  /// No description provided for @visionSourceLocalMoondream.
+  ///
+  /// In en, this message translates to:
+  /// **'Local Moondream'**
   String get visionSourceLocalMoondream;
+
+  /// No description provided for @visionSourceOnnx.
+  ///
+  /// In en, this message translates to:
+  /// **'ONNX model'**
   String get visionSourceOnnx;
+
+  /// No description provided for @visionSourceMlkit.
+  ///
+  /// In en, this message translates to:
+  /// **'ML Kit'**
   String get visionSourceMlkit;
+
+  /// No description provided for @visionSourceIdle.
+  ///
+  /// In en, this message translates to:
+  /// **'Idle'**
   String get visionSourceIdle;
+
+  /// No description provided for @visionSourceError.
+  ///
+  /// In en, this message translates to:
+  /// **'Vision error'**
   String get visionSourceError;
+
+  /// No description provided for @moondreamApiKeyLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Moondream API key'**
   String get moondreamApiKeyLabel;
+
+  /// No description provided for @moondreamApiKeyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Get one at docs.moondream.ai → cloud'**
   String get moondreamApiKeyHint;
+
+  /// No description provided for @moondreamCloudEnabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Cloud vision enabled (moondream3.1-9B-A2B)'**
   String get moondreamCloudEnabled;
+
+  /// No description provided for @moondreamCloudDisabled.
+  ///
+  /// In en, this message translates to:
+  /// **'No Moondream key — using local Moondream / ML Kit fallback'**
   String get moondreamCloudDisabled;
+
+  /// No description provided for @openRouterApiKeyLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'OpenRouter API key'**
   String get openRouterApiKeyLabel;
+
+  /// No description provided for @openRouterApiKeyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Free key: openrouter.ai/keys'**
   String get openRouterApiKeyHint;
+
+  /// No description provided for @openRouterLlmKeyLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'OpenRouter LLM key'**
+  String get openRouterLlmKeyLabel;
+
+  /// No description provided for @openRouterLlmKeyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Powers the gemma → inkling → nemotron chain'**
+  String get openRouterLlmKeyHint;
+
+  /// No description provided for @openRouterTtsKeyLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'OpenRouter TTS key'**
+  String get openRouterTtsKeyLabel;
+
+  /// No description provided for @openRouterTtsKeyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Powers the streamed fish-audio narration'**
+  String get openRouterTtsKeyHint;
+
+  /// No description provided for @diagnosticsHeader.
+  ///
+  /// In en, this message translates to:
+  /// **'Diagnostics'**
+  String get diagnosticsHeader;
+
+  /// No description provided for @diagnosticsCloud.
+  ///
+  /// In en, this message translates to:
+  /// **'Moondream cloud'**
+  String get diagnosticsCloud;
+
+  /// No description provided for @diagnosticsLastModel.
+  ///
+  /// In en, this message translates to:
+  /// **'Last model'**
+  String get diagnosticsLastModel;
+
+  /// No description provided for @diagnosticsReasoningTokens.
+  ///
+  /// In en, this message translates to:
+  /// **'Reasoning tokens'**
+  String get diagnosticsReasoningTokens;
+
+  /// No description provided for @diagnosticsTts.
+  ///
+  /// In en, this message translates to:
+  /// **'TTS engine'**
+  String get diagnosticsTts;
+
+  /// No description provided for @fishAudioTts.
+  ///
+  /// In en, this message translates to:
+  /// **'Streamed fish-audio TTS'**
   String get fishAudioTts;
+
+  /// No description provided for @fishAudioTtsSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'High-quality streamed narration (OpenRouter /audio/speech)'**
   String get fishAudioTtsSubtitle;
+
+  /// No description provided for @ttsNative.
+  ///
+  /// In en, this message translates to:
+  /// **'Native Android TTS (offline)'**
   String get ttsNative;
+
+  /// No description provided for @ttsNativeSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Lowest latency, no network'**
   String get ttsNativeSubtitle;
+
+  /// No description provided for @testVoice.
+  ///
+  /// In en, this message translates to:
+  /// **'Test voice'**
   String get testVoice;
+
+  /// No description provided for @visionPriorityHeader.
+  ///
+  /// In en, this message translates to:
+  /// **'Vision source priority'**
   String get visionPriorityHeader;
+
+  /// No description provided for @upstreamFallbackHeader.
+  ///
+  /// In en, this message translates to:
+  /// **'OpenRouter text+reasoning fallback chain'**
   String get upstreamFallbackHeader;
+
+  /// No description provided for @modelGemma26.
+  ///
+  /// In en, this message translates to:
+  /// **'google/gemma-4-26b-a4b-it:free — primary'**
   String get modelGemma26;
+
+  /// No description provided for @modelInkling.
+  ///
+  /// In en, this message translates to:
+  /// **'thinkingmachines/inkling-small:free — fallback 1'**
   String get modelInkling;
+
+  /// No description provided for @modelNemotron.
+  ///
+  /// In en, this message translates to:
+  /// **'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free — fallback 2'**
   String get modelNemotron;
+
+  /// No description provided for @reasoningTokensLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Capture reasoning tokens'**
   String get reasoningTokensLabel;
+
+  /// No description provided for @reasoningTokensHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Reports reasoning tokens via chunk.usage.completionTokensDetails.reasoningTokens'**
   String get reasoningTokensHint;
+
+  /// No description provided for @latencyFirstToken.
+  ///
+  /// In en, this message translates to:
+  /// **'⏱ first audio token: {ms} ms'**
   String latencyFirstToken(int ms);
+
+  /// No description provided for @aboutBody.
+  ///
+  /// In en, this message translates to:
+  /// **'SpectruLenPor v3.0 — Moondream3 cloud vision + local Moondream fallback + OpenRouter gemma→inkling→nemotron reasoning chain + streamed fish-audio TTS.\n\nPipeline: sensors + camera → ESP32-CAM → Bluetooth → phone → Moondream3 cloud analysis → OpenRouter presentation → bilingual voice narration.\n\nMalak Adel Sayed Hassan · Grade 1 secondary, Class 3/1 · Ashmounin Secondary School · Budget: 2,500–6,000 EGP.'**
   String get aboutBody;
 }
 
@@ -119,317 +530,30 @@ class _AppLocalizationsDelegate
   const _AppLocalizationsDelegate();
 
   @override
-  Future<AppLocalizations> load(Locale locale) => AppLocalizations.load(locale);
+  Future<AppLocalizations> load(Locale locale) {
+    return SynchronousFuture<AppLocalizations>(lookupAppLocalizations(locale));
+  }
 
   @override
   bool isSupported(Locale locale) =>
-      <String>['en', 'ar'].contains(locale.languageCode);
+      <String>['ar', 'en'].contains(locale.languageCode);
 
   @override
   bool shouldReload(_AppLocalizationsDelegate old) => false;
 }
 
-class AppLocalizationsEn extends AppLocalizations {
-  AppLocalizationsEn() : super('en');
+AppLocalizations lookupAppLocalizations(Locale locale) {
+  // Lookup logic when only language code is specified.
+  switch (locale.languageCode) {
+    case 'ar':
+      return AppLocalizationsAr();
+    case 'en':
+      return AppLocalizationsEn();
+  }
 
-  @override
-  String get appName => 'SpectruLenPor';
-
-  @override
-  String get appTagline =>
-      'Smart glasses for spectrum analysis and detection of chemical '
-      'elements and compounds';
-
-  @override
-  String get glassesNotConnected => 'Glasses not connected';
-  @override
-  String get scanning => 'Scanning for glasses…';
-  @override
-  String get connecting => 'Connecting…';
-  @override
-  String get connected => 'Connected';
-  @override
-  String get btError => 'Bluetooth error';
-  @override
-  String get connectGlasses => 'Connect glasses';
-  @override
-  String get disconnect => 'Disconnect';
-  @override
-  String get waitingFrame =>
-      'Waiting for a frame… (use phone camera to test without glasses)';
-  @override
-  String get phoneCamera => 'Phone camera';
-  @override
-  String get glassesCam => 'Glasses';
-  @override
-  String get localVision => 'Local vision — instant';
-  @override
-  String get idleLabel => 'Idle — waiting for next frame.';
-  @override
-  String get deepReasoning => 'AI analysis';
-  @override
-  String get deepHint =>
-      'Point at a substance, then tap "Analyze now" for full spectrum-based '
-      'analysis.';
-  @override
-  String get describeNow => 'Analyze now';
-  @override
-  String get analyzing => 'Analyzing…';
-  @override
-  String get soundOn => 'Sound on';
-  @override
-  String get muted => 'Muted';
-  @override
-  String get settings => 'Settings';
-  @override
-  String get spectrum => 'Spectrum channels';
-  @override
-  String get uvChannel => 'UV';
-  @override
-  String get irChannel => 'IR';
-  @override
-  String get noSensorData =>
-      'No sensor telemetry yet — UV/IR readings appear when the glasses '
-      'stream them.';
-  @override
-  String get stateMatter => 'State of matter';
-  @override
-  String get stateUnknown => 'Unknown';
-  @override
-  String get stateSolid => 'Solid';
-  @override
-  String get stateLiquid => 'Liquid';
-  @override
-  String get stateGas => 'Gas';
-  @override
-  String get hazardClear => 'No hazard detected';
-  @override
-  String get hazardDetected => 'Hazard detected!';
-  @override
-  String get hazardSpeech =>
-      'Warning! Hazardous material detected. Step back carefully.';
-  @override
-  String get flashlight => 'Flashlight';
-  @override
-  String get waitingSensors => 'Waiting for sensor data…';
-  @override
-  String get credits =>
-      'SpectruLenPor · Malak Adel Sayed Hassan · Grade 1 secondary, Class '
-      '3/1 · Ashmounin Secondary School';
-  @override
-  String get visionSourceMoondream => 'Moondream3 cloud';
-  @override
-  String get visionSourceLocalMoondream => 'Local Moondream';
-  @override
-  String get visionSourceOnnx => 'ONNX model';
-  @override
-  String get visionSourceMlkit => 'ML Kit';
-  @override
-  String get visionSourceIdle => 'Idle';
-  @override
-  String get visionSourceError => 'Vision error';
-  @override
-  String get moondreamApiKeyLabel => 'Moondream API key';
-  @override
-  String get moondreamApiKeyHint => 'Get one at docs.moondream.ai → cloud';
-  @override
-  String get moondreamCloudEnabled =>
-      'Cloud vision enabled (moondream3.1-9B-A2B)';
-  @override
-  String get moondreamCloudDisabled =>
-      'No Moondream key — using local Moondream / ML Kit fallback';
-  @override
-  String get openRouterApiKeyLabel => 'OpenRouter API key';
-  @override
-  String get openRouterApiKeyHint => 'Free key: openrouter.ai/keys';
-  @override
-  String get fishAudioTts => 'Streamed fish-audio TTS';
-  @override
-  String get fishAudioTtsSubtitle =>
-      'High-quality streamed narration (OpenRouter /audio/speech)';
-  @override
-  String get ttsNative => 'Native Android TTS (offline)';
-  @override
-  String get ttsNativeSubtitle => 'Lowest latency, no network';
-  @override
-  String get testVoice => 'Test voice';
-  @override
-  String get visionPriorityHeader => 'Vision source priority';
-  @override
-  String get upstreamFallbackHeader =>
-      'OpenRouter text+reasoning fallback chain';
-  @override
-  String get modelGemma26 => 'google/gemma-4-26b-a4b-it:free — primary';
-  @override
-  String get modelInkling => 'thinkingmachines/inkling-small:free — fallback 1';
-  @override
-  String get modelNemotron =>
-      'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free — fallback 2';
-  @override
-  String get reasoningTokensLabel => 'Capture reasoning tokens';
-  @override
-  String get reasoningTokensHint =>
-      'Reports reasoning tokens via chunk.usage.completionTokensDetails.reasoningTokens';
-  @override
-  String latencyFirstToken(int ms) => '⏱ first audio token: $ms ms';
-  @override
-  String get aboutBody =>
-      'SpectruLenPor v3.0 — Moondream3 cloud vision + local Moondream fallback '
-      '+ OpenRouter gemma→inkling→nemotron reasoning chain + streamed '
-      'fish-audio TTS.\n\n'
-      'Pipeline: sensors + camera → ESP32-CAM → Bluetooth → phone → '
-      'Moondream3 cloud analysis → OpenRouter presentation → bilingual voice '
-      'narration.\n\n'
-      'Malak Adel Sayed Hassan · Grade 1 secondary, Class 3/1 · Ashmounin '
-      'Secondary School · Budget: 2,500–6,000 EGP.';
-}
-
-class AppLocalizationsAr extends AppLocalizations {
-  AppLocalizationsAr() : super('ar');
-
-  @override
-  String get appName => 'سبكترو لِن بور';
-
-  @override
-  String get appTagline =>
-      'النظارة الذكية لتحليل الطيف واكتشاف العناصر والمركبات الكيميائية';
-
-  @override
-  String get glassesNotConnected => 'النظارة غير متصلة';
-  @override
-  String get scanning => 'جارٍ البحث عن النظارة…';
-  @override
-  String get connecting => 'جارٍ الاتصال…';
-  @override
-  String get connected => 'متصل';
-  @override
-  String get btError => 'خطأ في البلوتوث';
-  @override
-  String get connectGlasses => 'توصيل النظارة';
-  @override
-  String get disconnect => 'قطع الاتصال';
-  @override
-  String get waitingFrame =>
-      'بانتظار إطار صورة… (استخدم كاميرا الهاتف للتجربة بدون النظارة)';
-  @override
-  String get phoneCamera => 'كاميرا الهاتف';
-  @override
-  String get glassesCam => 'النظارة';
-  @override
-  String get localVision => 'الرؤية المحلية — فورية';
-  @override
-  String get idleLabel => 'خامل — بانتظار الإطار التالي.';
-  @override
-  String get deepReasoning => 'تحليل الذكاء الاصطناعي';
-  @override
-  String get deepHint =>
-      'وجّه الكاميرا نحو المادة ثم اضغط "حلّل الآن" للحصول على تحليل كامل '
-      'قائم على الطيف.';
-  @override
-  String get describeNow => 'حلّل الآن';
-  @override
-  String get analyzing => 'جارٍ التحليل…';
-  @override
-  String get soundOn => 'الصوت مفتوح';
-  @override
-  String get muted => 'صامت';
-  @override
-  String get settings => 'الإعدادات';
-  @override
-  String get spectrum => 'قنوات الطيف';
-  @override
-  String get uvChannel => 'فوق بنفسجي';
-  @override
-  String get irChannel => 'تحت أحمر';
-  @override
-  String get noSensorData =>
-      'لا توجد بيانات مستشعرات بعد — تظهر قراءات UV/IR عند إرسالها من النظارة.';
-  @override
-  String get stateMatter => 'حالة المادة';
-  @override
-  String get stateUnknown => 'غير معروفة';
-  @override
-  String get stateSolid => 'صلب';
-  @override
-  String get stateLiquid => 'سائل';
-  @override
-  String get stateGas => 'غاز';
-  @override
-  String get hazardClear => 'لا توجد مخاطر';
-  @override
-  String get hazardDetected => 'تم اكتشاف خطر!';
-  @override
-  String get hazardSpeech => 'تحذير! تم اكتشاف مادة خطرة. تراجع بحذر.';
-  @override
-  String get flashlight => 'مصباح النظارة';
-  @override
-  String get waitingSensors => 'بانتظار بيانات المستشعرات…';
-  @override
-  String get credits =>
-      'سبكترو لِن بور · ملك عادل سيد حسن · الصف الأول الثانوي ٣/١ · '
-      'مدرسة الأشمونين الثانوية';
-  @override
-  String get visionSourceMoondream => 'موندريم ٣ سحابي';
-  @override
-  String get visionSourceLocalMoondream => 'موندريم محلي';
-  @override
-  String get visionSourceOnnx => 'نموذج ONNX';
-  @override
-  String get visionSourceMlkit => 'إم إل كِت';
-  @override
-  String get visionSourceIdle => 'خامل';
-  @override
-  String get visionSourceError => 'خطأ في الرؤية';
-  @override
-  String get moondreamApiKeyLabel => 'مفتاح Mondream API';
-  @override
-  String get moondreamApiKeyHint => 'احصل عليه من docs.moondream.ai → السحابة';
-  @override
-  String get moondreamCloudEnabled =>
-      'الرؤية السحابية مُفعّلة (moondream3.1-9B-A2B)';
-  @override
-  String get moondreamCloudDisabled =>
-      'لا يوجد مفتاح Mondream — استخدام البديل المحلي أو ML Kit';
-  @override
-  String get openRouterApiKeyLabel => 'مفتاح OpenRouter API';
-  @override
-  String get openRouterApiKeyHint => 'مفتاح مجاني: openrouter.ai/keys';
-  @override
-  String get fishAudioTts => 'بث صوت fish-audio';
-  @override
-  String get fishAudioTtsSubtitle =>
-      'سرد عالي الجودة بث مباشر (OpenRouter /audio/speech)';
-  @override
-  String get ttsNative => 'نطق أندرويد الأصلي (دون اتصال)';
-  @override
-  String get ttsNativeSubtitle => 'أقل زمن وصول، دون شبكة';
-  @override
-  String get testVoice => 'اختبر الصوت';
-  @override
-  String get visionPriorityHeader => 'أولوية مصدر الرؤية';
-  @override
-  String get upstreamFallbackHeader =>
-      'سلسلة OpenRouter النصية + الاستدلال البديلة';
-  @override
-  String get modelGemma26 => 'google/gemma-4-26b-a4b-it:free — رئيسي';
-  @override
-  String get modelInkling => 'thinkingmachines/inkling-small:free — بديل ١';
-  @override
-  String get modelNemotron =>
-      'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free — بديل ٢';
-  @override
-  String get reasoningTokensLabel => 'التقاط رموز الاستدلال';
-  @override
-  String get reasoningTokensHint =>
-      'تُعِد رموز الاستدلال عبر chunk.usage.completionTokensDetails.reasoningTokens';
-  @override
-  String latencyFirstToken(int ms) => '⏱ أول رمز صوتي: $ms مللي ثانية';
-  @override
-  String get aboutBody =>
-      'سبكترو لِن بور v3.0 — رؤية موندريم ٣ السحابية + بديل موندريم محلي + '
-      'سلسلة OpenRouter gemma←inkling←nemotron الاستدلالية + بث صوت fish-audio.\n\n'
-      'الخط: المستشعرات + الكاميرا ← ESP32-CAM ← بلوتوث ← الهاتف ← تحليل '
-      'موندريم ٣ السحابي ← عرض OpenRouter ← سرد صوتي ثنائي اللغة.\n\n'
-      'ملك عادل سيد حسن · الصف الأول الثانوي ٣/١ · مدرسة الأشمونين الثانوية · '
-      'الميزانية: ٢٬٥٠٠–٦٬٠٠٠ جنيه.';
+  throw FlutterError(
+      'AppLocalizations.delegate failed to load unsupported locale "$locale". This is likely '
+      'an issue with the localizations generation tool. Please file an issue '
+      'on GitHub with a reproducible sample app and the gen-l10n configuration '
+      'that was used.');
 }

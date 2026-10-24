@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
+import '../models/bluetooth_status.dart';
 import '../models/frame_data.dart';
 import '../models/spectrum_reading.dart';
 
@@ -53,7 +55,16 @@ class BluetoothCameraService {
   String? _deviceName;
 
   void init() {
-    FlutterBluePlus.setLogLevel(LogLevel.warning);
+    // flutter_blue_plus has no web/VM engine — degrade gracefully there.
+    // setLogLevel fails asynchronously, so guard inside an async closure.
+    () async {
+      try {
+        await FlutterBluePlus.setLogLevel(LogLevel.warning);
+      } catch (_) {
+        debugPrint('[BLE] platform unavailable — BLE disabled here.');
+      }
+    }();
+    debugPrint('[BLE] service ready');
   }
 
   Future<void> scanAndConnect({

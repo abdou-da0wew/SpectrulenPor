@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:developer';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
@@ -31,10 +32,22 @@ import 'package:http/http.dart' as http;
 /// (llama.cpp + mmproj GGUF). See `local_vision_service.dart` for the full
 /// cascade: cloud → local Moondream → ONNX → ML Kit.
 class MoondreamService {
-  MoondreamService._();
-  static final MoondreamService instance = MoondreamService._();
+  /// Injectable http client for tests.
+  MoondreamService({http.Client? client}) : _clientOverride = client;
 
-  static const String _baseUrl = 'https://api.moondream.ai/v1';
+  static final MoondreamService instance = MoondreamService();
+
+  /// Demo key resolution: SharedPreferences (Settings) →
+  /// `assets/config/secrets.json` (AppSecrets) → `--dart-define` → ''.
+  /// Empty by default in source so pushes pass GitHub secret-scanning.
+  static const String defaultApiKey = String.fromEnvironment('MOONDREAM_API_KEY');
+
+  final http.Client? _clientOverride;
+
+  /// Real host on mobile/desktop; relative CORS-proxy path when compiled
+  /// for web preview (scripts/preview_server.py mounts /moondream/v1/*).
+  static String get baseUrl =>
+      kIsWeb ? '/moondream/v1' : 'https://api.moondream.ai/v1';
 
   /// Hot-swappable from Settings (no restart needed).
   String apiKey = '';
@@ -52,7 +65,7 @@ class MoondreamService {
   bool get isCloudConfigured => apiKey.trim().isNotEmpty;
 
   http.Client? _client;
-  http.Client get _http => _client ??= http.Client();
+  http.Client get _http => _clientOverride ?? (_client ??= http.Client());
 
   // ---------------------------------------------------------------------------
   // IMAGE ENCODING
@@ -76,7 +89,7 @@ class MoondreamService {
     try {
       final res = await _http
           .post(
-            Uri.parse('$_baseUrl/caption'),
+            Uri.parse('$baseUrl/caption'),
             headers: _headers,
             body: jsonEncode({
               'model': model,
@@ -87,7 +100,7 @@ class MoondreamService {
           )
           .timeout(const Duration(seconds: 20));
       if (res.statusCode != 200) {
-        _logHttpError('caption', res);
+        _logResponseError('caption', res);
         return null;
       }
       final json = jsonDecode(res.body) as Map<String, dynamic>;
@@ -115,7 +128,7 @@ class MoondreamService {
     final sw = Stopwatch()..start();
     var ttftSent = false;
     await for (final evt in _sse(
-      '$_baseUrl/caption',
+      '$baseUrl/caption',
       body: {
         'model': model,
         'image_url': toDataUrl(jpegBytes),
@@ -149,7 +162,7 @@ class MoondreamService {
     try {
       final res = await _http
           .post(
-            Uri.parse('$_baseUrl/query'),
+            Uri.parse('$baseUrl/query'),
             headers: _headers,
             body: jsonEncode({
               'model': model,
@@ -161,14 +174,16 @@ class MoondreamService {
           )
           .timeout(const Duration(seconds: 30));
       if (res.statusCode != 200) {
-        _logHttpError('query', res);
+        _logResponseError('query', res);
         return null;
       }
       final json = jsonDecode(res.body) as Map<String, dynamic>;
       lastRequestId = json['request_id'] as String?;
       return MoondreamAnswer(
         answer: (json['answer'] as String?) ?? '',
-        reasoning: json['reasoning'] as String?,
+        // reasoning arrives as a STRING on some tiers and as an OBJECT
+        // {text, grounding} on moondream3.x — normalize to text.
+        reasoning: _normalizeReasoning(json['reasoning']),
         requestId: lastRequestId,
       );
     } catch (e) {
@@ -187,7 +202,7 @@ class MoondreamService {
   }) async* {
     if (!isCloudConfigured) return;
     await for (final evt in _sse(
-      '$_baseUrl/query',
+      '$baseUrl/query',
       body: {
         'model': model,
         'image_url': toDataUrl(jpegBytes),
@@ -221,7 +236,7 @@ class MoondreamService {
     try {
       final res = await _http
           .post(
-            Uri.parse('$_baseUrl/detect'),
+            Uri.parse('$baseUrl/detect'),
             headers: _headers,
             body: jsonEncode({
               'model': model,
@@ -231,7 +246,7 @@ class MoondreamService {
           )
           .timeout(const Duration(seconds: 20));
       if (res.statusCode != 200) {
-        _logHttpError('detect', res);
+        _logResponseError('detect', res);
         return const [];
       }
       final json = jsonDecode(res.body) as Map<String, dynamic>;
@@ -340,8 +355,18 @@ class MoondreamService {
     }
   }
 
-  void _logHttpError(String op, http.Response res) =>
+  static String? _normalizeReasoning(dynamic r) {
+    if (r is String && r.trim().isNotEmpty) return r;
+    if (r is Map<String, dynamic>) {
+      final t = r['text'];
+      if (t is String && t.trim().isNotEmpty) return t;
+    }
+    return null;
+  }
+
+  void _logResponseError(String op, http.Response res) =>
       _logHttpError(op, res.statusCode, res.body);
+
   void _logHttpError(String op, int code, String body) {
     final short = body.length > 180 ? '${body.substring(0, 180)}…' : body;
     log('[Moondream] $op HTTP $code: $short');
