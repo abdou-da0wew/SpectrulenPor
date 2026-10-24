@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
 import '../models/recognition_state.dart';
 import '../models/spectrum_reading.dart';
 import '../utils/app_theme.dart' as palette;
-import '../utils/strings.dart';
 
 /// Spectrum analysis panel: UV + IR channel gauges, state of matter chip,
 /// and confidence bars for the specialized model's top predictions.
@@ -44,7 +44,7 @@ class SpectrumCard extends StatelessWidget {
                       size: 18, color: palette.AppColors.dustyMauve),
                 ),
                 const SizedBox(width: 10),
-                Text(S.t(context, S.spectrum),
+                Text(AppLocalizations.of(context).spectrum,
                     style: theme.textTheme.titleMedium),
               ],
             ),
@@ -52,13 +52,13 @@ class SpectrumCard extends StatelessWidget {
 
             if (!hasTelemetry)
               Text(
-                S.t(context, S.noSensorData),
+                AppLocalizations.of(context).noSensorData,
                 style: theme.textTheme.bodySmall
                     ?.copyWith(color: palette.AppColors.inkSoft),
               )
             else ...[
               _ChannelBar(
-                label: S.t(context, S.uvChannel),
+                label: AppLocalizations.of(context).uvChannel,
                 icon: Icons.wb_sunny_outlined,
                 value: reading!.uvPercent,
                 raw: reading!.uvRaw,
@@ -66,7 +66,7 @@ class SpectrumCard extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               _ChannelBar(
-                label: S.t(context, S.irChannel),
+                label: AppLocalizations.of(context).irChannel,
                 icon: Icons.thermostat,
                 value: reading!.irPercent,
                 raw: reading!.irRaw,
@@ -79,7 +79,7 @@ class SpectrumCard extends StatelessWidget {
             // State of matter chip
             Row(
               children: [
-                Text('${S.t(context, S.stateMatter)}: ',
+                Text('${AppLocalizations.of(context).stateMatter}: ',
                     style: theme.textTheme.bodyMedium
                         ?.copyWith(fontWeight: FontWeight.w600)),
                 _StateChip(state: state),
@@ -201,22 +201,22 @@ class _StateChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final (text, icon, color) = switch (state) {
       MatterState.solid => (
-          S.t(context, S.stateSolid),
+          AppLocalizations.of(context).stateSolid,
           Icons.category_outlined,
           palette.AppColors.dustyLavender
         ),
       MatterState.liquid => (
-          S.t(context, S.stateLiquid),
+          AppLocalizations.of(context).stateLiquid,
           Icons.water_drop_outlined,
           palette.AppColors.dustyMauve
         ),
       MatterState.gas => (
-          S.t(context, S.stateGas),
+          AppLocalizations.of(context).stateGas,
           Icons.air,
           palette.AppColors.warning
         ),
       MatterState.unknown => (
-          S.t(context, S.stateUnknown),
+          AppLocalizations.of(context).stateUnknown,
           Icons.help_outline,
           palette.AppColors.silver
         ),

@@ -3,10 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
+import '../l10n/app_localizations.dart';
+import '../main.dart' show appLocale;
 import '../models/recognition_state.dart';
 import '../services/native_tts_service.dart';
 import '../utils/app_theme.dart' as palette;
-import '../utils/strings.dart';
 import '../widgets/audio_controls.dart';
 import '../widgets/camera_preview.dart';
 import '../widgets/connection_status_bar.dart';
@@ -68,7 +69,7 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             const Text('SpectruLenPor'),
             Text(
-              S.t(context, S.appTagline),
+              AppLocalizations.of(context).appTagline,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
@@ -82,7 +83,7 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           // Flashlight: glasses LED over BLE, or phone torch in phone mode.
           IconButton(
-            tooltip: S.t(context, S.flashlight),
+            tooltip: AppLocalizations.of(context).flashlight,
             icon: Icon(
               state.flashOn ? Icons.flashlight_on : Icons.flashlight_off,
               color: state.flashOn ? palette.AppColors.warning : null,
@@ -105,7 +106,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           IconButton(
-            tooltip: S.t(context, S.settings),
+            tooltip: AppLocalizations.of(context).settings,
             icon: const Icon(Icons.settings_outlined),
             onPressed: () => Navigator.pushNamed(context, '/settings'),
           ),
@@ -129,12 +130,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 segments: [
                   ButtonSegment(
                     value: CameraSource.phone,
-                    label: Text(S.t(context, S.phoneCamera)),
+                    label: Text(AppLocalizations.of(context).phoneCamera),
                     icon: const Icon(Icons.smartphone, size: 17),
                   ),
                   ButtonSegment(
                     value: CameraSource.glasses,
-                    label: Text(S.t(context, S.glassesCam)),
+                    label: Text(AppLocalizations.of(context).glassesCam),
                     icon: const Icon(Icons.visibility, size: 17),
                   ),
                 ],
@@ -223,7 +224,8 @@ class _HomeScreenState extends State<HomeScreen> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Text(
-                  '⏱ first audio token: ${state.upstreamMs} ms',
+                  AppLocalizations.of(context)
+                      .latencyFirstToken(state.upstreamMs),
                   textAlign: TextAlign.center,
                   style: theme.textTheme.bodySmall
                       ?.copyWith(color: palette.AppColors.inkSoft),
@@ -234,7 +236,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
               child: Text(
-                S.t(context, S.credits),
+                AppLocalizations.of(context).credits,
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodySmall
                     ?.copyWith(color: palette.AppColors.silver, height: 1.5),
@@ -264,7 +266,7 @@ class _PhonePreview extends StatelessWidget {
             color: palette.AppColors.inkDark,
             child: Center(
               child: Text(
-                S.t(context, S.waitingFrame),
+                AppLocalizations.of(context).waitingFrame,
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: palette.AppColors.silver),
               ),

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
 import '../models/recognition_state.dart';
 import '../utils/app_theme.dart' as palette;
-import '../utils/strings.dart';
 
 /// Small chip that shows the instant on-device label coming from the
 /// specialized ONNX model / Moondream / ML Kit, with a source icon.
@@ -44,7 +44,7 @@ class LiveLabelChip extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  S.t(context, S.localVision),
+                  AppLocalizations.of(context).localVision,
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: color,
                     fontWeight: FontWeight.w700,
@@ -53,7 +53,7 @@ class LiveLabelChip extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  label ?? S.t(context, S.idleLabel),
+                  label ?? AppLocalizations.of(context).idleLabel,
                   style: theme.textTheme.bodyLarge
                       ?.copyWith(color: palette.AppColors.inkDark),
                 ),
@@ -67,10 +67,12 @@ class LiveLabelChip extends StatelessWidget {
 
   Color _sourceColor(VisionSource s) {
     switch (s) {
+      case VisionSource.moondreamCloud:
+        return palette.AppColors.dustyLavender; // primary VLM (cloud)
+      case VisionSource.moondreamLocal:
+        return palette.AppColors.dustyMauve; // offline VLM
       case VisionSource.onnx:
-        return palette.AppColors.dustyMauve; // specialized fast path
-      case VisionSource.moondream:
-        return palette.AppColors.dustyLavender; // deeper VLM
+        return palette.AppColors.inkSoft; // specialized fast path
       case VisionSource.mlkit:
         return palette.AppColors.silver; // fallback
       case VisionSource.error:
@@ -82,10 +84,12 @@ class LiveLabelChip extends StatelessWidget {
 
   IconData _sourceIcon(VisionSource s) {
     switch (s) {
+      case VisionSource.moondreamCloud:
+        return Icons.auto_awesome; // Moondream3 cloud
+      case VisionSource.moondreamLocal:
+        return Icons.memory; // local GGUF
       case VisionSource.onnx:
         return Icons.bolt; // specialized fast path
-      case VisionSource.moondream:
-        return Icons.auto_awesome;
       case VisionSource.mlkit:
         return Icons.flash_on;
       case VisionSource.error:

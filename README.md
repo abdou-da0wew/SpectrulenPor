@@ -4,9 +4,10 @@
 
 Flutter (Android) app + ESP32-CAM firmware + UV/IR sensors for smart scientific
 glasses: the glasses capture (camera + UV/IR sensors) and stream over
-Bluetooth, the **phone does all processing** (per the project design), a
-specialized ONNX Runtime Mobile model produces the analysis, an LLM only
-presents it nicely, and everything is narrated with **bilingual voice output**
+Bluetooth, the **phone does all orchestration** (per the project design),
+**Moondream3 Cloud** is the primary vision analyst, a local Moondream engine
+is the offline fallback, an OpenRouter LLM only presents the analysis nicely,
+and everything is narrated with **bilingual streamed voice output**
 (Arabic / English) with hazard alerts.
 
 > Project by **Malak Adel Sayed Hassan** · Grade 1 secondary, Class 3/1 ·
@@ -14,7 +15,7 @@ presents it nicely, and everything is narrated with **bilingual voice output**
 
 ---
 
-## Architecture (matches the paper)
+## Architecture (v3 — Moondream3-cloud-first)
 
 ```
 النظارة (المستشعرات)  ⇒  ESP32-CAM  ⇒  الهاتف  ⇒  المساعد الصوتي
@@ -23,51 +24,66 @@ presents it nicely, and everything is narrated with **bilingual voice output**
 [ESP32-CAM + OV2640 + UV sensor (GPIO12) + IR sensor (GPIO13)]
         │  BLE: JPEG frames (~1 fps) + telemetry "$UV:1234;IR:567" @5Hz
         ▼
-[ANDROID PHONE — all processing, this app]
+[ANDROID PHONE — this app]
         ├─ 0. Phone-camera source — demo mode, works with NO hardware
-        ├─ 1. BluetoothCameraService   frames + sensor packets + commands
-        ├─ 2. OnnxVisionService        SPECIALIZED MODEL (the analyst)
-        │        ONNX Runtime Mobile · int8-quantized · 4 threads ·
-        │        full graph optimization · background-isolate preprocessing
-        ├─ 3. LocalVisionService       ONNX → Moondream2 (JNI/llama.cpp) → ML Kit
-        ├─ 4. Hazard engine            keywords (AR/EN) + UV/IR thresholds
-        ├─ 5. NativeTtsService         speaks the label INSTANTLY (offline)
-        └─ 6. OpenRouterService        LLM presentation pass (short prompt,
-                 streaming, sentence-by-sentence TTS — first audio ≈1s)
+        ├─ 1. BluetoothCameraService    frames + sensor packets + commands
+        ├─ 2. MoondreamService          ★ PRIMARY VISION — Moondream3 Cloud
+        │        POST api.moondream.ai/v1/caption  (streamed, SSE chunks)
+        │        POST api.moondream.ai/v1/query    (deep chemistry analysis)
+        │        model moondream3.1-9B-A2B · base64 data-URL images
+        ├─ 3. Vision fallback cascade   local Moondream GGUF (JNI/llama.cpp)
+        │        → ONNX Runtime Mobile → ML Kit labeling + OCR
+        ├─ 4. OpenRouterService         presenter-only LLM chain (streamed,
+        │        gemma-4-26b → inkling-small → nemotron-3-nano reasoning)
+        ├─ 5. OpenRouterTtsService      ★ STREAMED fish-audio TTS
+        │        fish-audio/s2.1-pro-free:free · bytes piped into just_audio
+        │        as they download (first sound ≈ immediately)
+        └─ 6. Hazard engine             keywords (AR/EN) + UV/IR thresholds
 ```
 
 **Division of labor (latency design):**
 
 | Stage | Engine | Latency |
 |---|---|---|
-| Analyze (fact/label) | Specialized ONNX model, on-device | <100 ms |
-| Describe instantly | Android TTS (offline) | ~0 ms after analysis |
-| Present nicely | OpenRouter LLM — presenter only, `max_tokens≈380` | first token ≈1s, spoken per sentence |
-| Hard reasoning (optional) | Moondream2 VLM via native llama.cpp | seconds, off the hot path |
+| Analyze (vision) | **Moondream3 Cloud** (`moondream3.1-9B-A2B`) | first caption chunk ≈0.5–1 s (SSE) |
+| Describe instantly | Android native TTS (offline) | ~0 ms after caption |
+| Present nicely | OpenRouter chain — presenter only, `max_tokens≈380` | first token ≈1 s, spoken per sentence |
+| Narrate deeply | **fish-audio/s2.1-pro-free:free** via OpenRouter `/audio/speech` | streamed — playback starts on first chunks |
+| Offline fallback | local Moondream GGUF → ONNX → ML Kit | 0.3–3 s, no network |
 
-The LLM **never** invents the analysis — it rephrases the specialized model's
-top-3 predictions + UV/IR telemetry into clear spoken language, and adds a
-`Warning:` line that triggers the red hazard banner.
+The LLM **never** invents the analysis — it rephrases Moondream3's factual
+description (+ ONNX top-k, UV/IR telemetry) into clear spoken language, and
+adds a `Warning:` line that triggers the red hazard banner.
+
+### Why this stays fast
+* Moondream cloud **caption** (`length: short`) is the hot path; the deep
+  `query` runs fire-and-forget and never blocks speech.
+* One frame at a time (1–4 fps throttle), 224-px-class JPEGs over BLE.
+* Per-sentence native TTS while the LLM streams; fish-audio narration is
+  **byte-streamed** into `just_audio` (`StreamAudioResponse`, no full-file wait).
+* Free-tier friendly: Moondream allows 2 req/s; OpenRouter chain auto-falls
+  through gemma → inkling → nemotron on 429/5xx/timeout.
 
 ---
 
 ## What makes the app real & working today
 
 * **Phone camera mode (default)** — install, open, point at anything: the
-  pipeline runs end-to-end on the phone camera (ONNX/ML Kit → TTS → OpenRouter).
-  No ESP32 hardware needed to demo.
+  pipeline runs end-to-end on the phone camera (Moondream cloud → TTS →
+  OpenRouter). No ESP32 hardware needed to demo.
 * **Glasses mode** — one tap switches the source to the BLE glasses feed.
-* **Bilingual, RTL** — one-tap EN ⇄ العربية toggle (app bar + settings);
-  Arabic narration uses `ar-EG`; UI flips direction automatically.
+* **Bilingual with real l10n** — proper Flutter `gen-l10n` (ARB files at
+  `lib/l10n/app_en.arb` + `app_ar.arb` → generated `AppLocalizations`),
+  one-tap EN ⇄ العربية toggle, RTL layout mirroring, `ar-EG` narration.
 * **Spectrum panel** — live UV/IR gauges from the glasses, state-of-matter
-  chip (solid/liquid/gas parsed from the AI analysis), ONNX top-3 confidence
-  bars.
-* **Hazard alerts** — red pulsing banner + repeated voice warning when the AI
-  reply or sensors signal danger (toxic / flammable / corrosive / UV & IR
-  thresholds). Arabic keywords supported.
+  chip (solid/liquid/gas parsed from the AI analysis), ONNX top-3 bars.
+* **Hazard alerts** — red pulsing banner + voice warning when the AI reply
+  or sensors signal danger (toxic / flammable / corrosive / UV & IR
+  thresholds). Bilingual keywords. Native TTS speaks alerts even offline.
 * **Flashlight** — app-bar torch button: drives the glasses' onboard flash
   LED over BLE (0x03/0x04) or the phone torch in phone mode — for dim labs.
-* **Latency transparency** — the app shows its own time-to-first-audio-token.
+* **Latency transparency** — the app shows its own time-to-first-audio-token
+  and the last Moondream TTFT reported by the API.
 
 ---
 
@@ -75,24 +91,33 @@ top-3 predictions + UV/IR telemetry into clear spoken language, and adds a
 
 ```
 smart_glass_app/
-├── pubspec.yaml                      # onnxruntime, flutter_localizations, …
+├── pubspec.yaml                      # onnxruntime, just_audio, l10n generate:true …
+├── l10n.yaml                         # Flutter l10n (ARB → AppLocalizations)
 ├── lib/
 │   ├── main.dart                     # providers + locale (ValueNotifier) + routes
+│   ├── l10n/
+│   │   ├── app_en.arb                # ★ translation source (template)
+│   │   ├── app_ar.arb                # ★ Arabic translations
+│   │   └── app_localizations.dart    # generated (regenerates on pub get)
 │   ├── models/
 │   │   ├── frame_data.dart           # one frame (JPEG) from either source
 │   │   ├── spectrum_reading.dart     # UV/IR telemetry, state-of-matter, hazard keywords
 │   │   └── recognition_state.dart    # central state machine (Provider)
 │   ├── services/
+│   │   ├── moondream_service.dart         # ★ Moondream3 Cloud API (primary vision)
+│   │   │                                  #   /caption /query /detect + SSE streaming
+│   │   │                                  #   + local GGUF fallback via platform channel
+│   │   ├── local_vision_service.dart      # cloud → local GGUF → ONNX → ML Kit cascade
 │   │   ├── bluetooth_camera_service.dart  # BLE client + telemetry parse + commands
 │   │   ├── phone_camera_service.dart      # phone camera source (YUV→JPEG isolate)
-│   │   ├── onnx_vision_service.dart       # ★ ONNX Runtime Mobile specialized model
-│   │   ├── local_vision_service.dart      # ONNX → Moondream → ML Kit cascade + OCR
-│   │   ├── openrouter_service.dart        # streaming presenter pass (EN/AR)
-│   │   ├── native_tts_service.dart        # Android TTS (ar-EG / en-US)
-│   │   └── openrouter_tts_service.dart    # optional premium TTS endpoint
+│   │   ├── onnx_vision_service.dart       # ONNX Runtime Mobile specialized model
+│   │   ├── openrouter_service.dart        # ★ presenter chain: gemma→inkling→nemotron
+│   │   │                                  #   streamed + reasoning-token capture
+│   │   ├── openrouter_tts_service.dart    # ★ streamed fish-audio TTS (just_audio)
+│   │   └── native_tts_service.dart        # Android TTS (ar-EG / en-US)
 │   ├── screens/ (home, settings)
 │   ├── widgets/ (camera preview, spectrum card, hazard banner, …)
-│   └── utils/   (app_theme, strings — full EN/AR table)
+│   └── utils/   (app_theme — user palette)
 ├── android/app/src/main/
 │   ├── AndroidManifest.xml           # BLE 12+, location, internet, TTS
 │   ├── kotlin/com/spectraglass/app/  # MainActivity + MoondreamChannel.kt
@@ -106,27 +131,36 @@ smart_glass_app/
 ## 1. Build the phone app
 
 ```bash
-flutter pub get
+flutter pub get        # regenerates AppLocalizations from lib/l10n/*.arb
 flutter run            # phone camera mode works immediately
 flutter build apk --release
 ```
 
 Android 7+ (API 24). First launch requests camera + nearby-devices permissions.
 
-### Add the specialized ONNX model (recommended)
+### Add the API keys (2 minutes)
 
-The app ships with ML Kit as fallback, but the *specialized* analysis path
-needs the quantized model:
+1. **Moondream** (primary vision): create a key at
+   [docs.moondream.ai → cloud](https://docs.moondream.ai/) → paste in
+   Settings → *Moondream3 cloud*. Model `moondream3.1-9B-A2B` is selected
+   automatically (falls back to `moondream3-preview` on older keys).
+2. **OpenRouter** (presentation + TTS): free key at
+   [openrouter.ai/keys](https://openrouter.ai/keys) → paste in Settings.
+
+Without keys the app still works fully offline through the local cascade
+(local Moondream GGUF → ONNX → ML Kit) with native Android TTS.
+
+### Optional: specialized ONNX model (offline classifier)
 
 ```bash
 pip install torch torchvision onnx onnxruntime
-python tooling/convert_mobilenet_onnx.py --output_dir ../smart_glass_app/assets/models
+python tooling/convert_mobilenet_onnx.py --output_dir assets/models
 flutter build apk
 ```
 
-To make it truly *scientific*, fine-tune MobileNetV2 on your own lab-equipment
-/ chemical-bottle dataset (folders per class, ~200 photos each) and re-run the
-same script — the Dart side needs zero changes.
+Fine-tune MobileNetV2 on your own lab-equipment / chemical-bottle dataset
+(folders per class, ~200 photos each) and re-run the same script — the Dart
+side needs zero changes.
 
 ## 2. Flash the glasses (ESP32-CAM)
 
@@ -146,9 +180,10 @@ BLE protocol:
 | `0x01 / 0x00 / 0x02` | stream on / off / single frame |
 | `0x03 / 0x04` | flashlight ON / OFF |
 
-## 3. Moondream native build (optional VLM upgrade)
+## 3. Local Moondream fallback build (offline VLM)
 
-The Dart side already calls the platform channel; to build the native engine:
+The cloud tier is primary; when there is no network the app transparently
+falls back to an on-device Moondream GGUF through the platform channel:
 
 ```bash
 cd android/app/src/main/cpp
@@ -158,12 +193,27 @@ git clone --depth 1 --recursive https://github.com/ggerganov/llama.cpp
 1. Wire `CMakeLists.txt` via `android/app/build.gradle.reference` (merge into
    your generated app/build.gradle, namespace `com.spectraglass.app`).
 2. Push `moondream2-Q4_K_M.gguf` + `mmproj-model-f16.gguf` to the device.
-3. In app code: `LocalVisionService.instance.enableMoondream('/path/to/model.gguf')`.
+3. Settings → *Local AI* shows the deployed path; or call
+   `LocalVisionService.instance.enableMoondream('/path/to/model.gguf')`.
 4. Build (arm64-v8a). First inference loads the model (~10 s), then ~1.5–3 s
    per caption.
 
-Until deployed, the cascade is: **ONNX → (Moondream when present) → ML Kit**,
-so nothing blocks without it.
+Until deployed, the cascade is: **Moondream3 cloud → ONNX → ML Kit**, so
+nothing blocks without it.
+
+## 4. Translations (Flutter l10n)
+
+Strings live in ARB files — edit and rebuild, no code changes:
+
+```
+lib/l10n/app_en.arb   ← template (source of truth)
+lib/l10n/app_ar.arb   ← العربية (RTL)
+```
+
+`flutter pub get` regenerates `AppLocalizations` (configured in
+`l10n.yaml`, `generate: true` in pubspec). For non-context code (TTS
+prompts), `await AppLocalizations.load(const Locale('ar'))` returns the
+Arabic table directly.
 
 ---
 
@@ -177,12 +227,16 @@ so nothing blocks without it.
 | TP4056 charging module + lithium battery | ~250 |
 | Glasses frame + mount + wiring | ~350 |
 | Processing (existing Android phone) | 0 |
-| **Software & AI** (Flutter, ONNX Runtime, ML Kit, llama.cpp, OpenRouter free tier) | **0** |
+| **Software & AI** (Flutter, Moondream free tier, OpenRouter free models + fish-audio TTS, ONNX Runtime, llama.cpp) | **0** |
 | **Total** | **≈ 1,750 EGP** (fits the 2,500–6,000 EGP budget with spare for iteration) |
 
 ## Roadmap (mirrors the paper)
 
 - [x] Phone-camera demo mode · bilingual voice · hazard alerts · flashlight
+- [x] Moondream3 Cloud primary vision + local Moondream fallback
+- [x] OpenRouter gemma → inkling → nemotron reasoning chain
+- [x] Streamed fish-audio TTS (OpenRouter /audio/speech + just_audio)
+- [x] Proper Flutter l10n (ARB → AppLocalizations, EN/AR RTL)
 - [x] ONNX Runtime Mobile specialized-model pipeline
 - [x] UV/IR telemetry + state-of-matter + hazard thresholds
 - [ ] UV/IR spectral dispersion unit (mini) for element fingerprints

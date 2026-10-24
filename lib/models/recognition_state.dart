@@ -7,6 +7,7 @@ import '../models/frame_data.dart';
 import '../models/spectrum_reading.dart';
 import '../services/bluetooth_camera_service.dart';
 import '../services/local_vision_service.dart';
+import '../services/moondream_service.dart';
 import '../services/native_tts_service.dart';
 import '../services/openrouter_service.dart';
 import '../services/openrouter_tts_service.dart';
@@ -16,7 +17,14 @@ import '../services/phone_camera_service.dart';
 enum BluetoothStatus { disconnected, scanning, connecting, connected, error }
 
 /// Where the current description came from.
-enum VisionSource { idle, onnx, moondream, mlkit, error }
+enum VisionSource {
+  idle,
+  moondreamCloud, // moondream3.1-9B-A2B via api.moondream.ai (PRIMARY)
+  moondreamLocal, // GGUF via platform channel (offline fallback)
+  onnx, // specialized quantized classifier (offline)
+  mlkit, // ML Kit labeling + OCR (last resort)
+  error,
+}
 
 /// What the OpenRouter upstream tier is doing right now.
 enum UpstreamStatus { idle, waiting, streaming, done, error }
@@ -26,10 +34,14 @@ enum CameraSource { phone, glasses }
 
 /// Central observable state for the whole app.
 ///
-/// Wires either camera source (phone camera or ESP32-CAM glasses) into the
-/// same frame pipeline: throttle -> specialized ONNX model -> instant TTS ->
-/// OpenRouter presentation pass -> streaming sentence-by-sentence TTS ->
-/// hazard detection (keywords + UV/IR thresholds).
+/// Pipeline (v3 — Moondream3-cloud-first):
+///   phone camera / ESP32-CAM BLE frames
+///     → throttle (1-4 fps)
+///     → Moondream3 cloud caption (local Moondream → ONNX → ML Kit offline)
+///     → instant spoken label (native TTS, ~0 extra latency)
+///     → OpenRouter presenter (gemma → inkling → nemotron chain)
+///     → streamed fish-audio TTS (or per-sentence native TTS)
+///     → hazard engine (UV/IR thresholds + bilingual keywords)
 class RecognitionState extends ChangeNotifier {
   final BluetoothCameraService bluetooth;
   final PhoneCameraService phoneCamera;
@@ -56,23 +68,39 @@ class RecognitionState extends ChangeNotifier {
   bool _liveSpeak = true;
   bool _deepReasonEnabled = true;
   bool _useOpenRouterTts = false;
+  bool _captureReasoningTokens = true;
   int _fps = 1;
-  String _upstreamModel = 'google/gemini-2.5-flash:free';
+  int _upstreamStartModel = 0; // index into OpenRouterService.modelChain
   String _localeCode = 'en';
 
   bool get liveSpeak => _liveSpeak;
   bool get deepReasonEnabled => _deepReasonEnabled;
   bool get useOpenRouterTts => _useOpenRouterTts;
+  bool get captureReasoningTokens => _captureReasoningTokens;
   int get fps => _fps;
-  String get upstreamModel => _upstreamModel;
+  int get upstreamStartModel => _upstreamStartModel;
   String get localeCode => _localeCode;
   bool get isArabic => _localeCode.startsWith('ar');
 
   set liveSpeak(bool v) { _liveSpeak = v; prefs.setBool('live_speak', v); notifyListeners(); }
   set deepReasonEnabled(bool v) { _deepReasonEnabled = v; prefs.setBool('deep_reason', v); notifyListeners(); }
-  set useOpenRouterTts(bool v) { _useOpenRouterTts = v; prefs.setBool('use_or_tts', v); notifyListeners(); }
+  set useOpenRouterTts(bool v) {
+    _useOpenRouterTts = v;
+    prefs.setBool('use_or_tts', v);
+    if (!v) openRouterTts.stop(); // switching back to native → kill stream
+    notifyListeners();
+  }
+  set captureReasoningTokens(bool v) {
+    _captureReasoningTokens = v;
+    prefs.setBool('capture_reasoning', v);
+    notifyListeners();
+  }
   set fps(int v) { _fps = v.clamp(1, 4); prefs.setInt('fps', _fps); notifyListeners(); }
-  set upstreamModel(String v) { _upstreamModel = v; prefs.setString('upstream_model', v); notifyListeners(); }
+  set upstreamStartModel(int v) {
+    _upstreamStartModel = v.clamp(0, OpenRouterService.modelChain.length - 1);
+    prefs.setInt('upstream_start_model', _upstreamStartModel);
+    notifyListeners();
+  }
 
   Future<void> setLocale(String code) async {
     _localeCode = code;
@@ -81,16 +109,21 @@ class RecognitionState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Bump this after setLocale so MaterialApp rebuilds with RTL/strings.
-  /// main.dart's appLocale ValueNotifier is set by the settings screen.
-
   void _loadSettings() {
     _liveSpeak = prefs.getBool('live_speak') ?? true;
     _deepReasonEnabled = prefs.getBool('deep_reason') ?? true;
     _useOpenRouterTts = prefs.getBool('use_or_tts') ?? false;
+    _captureReasoningTokens = prefs.getBool('capture_reasoning') ?? true;
     _fps = prefs.getInt('fps') ?? 1;
-    _upstreamModel = prefs.getString('upstream_model') ?? _upstreamModel;
+    _upstreamStartModel = prefs.getInt('upstream_start_model') ?? 0;
     _localeCode = prefs.getString('locale') ?? 'en';
+
+    // Hot-configure the cloud tiers from stored keys.
+    MoondreamService.instance.apiKey =
+        prefs.getString('moondream_api_key') ?? '';
+    openRouterTts.configure(
+      apiKey: prefs.getString('openrouter_api_key') ?? '',
+    );
   }
 
   // ----------------------------- Camera sources -----------------------------
@@ -206,12 +239,12 @@ class RecognitionState extends ChangeNotifier {
   }
 
   Future<void> _runLocalVision(FrameData frame) async {
-    // Track which engine answered for honest UI.
     try {
       final desc = await vision.describe(frame.jpegBytes, lang: _localeCode);
       _visionSource = switch (vision.lastEngine) {
+        'moondream_cloud' => VisionSource.moondreamCloud,
+        'moondream_local' => VisionSource.moondreamLocal,
         'onnx' => VisionSource.onnx,
-        'moondream' => VisionSource.moondream,
         'mlkit' => VisionSource.mlkit,
         _ => VisionSource.idle,
       };
@@ -252,6 +285,14 @@ class RecognitionState extends ChangeNotifier {
   int _upstreamMs = 0;
   int get upstreamMs => _upstreamMs;
 
+  /// Which OpenRouter chain entry delivered the last analysis.
+  int get lastChainIndex => openRouter.lastChainIndex;
+  String get lastModelUsed => openRouter.lastModelUsed;
+
+  /// Reasoning tokens captured from the final usage chunk (reasoning
+  /// models only). Surfaced in the settings diagnostics.
+  int? get reasoningTokens => openRouter.lastReasoningTokens;
+
   Future<void> _runUpstream(String localDescription) async {
     _upstreamStatus = UpstreamStatus.waiting;
     notifyListeners();
@@ -265,11 +306,12 @@ class RecognitionState extends ChangeNotifier {
           _lastReading == null ? null : _lastReading!.telemetryLine(_localeCode);
 
       await for (final chunk in openRouter.streamAnalysis(
-        model: _upstreamModel,
         labelSentence: localDescription,
+        moondreamAnalysis: vision.lastCloudAnalysis,
         predictions: _lastPredictions,
         telemetry: telemetry,
         lang: _localeCode,
+        startModel: _upstreamStartModel,
       )) {
         if (firstTokenAt == 0) {
           firstTokenAt = sw.elapsedMilliseconds;
@@ -280,7 +322,8 @@ class RecognitionState extends ChangeNotifier {
         _upstreamStatus = UpstreamStatus.streaming;
         notifyListeners();
 
-        // Low-latency speech: speak each completed sentence as it streams.
+        // Low-latency speech: speak each completed sentence as it streams
+        // (native engine only — fish-audio narrates the full reply at end).
         if (_liveSpeak && !_useOpenRouterTts) {
           await _speakCompletedSentences(buffer);
         }
@@ -301,9 +344,9 @@ class RecognitionState extends ChangeNotifier {
       _upstreamMs = sw.elapsedMilliseconds;
       notifyListeners();
 
-      if (_useOpenRouterTts) {
-        await openRouterTts.speakMarkdown(_deepReasoningMarkdown,
-            model: _upstreamModel);
+      // Streamed fish-audio narration of the finished reply.
+      if (_liveSpeak && _useOpenRouterTts) {
+        await openRouterTts.speakMarkdown(_deepReasoningMarkdown);
       }
     } catch (e) {
       _upstreamStatus = UpstreamStatus.error;
@@ -349,7 +392,11 @@ class RecognitionState extends ChangeNotifier {
     _hazardActive = true;
     _hazardReason = about;
     if (_liveSpeak) {
-      nativeTts.speak(S_hazardSpeech(_localeCode));
+      // Native engine on purpose: hazard alerts must fire even offline and
+      // cannot wait on a network TTS round-trip.
+      nativeTts.speak(_localeCode.startsWith('ar')
+          ? 'تحذير! تم اكتشاف مادة خطرة. تراجع بحذر.'
+          : 'Warning! Hazardous material detected. Step back carefully.');
     }
     notifyListeners();
   }
@@ -359,11 +406,6 @@ class RecognitionState extends ChangeNotifier {
     _hazardReason = '';
     notifyListeners();
   }
-
-  String S_hazardSpeech(String lang) =>
-      lang.startsWith('ar')
-          ? 'تحذير! تم اكتشاف مادة خطرة. تراجع بحذر.'
-          : 'Warning! Hazardous material detected. Step back carefully.';
 
   // ----------------------------- Manual trigger -----------------------------
   Future<void> captureAndAnalyzeNow() async {

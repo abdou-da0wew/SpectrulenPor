@@ -1,7 +1,7 @@
 name: smart_glass_app
-description: Smart scientific glasses for the visually impaired. ESP32-CAM Bluetooth feed -> local Moondream2 vision -> OpenRouter deep reasoning -> spoken narration.
+description: SpectruLenPor — Smart glasses for spectrum analysis and detection of chemical elements and compounds. ESP32-CAM glasses / phone camera → Moondream3 cloud vision (local Moondream fallback) → OpenRouter text+reasoning presentation → streamed fish-audio TTS.
 publish_to: 'none'
-version: 1.0.0+1
+version: 3.0.0+1
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -10,42 +10,32 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_localizations:        # built-in ar/en Material translations (RTL)
+  flutter_localizations:        # generated Material RTL strings + ARB-driven app strings
     sdk: flutter
-  intl: any                     # locale plumbing (pinned by flutter_localizations)
+  intl: any                     # pinned by flutter_localizations
 
   # ---------- Bluetooth (ESP32-CAM frame stream) ----------
   flutter_blue_plus: ^1.32.12    # BLE connection to ESP32-CAM
-  flutter_reactive_ble: ^5.3.1   # alternative BLE backend with better MTU control
 
-  # ---------- Camera fallback (use phone camera for dev / debugging) ----------
+  # ---------- Camera fallback (use phone camera for demo / no-glasses dev) ----------
   camera: ^0.11.0+2
 
-  # ---------- Networking (OpenRouter text + TTS) ----------
+  # ---------- Networking (Moondream cloud, OpenRouter text+TTS) ----------
   http: ^1.2.2
-  dio: ^5.7.0                    # streaming downloads for TTS audio
+  dio: ^5.7.0                    # streaming downloads for TTS audio + SSE
 
-  # ---------- Local on-device vision ----------
-  google_mlkit_image_labeling: ^0.11.0     # ML Kit fast labeling (fallback + OCR)
-  google_mlkit_object_detection: ^0.13.0  # ML Kit object detection
-  google_mlkit_text_recognition: ^0.13.0  # OCR for signs / labels
+  # ---------- Local on-device vision fallback (offline) ----------
+  google_mlkit_image_labeling: ^0.11.0     # ML Kit fast labeling (offline fallback)
+  google_mlkit_text_recognition: ^0.13.0  # OCR for signs / bottle labels
   path_provider: ^2.1.4         # where to store downloaded GGUF model
 
-  # ---------- ONNX Runtime Mobile (primary local AI runtime) ----------
-  # Any exported model (MobileNet, YOLO, custom classifiers) runs through
-  # onnx_vision_service.dart with: full graph optimization, 4 intra-op
-  # threads, XNNPACK-backed CPU EP. Quantized uint8/int8 models recommended.
+  # ---------- ONNX Runtime Mobile (optional specialized offline classifier) ----------
   onnxruntime: ^1.4.1
 
-  # ---------- Local Moondream2 / GGUF runtime ----------
-  # Moondream2 runs through a native platform channel:
-  #   android/app/src/main/kotlin/com/spectraglass/app/MainActivity.kt
-  #   android/app/src/main/cpp/moondream_jni.cpp  (JNI -> llama.cpp + mmproj)
-  # See README "Moondream native build" for the full build recipe.
-
   # ---------- Audio output ----------
-  flutter_tts: ^4.0.2            # Android native TTS (low latency, offline)
-  audioplayers: ^6.0.0           # play TTS audio bytes returned by OpenRouter
+  flutter_tts: ^4.0.2            # Android native TTS (low latency, offline fallback)
+  audioplayers: ^6.0.0           # play TTS bytes (legacy path)
+  just_audio: ^0.9.39            # streamed fish-audio TTS playback (StreamAudioSource)
 
   # ---------- State management ----------
   provider: ^6.1.2               # lightweight ChangeNotifier DI
@@ -60,7 +50,7 @@ dependencies:
   google_fonts: ^6.2.1
 
   # ---------- Persistence ----------
-  shared_preferences: ^2.3.2     # store OpenRouter API key + settings
+  shared_preferences: ^2.3.2     # store API keys + settings
 
   # ---------- Image decoding ----------
   image: ^4.2.0                  # decode/resize/rotate raw JPEG + YUV frames
@@ -72,6 +62,7 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  generate: true                  # ARB-driven localizations (l10n.yaml)
   assets:
     - assets/
     - assets/models/

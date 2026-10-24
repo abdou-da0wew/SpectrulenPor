@@ -4,39 +4,68 @@ import 'dart:developer';
 
 import 'package:http/http.dart' as http;
 
-/// Streams the AI analysis from OpenRouter.
+/// Streams the AI presentation pass from OpenRouter.
 ///
 /// Pipeline philosophy (per project design):
-///   * The **specialized local model** (ONNX Runtime Mobile) does the actual
-///     analysis — classification, confidences, sensor interpretation hints.
-///   * The **LLM only presents** that analysis in clear spoken language.
+///   * **Moondream3 cloud** (or the local fallbacks) is the ANALYST — it
+///     produces the factual analysis of the frame.
+///   * **This LLM only PRESENTS** that analysis in clear spoken language.
 ///     => short prompts, low max_tokens, streaming — first sentence arrives
 ///     in ~1s and is spoken immediately while the rest streams.
 ///
-/// Endpoint: POST https://openrouter.ai/api/v1/chat/completions (SSE stream).
+/// Text+reasoning model chain (user-specified, first that works wins):
+///   1. google/gemma-4-26b-a4b-it:free ............ primary
+///   2. thinkingmachines/inkling-small:free ....... fallback 1
+///   3. nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free ... fallback 2
+///
+/// Streaming captures reasoning tokens from the final usage chunk:
+///   chunk.usage.completionTokensDetails.reasoningTokens
+///
+/// Endpoint: POST https://openrouter.ai/api/v1/chat/completions (SSE).
 class OpenRouterService {
-  // Mutable so Settings can hot-swap the key without restart.
+  OpenRouterService({required this.apiKey});
+
+  /// Mutable so Settings can hot-swap the key without restart.
   String apiKey;
+
   static const String _endpoint =
       'https://openrouter.ai/api/v1/chat/completions';
 
-  OpenRouterService({required this.apiKey});
+  /// The full fallback chain in priority order.
+  static const List<String> modelChain = [
+    'google/gemma-4-26b-a4b-it:free',
+    'thinkingmachines/inkling-small:free',
+    'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+  ];
+
+  /// Which chain entry answered last (0 = primary, 1/2 = fallback).
+  int lastChainIndex = 0;
+  String get lastModelUsed =>
+      lastChainIndex < modelChain.length ? modelChain[lastChainIndex] : '?';
+
+  /// Reasoning tokens reported by the final usage chunk (when the upstream
+  /// model is a reasoning model and OpenRouter returns usage).
+  int? lastReasoningTokens;
 
   bool get isConfigured => apiKey.isNotEmpty;
 
-  /// Stream markdown tokens as they arrive.
+  /// Stream markdown tokens as they arrive, walking the fallback chain
+  /// until one model streams successfully.
   ///
-  /// [predictions]   — top-k output of the specialized ONNX model (may be null
-  ///                   when ML Kit produced the label instead).
-  /// [labelSentence] — ready-to-speak sentence from the local vision stage.
-  /// [telemetry]     — UV/IR sensor line (optional).
-  /// [lang]          — 'en' or 'ar'.
+  /// [moondreamAnalysis] — factual analysis from Moondream3 cloud (or the
+  ///   local fallback). The presenter treats this as ground truth.
+  /// [labelSentence]     — ready-to-speak sentence from the vision cascade.
+  /// [predictions]       — top-k output when the ONNX engine produced it.
+  /// [telemetry]         — UV/IR sensor line (optional).
+  /// [lang]              — 'en' or 'ar'.
+  /// [startModel]        — preferred chain entry (default 0 = gemma).
   Stream<String> streamAnalysis({
-    required String model,
     required String labelSentence,
+    String? moondreamAnalysis,
     List<(String, double)>? predictions,
     String? telemetry,
     String lang = 'en',
+    int startModel = 0,
   }) async* {
     if (!isConfigured) {
       yield lang.startsWith('ar')
@@ -45,6 +74,53 @@ class OpenRouterService {
       return;
     }
 
+    final order = <String>[
+      if (startModel >= 0 && startModel < modelChain.length)
+        modelChain[startModel],
+      ...modelChain.where((m) => m != modelChain[startModel]),
+    ];
+
+    Object? lastError;
+    for (var i = 0; i < order.length; i++) {
+      final model = order[i];
+      var emitted = false;
+      try {
+        await for (final chunk in _streamOne(model, labelSentence,
+            moondreamAnalysis: moondreamAnalysis,
+            predictions: predictions,
+            telemetry: telemetry,
+            lang: lang)) {
+          emitted = true;
+          lastChainIndex = modelChain.indexOf(model);
+          yield chunk;
+        }
+        if (emitted) return; // this model delivered — done
+        lastError = 'empty stream from $model';
+      } catch (e) {
+        lastError = e;
+        log('[OpenRouter] $model failed: $e — trying next fallback…');
+      }
+      if (!emitted) {
+        log('[OpenRouter] falling back ($i failed): $lastError');
+      }
+    }
+    // Whole chain failed.
+    yield lang.startsWith('ar')
+        ? '*تعذّر الوصول إلى نموذج العرض. تحقق من الاتصال بالمحاولة مجددًا.*'
+        : '*Could not reach any presentation model. Check connectivity and '
+            'retry.*';
+  }
+
+  /// Single-model SSE stream. Throws on HTTP errors so the chain can
+  /// fall through to the next model.
+  Stream<String> _streamOne(
+    String model,
+    String labelSentence, {
+    String? moondreamAnalysis,
+    List<(String, double)>? predictions,
+    String? telemetry,
+    required String lang,
+  }) async* {
     final request = http.Request('POST', Uri.parse(_endpoint))
       ..headers.addAll({
         'Authorization': 'Bearer $apiKey',
@@ -61,6 +137,7 @@ class OpenRouterService {
           {'role': 'system', 'content': _systemPrompt(lang)},
           {'role': 'user', 'content': _userPrompt(
             labelSentence: labelSentence,
+            moondreamAnalysis: moondreamAnalysis,
             predictions: predictions,
             telemetry: telemetry,
             lang: lang,
@@ -70,11 +147,14 @@ class OpenRouterService {
 
     final client = http.Client();
     try {
-      final streamed = await client.send(request);
+      final streamed = await client.send(request).timeout(
+            const Duration(seconds: 20),
+            onTimeout: () => throw TimeoutException(
+                'OpenRouter connect: $model', const Duration(seconds: 20)),
+          );
       if (streamed.statusCode != 200) {
         final body = await streamed.stream.bytesToString();
-        yield '*${streamed.statusCode}: ${body.substring(0, body.length > 220 ? 220 : body.length)}*';
-        return;
+        throw HttpExceptionWithBody(streamed.statusCode, body);
       }
 
       final lineStream = streamed.stream
@@ -89,7 +169,17 @@ class OpenRouterService {
           final json = jsonDecode(payload) as Map<String, dynamic>;
           final delta = json['choices']?[0]?['delta']?['content'] as String?;
           if (delta != null && delta.isNotEmpty) yield delta;
-        } catch (e) {
+
+          // Final chunk carries usage incl. reasoning token count.
+          final usage = json['usage'];
+          if (usage is Map<String, dynamic>) {
+            final details = usage['completionTokensDetails'];
+            if (details is Map<String, dynamic>) {
+              final rt = details['reasoningTokens'];
+              if (rt is num && rt > 0) lastReasoningTokens = rt.toInt();
+            }
+          }
+        } on FormatException catch (e) {
           log('SSE parse: $e');
         }
       }
@@ -101,18 +191,18 @@ class OpenRouterService {
   String _systemPrompt(String lang) {
     if (lang.startsWith('ar')) {
       return 'أنت مساعد صوتي لنظارة "سبكترو لِن بور" لتحليل الطيف واكتشاف '
-          'العناصر والمركبات الكيميائية. نموذج محلي متخصص قد حصل على نتائج '
-          'التحليل، ومهمتك فقط: صياغة النتائج في لغة عربية واضحة وقابلة '
-          'للنطق الصوتي، بجُمل قصيرة، بدون رموز أو تنسيق معقد. اذكر حالة '
-          'المادة (صلب/سائل/غاز) والتقديرات المئوية إن وُجدت، وحدد بوضوح في '
-          'سطر مستقل يبدأ بـ "تحذير:" إذا كانت المادة خطرة (سامة، حارقة، '
-          'كاوية، قابلة للانفجار). لا تخترع بيانات غير موجودة.';
+          'العناصر والمركبات الكيميائية. نموذج الرؤية موندريم ٣ قد حصل على '
+          'نتائج التحليل، ومهمتك فقط: صياغة النتائج في لغة عربية واضحة '
+          'وقابلة للنطق الصوتي، بجُمل قصيرة، بدون رموز أو تنسيق معقد. اذكر '
+          'حالة المادة (صلب/سائل/غاز) والتقديرات المئوية إن وُجدت، وحدد '
+          'بوضوح في سطر مستقل يبدأ بـ "تحذير:" إذا كانت المادة خطرة (سامة، '
+          'حارقة، كاوية، قابلة للانفجار). لا تخترع بيانات غير موجودة.';
     }
     return 'You are the voice assistant of "SpectruLenPor" smart glasses for '
         'spectrum analysis and detection of chemical elements and compounds. '
-        'A specialized on-device model has ALREADY produced the analysis; '
-        'your only job is to present it: clear, spoken-friendly language, '
-        'short sentences, no heavy markdown. State the state of matter '
+        'The Moondream3 vision model has ALREADY produced the analysis; your '
+        'only job is to present it: clear, spoken-friendly language, short '
+        'sentences, no heavy markdown. State the state of matter '
         '(solid/liquid/gas) and percentage estimates when available. If the '
         'material is hazardous (toxic, flammable, corrosive, explosive), add '
         'one standalone line starting with "Warning:" and say what to do. '
@@ -121,6 +211,7 @@ class OpenRouterService {
 
   String _userPrompt({
     required String labelSentence,
+    String? moondreamAnalysis,
     List<(String, double)>? predictions,
     String? telemetry,
     required String lang,
@@ -128,24 +219,40 @@ class OpenRouterService {
     final buf = StringBuffer();
     if (lang.startsWith('ar')) {
       buf.writeln('نتيجة النموذج المتخصص: $labelSentence');
+      if (moondreamAnalysis != null && moondreamAnalysis.isNotEmpty) {
+        buf.writeln('تحليل موندريم ٣: $moondreamAnalysis');
+      }
       if (predictions != null && predictions.isNotEmpty) {
         buf.writeln('أعلى الاحتمالات: ${predictions.map((p) => "${p.$1} ${(p.$2 * 100).toStringAsFixed(0)}%").join('، ')}');
       }
       if (telemetry != null) buf.writeln(telemetry);
       buf.writeln();
-      buf.writeln('اكتب فقرة قصيرة (٣-٥ جمل) تشرح ما المادة، حالتها، واستخدامها أو خطرها.');
+      buf.writeln('اكتب فقرة قصيرة (٣-٥ جمل) تشرح ما المادة، حالتها، '
+          'واستخدامها أو خطرها.');
     } else {
       buf.writeln('Specialized model result: $labelSentence');
+      if (moondreamAnalysis != null && moondreamAnalysis.isNotEmpty) {
+        buf.writeln('Moondream3 analysis: $moondreamAnalysis');
+      }
       if (predictions != null && predictions.isNotEmpty) {
         buf.writeln('Top predictions: ${predictions.map((p) => "${p.$1} ${(p.$2 * 100).toStringAsFixed(0)}%").join(', ')}');
       }
       if (telemetry != null) buf.writeln(telemetry);
       buf.writeln();
-      buf.writeln('Write a short paragraph (3-5 sentences): what the substance/'
-          'object is, its state of matter, one practical note or use, and the '
-          'hazard line if applicable. Then a "## Explore" section with 3 '
-          'related terms.');
+      buf.writeln('Write a short paragraph (3-5 sentences): what the '
+          'substance/object is, its state of matter, one practical note or '
+          'use, and the hazard line if applicable. Then a "## Explore" '
+          'section with 3 related terms.');
     }
     return buf.toString();
   }
+}
+
+class HttpExceptionWithBody implements Exception {
+  HttpExceptionWithBody(this.statusCode, this.body);
+  final int statusCode;
+  final String body;
+  @override
+  String toString() =>
+      'HTTP $statusCode: ${body.length > 140 ? '${body.substring(0, 140)}…' : body}';
 }

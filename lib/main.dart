@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'l10n/app_localizations.dart';
 import 'models/recognition_state.dart';
 import 'screens/home_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/bluetooth_camera_service.dart';
 import 'services/local_vision_service.dart';
+import 'services/moondream_service.dart';
 import 'services/native_tts_service.dart';
 import 'services/onnx_vision_service.dart';
 import 'services/openrouter_service.dart';
@@ -28,6 +29,8 @@ void main() async {
   await OnnxVisionService.instance.init(); // silent no-op if model missing
   await NativeTtsService.instance.init();
   await OpenRouterTtsService.instance.init();
+  MoondreamService.instance.apiKey =
+      prefs.getString('moondream_api_key') ?? '';
 
   appLocale.value = Locale(prefs.getString('locale') ?? 'en');
 
@@ -53,6 +56,7 @@ class SpectruLenPorApp extends StatelessWidget {
           dispose: (_, svc) => svc.dispose(),
         ),
         Provider<LocalVisionService>.value(value: LocalVisionService.instance),
+        Provider<MoondreamService>.value(value: MoondreamService.instance),
         Provider<OpenRouterService>(
           create: (ctx) => OpenRouterService(
             apiKey: prefs.getString('openrouter_api_key') ?? '',
@@ -77,16 +81,13 @@ class SpectruLenPorApp extends StatelessWidget {
       child: ValueListenableBuilder<Locale>(
         valueListenable: appLocale,
         builder: (context, locale, _) => MaterialApp(
-          title: 'SpectruLenPor — Smart Scientific Glasses',
+          onGenerateTitle: (ctx) =>
+              '${AppLocalizations.of(ctx).appName} — Smart Scientific Glasses',
           debugShowCheckedModeBanner: false,
           theme: buildAppTheme(),
           locale: locale,
-          supportedLocales: const [Locale('en'), Locale('ar')],
-          localizationsDelegates: const [
-            GlobalMaterialLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
-          ],
+          supportedLocales: AppLocalizations.supportedLocales,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
           initialRoute: '/',
           routes: {
             '/': (ctx) => const HomeScreen(),

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
 import '../utils/app_theme.dart' as palette;
-import '../utils/strings.dart';
 
 /// Pulsing red banner shown when a hazard is detected — either by keyword
 /// analysis of the AI reply or by UV/IR sensor thresholds. Designed to be
@@ -42,7 +42,7 @@ class HazardBanner extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  S.t(context, S.hazardDetected),
+                  AppLocalizations.of(context).hazardDetected,
                   style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w800,
@@ -51,7 +51,7 @@ class HazardBanner extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  S.t(context, S.hazardSpeech),
+                  AppLocalizations.of(context).hazardSpeech,
                   style: const TextStyle(
                       color: Colors.white, fontSize: 13, height: 1.3),
                 ),

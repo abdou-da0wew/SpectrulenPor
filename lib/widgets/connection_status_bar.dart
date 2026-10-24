@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
 import '../models/recognition_state.dart';
 import '../utils/app_theme.dart' as palette;
-import '../utils/strings.dart';
 
 /// Header pill showing the BLE connection state of the glasses,
 /// plus a connect / disconnect action.
@@ -68,7 +68,7 @@ class ConnectionStatusBar extends StatelessWidget {
             TextButton.icon(
               onPressed: onDisconnect,
               icon: const Icon(Icons.link_off, size: 16, color: Colors.white),
-              label: Text(S.t(context, S.disconnect),
+              label: Text(AppLocalizations.of(context).disconnect,
                   style: const TextStyle(
                       color: Colors.white, fontSize: 12.5)),
               style: TextButton.styleFrom(
@@ -83,7 +83,7 @@ class ConnectionStatusBar extends StatelessWidget {
               onPressed: onConnect,
               icon: const Icon(Icons.bluetooth_searching,
                   size: 16, color: Colors.white),
-              label: Text(S.t(context, S.connectGlasses),
+              label: Text(AppLocalizations.of(context).connectGlasses,
                   style: const TextStyle(
                       color: Colors.white, fontSize: 12.5)),
               style: TextButton.styleFrom(
