@@ -4,28 +4,32 @@ import 'dart:typed_data';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import '../models/frame_data.dart';
+import '../models/spectrum_reading.dart';
 
-/// Streams JPEG frames from a paired ESP32-CAM over Bluetooth Low Energy.
+/// Streams JPEG frames + UV/IR sensor telemetry from the ESP32-CAM over BLE,
+/// and sends control commands back (stream on/off, single frame, flashlight).
 ///
-/// Service contract with the ESP32-CAM firmware:
-///  * Service UUID:        `0000ffe0-0000-1000-8000-00805f9b34fb` (Nordic UART-like)
-///  * TX characteristic:    `0000ffe1-0000-1000-8000-00805f9b34fb` (glasses -> phone notifications)
-///  * RX characteristic:   `0000ffe2-0000-1000-8000-00805f9b34fb` (phone -> glasses commands)
-///  * Frame protocol:
-///      - Each JPEG is wrapped: `[0xFF 0xD8 ... jpeg payload ... 0xFF 0xD9]`
-///      - The ESP32-CAM chunks the JPEG into ~180-byte BLE packets.
-///      - We buffer until we see the JPEG end marker (0xFFD9) then emit FrameData.
-///  * Capture trigger:
-///      - Phone writes byte `0x01` to RX to ask for 1 frame.
-///      - Phone writes byte `0x00` to RX to stop continuous stream.
-///
-/// For full BLE MTU negotiation, call `requestMtu(517)` after connect.
+/// Service contract with the firmware (must stay in sync both sides):
+///  * Service UUID:  `ffe0`   TX (glasses→phone, notify): `ffe1`
+///  * RX (phone→glasses, write): `ffe2`
+///  * Frame protocol: JPEG chunks delimited by SOI (FFD8) / EOI (FFD9),
+///    chunked into ~500-byte BLE notifications.
+///  * Telemetry packets: `$UV:1234;IR:567\n` interleaved between frames.
+///  * Commands (single byte writes):
+///      0x01 stream on · 0x00 stream off · 0x02 single frame
+///      0x03 flashlight ON · 0x04 flashlight OFF
 class BluetoothCameraService {
   static const String serviceUuid = '0000ffe0-0000-1000-8000-00805f9b34fb';
-  static const String txCharUuid  = '0000ffe1-0000-1000-8000-00805f9b34fb';
-  static const String rxCharUuid  = '0000ffe2-0000-1000-8000-00805f9b34fb';
+  static const String txCharUuid = '0000ffe1-0000-1000-8000-00805f9b34fb';
+  static const String rxCharUuid = '0000ffe2-0000-1000-8000-00805f9b34fb';
 
-  // Stream controllers
+  // Command bytes (mirrored in firmware)
+  static const int cmdStreamOn = 0x01;
+  static const int cmdStreamOff = 0x00;
+  static const int cmdSingleFrame = 0x02;
+  static const int cmdFlashOn = 0x03;
+  static const int cmdFlashOff = 0x04;
+
   final StreamController<BluetoothStatus> _statusCtl =
       StreamController<BluetoothStatus>.broadcast();
   Stream<BluetoothStatus> get statusStream => _statusCtl.stream;
@@ -34,16 +38,20 @@ class BluetoothCameraService {
       StreamController<FrameData>.broadcast();
   Stream<FrameData> get frameStream => _frameCtl.stream;
 
-  // Active state
+  final StreamController<SpectrumReading> _sensorCtl =
+      StreamController<SpectrumReading>.broadcast();
+  Stream<SpectrumReading> get sensorStream => _sensorCtl.stream;
+
   BluetoothDevice? _device;
   BluetoothCharacteristic? _txChar;
   BluetoothCharacteristic? _rxChar;
 
-  // JPEG reassembly buffer
   final BytesBuilder _jpegBuf = BytesBuilder();
   bool _capturingJpeg = false;
+  final StringBuffer _textBuf = StringBuffer();
 
-  /// Called by main() so Flutter Blue can warm up.
+  String? _deviceName;
+
   void init() {
     FlutterBluePlus.setLogLevel(LogLevel.warning);
   }
@@ -53,39 +61,35 @@ class BluetoothCameraService {
   }) async {
     _statusCtl.add(BluetoothStatus.scanning);
 
-    // Wait for adapter to be on
-    if (await FlutterBluePlus.adapterState.first !=
-        BluetoothAdapterState.on) {
+    if (await FlutterBluePlus.adapterState.first != BluetoothAdapterState.on) {
       _statusCtl.add(BluetoothStatus.error);
       throw 'Bluetooth adapter is off. Turn it on and retry.';
     }
 
-    // Start scanning
-    final subscription = FlutterBluePlus.onScanResults.listen(
-      (results) async {
-        for (final r in results) {
-          // Heuristic: connect to the first device that advertises our service
-          // OR a device name that matches the glasses.
-          final matchesName = (r.device.platformName).toLowerCase().contains(
-                  'spectraglass') ||
-              (r.device.platformName).toLowerCase().contains('esp32');
-          final advertisesService = r.advertisementData.serviceUuids
-              .any((u) => u.toString().toLowerCase().contains('ffe0'));
+    final subscription = FlutterBluePlus.onScanResults.listen((results) async {
+      for (final r in results) {
+        final name = r.device.platformName.toLowerCase();
+        final matchesName = name.contains('spectralenpor') ||
+            name.contains('spectraglass') ||
+            name.contains('esp32');
+        final advertisesService = r.advertisementData.serviceUuids
+            .any((u) => u.toString().toLowerCase().contains('ffe0'));
 
-          if (matchesName || advertisesService) {
-            await FlutterBluePlus.stopScan();
-            await _connect(r.device);
-            break;
-          }
+        if (matchesName || advertisesService) {
+          await FlutterBluePlus.stopScan();
+          _deviceName = r.device.platformName.isNotEmpty
+              ? r.device.platformName
+              : 'SpectruLenPor glasses';
+          await _connect(r.device);
+          break;
         }
-      },
-    );
+      }
+    });
 
     await FlutterBluePlus.startScan(
       withServices: [Guid(serviceUuid)],
       timeout: scanTimeout,
     );
-
     await subscription.cancel();
   }
 
@@ -94,22 +98,20 @@ class BluetoothCameraService {
     _statusCtl.add(BluetoothStatus.connecting);
 
     try {
-      await device.connectionState.listen((state) {
+      device.connectionState.listen((state) {
         if (state == BluetoothConnectionState.disconnected) {
           _statusCtl.add(BluetoothStatus.disconnected);
         }
       });
 
       await device.connect(timeout: const Duration(seconds: 15));
-      await device.requestMtu(517); // max BLE MTU, faster frame chunks
+      await device.requestMtu(517);
 
-      // Discover services
       final services = await device.discoverServices();
       final svc = services.firstWhere(
         (s) => s.uuid.toString().toLowerCase().contains('ffe0'),
-        orElse: () => throw 'ESP32-CAM service not found on this device.',
+        orElse: () => throw 'SpectruLenPor service not found on this device.',
       );
-
       _txChar = svc.characteristics.firstWhere(
         (c) => c.uuid.toString().toLowerCase().contains('ffe1'),
         orElse: () => throw 'TX characteristic not found.',
@@ -119,13 +121,10 @@ class BluetoothCameraService {
         orElse: () => throw 'RX characteristic not found.',
       );
 
-      // Subscribe to notifications
       await _txChar!.setNotifyValue(true);
       _txChar!.lastValueStream.listen(_onNotification);
 
-      // Start continuous capture
-      await _rxChar!.write([0x01], withoutResponse: false);
-
+      await _rxChar!.write([cmdStreamOn], withoutResponse: false);
       _statusCtl.add(BluetoothStatus.connected);
     } catch (e) {
       _statusCtl.add(BluetoothStatus.error);
@@ -137,12 +136,24 @@ class BluetoothCameraService {
     if (chunk.isEmpty) return;
     final bytes = Uint8List.fromList(chunk);
 
-    // Detect JPEG start marker (0xFFD8)
+    // --- Telemetry text packets: start with '$', end with '\n' ---
+    if (!_capturingJpeg && bytes[0] == 0x24 /* '$' */) {
+      _textBuf.write(asciiDecode(bytes));
+      final s = _textBuf.toString();
+      if (s.contains('\n')) {
+        for (final line in s.split('\n')) {
+          final reading = SpectrumReading.tryParse(line.trim());
+          if (reading != null) _sensorCtl.add(reading);
+        }
+        _textBuf.clear();
+      }
+      return;
+    }
+
+    // --- JPEG reassembly ---
     int i = 0;
     while (i < bytes.length - 1) {
-      if (!_capturingJpeg &&
-          bytes[i] == 0xFF &&
-          bytes[i + 1] == 0xD8) {
+      if (!_capturingJpeg && bytes[i] == 0xFF && bytes[i + 1] == 0xD8) {
         _jpegBuf.clear();
         _jpegBuf.add(bytes.sublist(i));
         _capturingJpeg = true;
@@ -151,20 +162,18 @@ class BluetoothCameraService {
       i++;
     }
 
-    if (_capturingJpeg) {
-      // Append to buffer; check for end marker (0xFFD9)
-      if (i > 0) {
-        _jpegBuf.add(bytes.sublist(i));
-      }
+    if (_capturingJpeg && i > 0) {
+      _jpegBuf.add(bytes.sublist(i));
+    }
 
+    if (_capturingJpeg) {
       final built = _jpegBuf.toBytes();
       if (built.length >= 2 &&
           built[built.length - 2] == 0xFF &&
           built[built.length - 1] == 0xD9) {
-        // JPEG complete — emit frame
         _frameCtl.add(FrameData(
           jpegBytes: Uint8List.fromList(built),
-          width: 640,  // ESP32-CAM default; firmware can override
+          width: 640,
           height: 480,
           capturedAt: DateTime.now(),
         ));
@@ -174,20 +183,39 @@ class BluetoothCameraService {
     }
   }
 
-  /// Tell the ESP32-CAM to send exactly one frame (button-driven mode).
-  Future<void> requestOneFrame() async {
-    if (_rxChar == null) return;
-    await _rxChar!.write([0x02], withoutResponse: false);
+  /// Minimal ASCII decode (telemetry packets are pure ASCII).
+  String asciiDecode(Uint8List bytes) {
+    return String.fromCharCodes(bytes.where((b) => b >= 0x20 && b < 0x7F));
   }
 
-  /// Stop the continuous stream (battery saver).
-  Future<void> pauseStream() async {
+  // ------------------- Commands -------------------
+
+  Future<void> _sendCmd(int byte) async {
     if (_rxChar == null) return;
-    await _rxChar!.write([0x00], withoutResponse: false);
+    try {
+      await _rxChar!.write([byte], withoutResponse: false);
+    } catch (e) {
+      debugPrint('[BLE] command 0x${byte.toRadixString(16)} failed: $e');
+    }
   }
+
+  /// Continuous stream (0x01).
+  Future<void> resumeStream() => _sendCmd(cmdStreamOn);
+
+  /// Stop continuous stream (battery saver) (0x00).
+  Future<void> pauseStream() => _sendCmd(cmdStreamOff);
+
+  /// Capture + send exactly one frame (0x02).
+  Future<void> requestOneFrame() => _sendCmd(cmdSingleFrame);
+
+  /// Glasses onboard flash LED (GPIO4 on AI-Thinker) — lights the sample
+  /// in dim labs (0x03 / 0x04).
+  Future<void> setFlashlight(bool on) =>
+      _sendCmd(on ? cmdFlashOn : cmdFlashOff);
 
   Future<void> disconnect() async {
     await pauseStream();
+    await setFlashlight(false);
     await _device?.disconnect();
     _device = null;
     _txChar = null;
@@ -198,5 +226,6 @@ class BluetoothCameraService {
   void dispose() {
     _statusCtl.close();
     _frameCtl.close();
+    _sensorCtl.close();
   }
 }

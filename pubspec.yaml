@@ -10,6 +10,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:        # built-in ar/en Material translations (RTL)
+    sdk: flutter
+  intl: any                     # locale plumbing (pinned by flutter_localizations)
 
   # ---------- Bluetooth (ESP32-CAM frame stream) ----------
   flutter_blue_plus: ^1.32.12    # BLE connection to ESP32-CAM
@@ -23,18 +26,22 @@ dependencies:
   dio: ^5.7.0                    # streaming downloads for TTS audio
 
   # ---------- Local on-device vision ----------
-  google_mlkit_image_labeling: ^0.11.0     # ML Kit fast labeling (fallback)
+  google_mlkit_image_labeling: ^0.11.0     # ML Kit fast labeling (fallback + OCR)
   google_mlkit_object_detection: ^0.13.0  # ML Kit object detection
   google_mlkit_text_recognition: ^0.13.0  # OCR for signs / labels
   path_provider: ^2.1.4         # where to store downloaded GGUF model
 
+  # ---------- ONNX Runtime Mobile (primary local AI runtime) ----------
+  # Any exported model (MobileNet, YOLO, custom classifiers) runs through
+  # onnx_vision_service.dart with: full graph optimization, 4 intra-op
+  # threads, XNNPACK-backed CPU EP. Quantized uint8/int8 models recommended.
+  onnxruntime: ^1.4.1
+
   # ---------- Local Moondream2 / GGUF runtime ----------
-  # NOTE: there is no official Flutter binding for llama.cpp with vision support
-  # as of late 2025. Two practical options:
-  #   (a) Use a platform channel to call a native llama.cpp build with mmproj.
-  #   (b) Use `cactus_flutter` once it publishes a vision-enabled build.
-  # We use ML Kit for the live path in this scaffold and expose a clean
-  # interface (LocalVisionService) so you can drop in Moondream later.
+  # Moondream2 runs through a native platform channel:
+  #   android/app/src/main/kotlin/com/spectraglass/app/MainActivity.kt
+  #   android/app/src/main/cpp/moondream_jni.cpp  (JNI -> llama.cpp + mmproj)
+  # See README "Moondream native build" for the full build recipe.
 
   # ---------- Audio output ----------
   flutter_tts: ^4.0.2            # Android native TTS (low latency, offline)
@@ -56,7 +63,7 @@ dependencies:
   shared_preferences: ^2.3.2     # store OpenRouter API key + settings
 
   # ---------- Image decoding ----------
-  image: ^4.2.0                  # decode/resize raw JPEG bytes from ESP32-CAM
+  image: ^4.2.0                  # decode/resize/rotate raw JPEG + YUV frames
 
 dev_dependencies:
   flutter_test:
@@ -67,3 +74,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/
+    - assets/models/

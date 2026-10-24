@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../utils/app_theme.dart' as palette;
+import '../utils/strings.dart';
 
 /// Row of large, accessibility-friendly action buttons:
 ///   * "Describe now"  -> manual capture + analyze (works even when
@@ -40,7 +41,9 @@ class AudioControls extends StatelessWidget {
                         child: CircularProgressIndicator(
                             strokeWidth: 2, color: Colors.white))
                     : const Icon(Icons.center_focus_strong),
-                label: Text(busy ? 'Analyzing…' : 'Describe now'),
+                label: Text(busy
+                    ? S.t(context, S.analyzing)
+                    : S.t(context, S.describeNow)),
                 style: FilledButton.styleFrom(
                   backgroundColor: busy
                       ? palette.AppColors.dustyMauve
@@ -57,7 +60,9 @@ class AudioControls extends StatelessWidget {
               child: OutlinedButton.icon(
                 onPressed: onToggleSpeak,
                 icon: Icon(speaking ? Icons.volume_up : Icons.volume_off),
-                label: Text(speaking ? 'Sound on' : 'Muted'),
+                label: Text(speaking
+                    ? S.t(context, S.soundOn)
+                    : S.t(context, S.muted)),
                 style: OutlinedButton.styleFrom(
                   side: BorderSide(
                     color: speaking

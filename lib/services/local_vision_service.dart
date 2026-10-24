@@ -2,160 +2,175 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:google_mlkit_image_labeling/google_mlkit_image_labeling.dart';
-import 'package:google_mlkit_object_detection/google_mlkit_object_detection.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:path_provider/path_provider.dart';
 
-/// Local on-device vision.
+import 'onnx_vision_service.dart';
+
+/// Local on-device vision — the app's "specialized analysis brain".
 ///
-/// Production plan:
-///   1. (Default) Run Google ML Kit Image Labeling + Object Detection + OCR
-///      for instant (~100-300ms) descriptive labels. ML Kit ships pre-trained
-///      default models bundled in the plugin, so no extra downloads needed.
-///   2. (Optional, advanced) If you have a Moondream2 GGUF model
-///      (~1.1 GB Q4_K_M) plus a native llama.cpp + mmproj binding, set
-///      `useMoondream = true` and implement `describeWithMoondream()` via
-///      a MethodChannel. The interface below is unchanged so the rest of
-///      the app keeps working.
+/// Priority order (fastest first):
+///   1. ONNX Runtime Mobile — quantized specialized classifier (primary).
+///   2. Moondream2 VLM via native platform channel (when GGUF is deployed).
+///   3. Google ML Kit image labeling (always available fallback).
+/// ML Kit OCR runs on top of whichever labeler wins, so chemical labels on
+/// bottles / signs get read out loud.
 ///
-/// The local label is what gets spoken immediately and forwarded upstream
-/// as text context to OpenRouter for deep reasoning.
+/// Everything here runs ON THE PHONE — the ESP32-CAM only captures and
+/// streams; per the project paper all processing happens in this app.
 class LocalVisionService {
   LocalVisionService._();
   static final LocalVisionService instance = LocalVisionService._();
 
   late final ImageLabeler _labeler;
-  late final ObjectDetector _detector;
   late final TextRecognizer _ocr;
-
   bool _ready = false;
   bool get isReady => _ready;
 
-  bool useMoondream = false;
+  /// Which engine produced the last description (for UI + logging).
+  String lastEngine = 'idle';
+
+  /// Top-k predictions from the ONNX model for the last describe() call
+  /// (cached here so callers never run inference twice — latency matters).
+  List<OnnxPrediction> lastTopK = const [];
+
+  static const MethodChannel _moondream =
+      MethodChannel('com.spectraglass/llama');
   String? moondreamModelPath;
+  bool get moondreamAvailable =>
+      moondreamModelPath != null && moondreamModelPath!.isNotEmpty;
 
   Future<void> init() async {
-    // Default Image Labeler (uses Google's bundled default model).
     _labeler = ImageLabeler(
       options: ImageLabelerOptions(confidenceThreshold: 0.55),
     );
-
-    // Default Object Detector.
-    _detector = ObjectDetector(
-      options: ObjectDetectorOptions(
-        mode: DetectionMode.single,
-        classifyObjects: true,
-        multipleObjects: true,
-      ),
-    );
-
-    // OCR for signs / product labels (Latin + script-aware in ML Kit).
     _ocr = TextRecognizer(script: TextRecognitionScript.latin);
-
     _ready = true;
-    debugPrint('[LocalVisionService] ready (ML Kit path active).');
+    debugPrint('[LocalVision] ready — ONNX-first pipeline.');
   }
 
   /// Produce a concise spoken-style description for an incoming JPEG.
   ///
-  /// Output looks like:
-  ///   "In front of you is a glass beaker. Visible text: 'NaCl 0.9%'."
-  Future<String?> describe(Uint8List jpegBytes) async {
+  /// [lang] is 'en' or 'ar' and only changes the sentence template; raw
+  /// class labels stay Latin (they map to ImageNet / dataset names).
+  Future<String?> describe(Uint8List jpegBytes, {String lang = 'en'}) async {
     if (!_ready) return null;
-    if (useMoondream && moondreamModelPath != null) {
-      return describeWithMoondream(jpegBytes);
+
+    // 1) Specialized ONNX model (primary, <100ms on modern phones).
+    final onnx = await OnnxVisionService.instance.classify(jpegBytes, k: 3);
+    lastTopK = onnx ?? const [];
+    if (onnx != null && onnx.isNotEmpty) {
+      lastEngine = 'onnx';
+      final best = onnx.first;
+      final isAr = lang.startsWith('ar');
+      final alt = onnx.length > 1
+          ? isAr
+              ? ' أو ربما ${onnx[1].label} '
+                  '(${(onnx[1].confidence * 100).toStringAsFixed(0)}٪).'
+              : ' — or possibly ${onnx[1].label} '
+                  '(${(onnx[1].confidence * 100).toStringAsFixed(0)}%).'
+          : '';
+      return isAr
+          ? 'يبدو أن هذا ${best.label} بثقة '
+              '${(best.confidence * 100).toStringAsFixed(0)}٪.$alt'
+          : 'This looks like ${best.label} '
+              '(${(best.confidence * 100).toStringAsFixed(0)}% confidence)$alt';
     }
-    return describeWithMlKit(jpegBytes);
+
+    // 2) Moondream2 VLM through the native channel (if deployed).
+    if (moondreamAvailable) {
+      final caption = await _describeWithMoondream(jpegBytes);
+      if (caption != null && caption.isNotEmpty) {
+        lastEngine = 'moondream';
+        return caption;
+      }
+    }
+
+    // 3) ML Kit fallback.
+    lastEngine = 'mlkit';
+    lastTopK = const [];
+    return _describeWithMlKit(jpegBytes, lang);
   }
 
-  Future<String> describeWithMlKit(Uint8List jpegBytes) async {
-    // Write bytes to a temp file because ML Kit's InputImage.fromBytes path
-    // requires a decoded format we don't have on the BLE chunk level.
+  Future<String> _describeWithMlKit(Uint8List jpegBytes, String lang) async {
     final tmp = await _writeTempJpg(jpegBytes);
     final inputImage = InputImage.fromFile(tmp);
 
-    final labelsFuture = _labeler.processImage(inputImage);
-    final objectsFuture = _detector.processImage(inputImage);
-    final ocrFuture = _ocr.processImage(inputImage);
-
-    final labels = await labelsFuture;
-    final objects = await objectsFuture;
-    final ocr = await ocrFuture;
-
+    final labels = await _labeler.processImage(inputImage);
+    final ocr = await _ocr.processImage(inputImage);
     await tmp.delete();
 
-    // Compose a spoken sentence.
     final buf = StringBuffer();
-
-    // Object detection gives bounding boxes; we summarize with top labels.
-    final objectLabels = <String>{};
-    for (final o in objects) {
-      for (final l in o.labels) {
-        if (l.confidence > 0.5) objectLabels.add(l.label);
-      }
-    }
     if (labels.isNotEmpty) {
       final top = labels.take(3).map((l) => l.label.toLowerCase()).join(', ');
-      buf.write('In front of you I see $top');
-    } else if (objectLabels.isNotEmpty) {
-      buf.write('In front of you I see ${objectLabels.join(', ')}');
+      buf.write(lang.startsWith('ar')
+          ? 'أرى أمامك: $top'
+          : 'In front of you I see $top');
     } else {
-      buf.write('I can see something but cannot classify it confidently.');
+      buf.write(lang.startsWith('ar')
+          ? 'لا أستطيع تصنيف هذا بثقة كافية.'
+          : 'I can see something but cannot classify it confidently.');
     }
 
-    // Append OCR text if visible.
-    final cleanedText = ocr.text.trim();
-    if (cleanedText.isNotEmpty && cleanedText.length < 200) {
-      buf.write('. Visible text: "${cleanedText.replaceAll('\n', ' ')}".');
+    final text = ocr.text.trim();
+    if (text.isNotEmpty && text.length < 200) {
+      buf.write(lang.startsWith('ar')
+          ? '. نص مرئي: "${text.replaceAll('\n', ' ')}".'
+          : '. Visible text: "${text.replaceAll('\n', ' ')}".');
     }
-
     return buf.toString();
   }
 
-  /// Placeholder for a native llama.cpp + Moondream2 binding.
+  /// Calls the native llama.cpp + mmproj Moondream2 engine.
   ///
-  /// To enable: add a platform channel in `android/app/src/main/kotlin/...`
-  /// that loads the GGUF + mmproj, runs inference, and returns the caption.
-  /// Then call it from here:
-  ///   final result = await MethodChannel('com.spectraglass/llama')
-  ///       .invokeMethod<String>('moondream_caption', {
-  ///         'modelPath': moondreamModelPath,
-  ///         'jpgBytes': jpegBytes,
-  ///         'prompt': 'Describe this image in one short sentence.',
-  ///       });
-  ///   return result;
-  Future<String> describeWithMoondream(Uint8List jpegBytes) async {
-    // Until you wire the platform channel, fall back to ML Kit so the app
-    // never crashes silently. Log a warning so you notice during dev.
-    debugPrint('[LocalVisionService] Moondream requested but native binding '
-        'not wired — falling back to ML Kit.');
-    return describeWithMlKit(jpegBytes);
+  /// Native side: android/.../MainActivity.kt + cpp/moondream_jni.cpp.
+  /// Returns null when the native engine is missing or errors out, so the
+  /// pipeline keeps flowing through fallbacks instead of stalling.
+  Future<String?> _describeWithMoondream(Uint8List jpegBytes) async {
+    try {
+      final result = await _moondream.invokeMethod<String>(
+        'moondream_caption',
+        {
+          'modelPath': moondreamModelPath,
+          'jpgBytes': jpegBytes,
+          'prompt': 'Describe this image in one short sentence.',
+          'maxTokens': 48,
+        },
+      );
+      return result;
+    } on MissingPluginException {
+      debugPrint('[LocalVision] Moondream native engine not built yet — '
+          'falling back. See README (Moondream native build).');
+      return null;
+    } catch (e) {
+      debugPrint('[LocalVision] Moondream error: $e');
+      return null;
+    }
+  }
+
+  /// Enable the Moondream path (call once the GGUF is on the device).
+  Future<void> enableMoondream(String ggufPath) async {
+    moondreamModelPath = ggufPath;
+    debugPrint('[LocalVision] Moondream enabled: $ggufPath');
+  }
+
+  Future<void> disableMoondream() async {
+    moondreamModelPath = null;
   }
 
   Future<File> _writeTempJpg(Uint8List bytes) async {
     final dir = await getTemporaryDirectory();
-    final path = '${dir.path}/esp32cam_${DateTime.now().microsecondsSinceEpoch}.jpg';
+    final path =
+        '${dir.path}/frame_${DateTime.now().microsecondsSinceEpoch}.jpg';
     final f = File(path);
     await f.writeAsBytes(bytes, flush: true);
     return f;
   }
 
-  /// Configure the Moondream2 path (called from settings screen).
-  Future<void> enableMoondream(String ggufPath) async {
-    moondreamModelPath = ggufPath;
-    useMoondream = true;
-    debugPrint('[LocalVisionService] Moondream enabled: $ggufPath');
-  }
-
-  Future<void> disableMoondream() async {
-    useMoondream = false;
-    moondreamModelPath = null;
-  }
-
   void dispose() {
     _labeler.close();
-    _detector.close();
     _ocr.close();
   }
 }

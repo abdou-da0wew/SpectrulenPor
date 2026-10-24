@@ -2,16 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../main.dart' show appLocale;
 import '../models/recognition_state.dart';
+import '../services/local_vision_service.dart';
+import '../services/onnx_vision_service.dart';
 import '../services/openrouter_service.dart';
 import '../services/openrouter_tts_service.dart';
+import '../services/phone_camera_service.dart';
 import '../utils/app_theme.dart' as palette;
+import '../utils/strings.dart';
 
-/// Settings: OpenRouter API key, upstream model choice, live narration,
-/// streaming fps, and OpenRouter TTS configuration.
-///
-/// Toggles are routed through [RecognitionState] setters so the running
-/// pipeline reacts immediately (and values persist via SharedPreferences).
+/// Settings: OpenRouter API key, upstream model, language (EN/AR),
+/// live pipeline (fps / narration), ONNX status, camera rotation,
+/// Moondream deployment, and OpenRouter TTS config.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -26,10 +29,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   static const List<(String, String)> _freeModels = [
     ('google/gemini-2.5-flash:free',
-        'Gemini 2.5 Flash — fast, balanced (recommended)'),
-    ('deepseek/deepseek-chat-v3.1:free', 'DeepSeek V3.1 — strong reasoning'),
-    ('meta-llama/llama-3.3-70b-instruct:free', 'Llama 3.3 70B — thorough, slower'),
-    ('qwen/qwen3-235b-a22b:free', 'Qwen3 235B — encyclopedic detail'),
+        'Gemini 2.5 Flash — fast presenter (recommended)'),
+    ('google/gemini-2.5-flash-lite:free',
+        'Gemini 2.5 Flash Lite — lowest latency'),
+    ('deepseek/deepseek-chat-v3.1:free', 'DeepSeek V3.1 — richer phrasing'),
+    ('meta-llama/llama-3.3-70b-instruct:free', 'Llama 3.3 70B — thorough'),
     ('mistralai/mistral-small-3.2-24b-instruct:free',
         'Mistral Small 3.2 — lightweight'),
   ];
@@ -58,13 +62,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<RecognitionState>();
+    final prefs = context.read<SharedPreferences>();
     final theme = Theme.of(context);
+    final onnx = OnnxVisionService.instance;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      appBar: AppBar(title: Text(S.t(context, S.settings))),
       body: ListView(
         padding: const EdgeInsets.symmetric(vertical: 12),
         children: [
+          // ---------------- Language ----------------
+          _sectionHeader(theme, Icons.translate, 'Language · اللغة'),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: 'en', label: Text('English')),
+                  ButtonSegment(value: 'ar', label: Text('العربية')),
+                ],
+                selected: {state.localeCode.startsWith('ar') ? 'ar' : 'en'},
+                onSelectionChanged: (sel) async {
+                  await state.setLocale(sel.first);
+                  appLocale.value = Locale(sel.first);
+                },
+                style: SegmentedButton.styleFrom(
+                  selectedBackgroundColor: palette.AppColors.dustyLavender,
+                  selectedForegroundColor: Colors.white,
+                ),
+              ),
+            ),
+          ),
+
+          // ---------------- OpenRouter ----------------
           _sectionHeader(theme, Icons.key, 'OpenRouter API'),
           Card(
             child: Padding(
@@ -80,16 +110,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       border: OutlineInputBorder(),
                     ),
                     onChanged: (v) {
-                      context.read<SharedPreferences>()
-                          .setString('openrouter_api_key', v);
-                      // Hot-swap the key into the running service.
+                      prefs.setString('openrouter_api_key', v);
                       context.read<OpenRouterService>().apiKey = v;
                     },
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Get a free key at openrouter.ai/keys. Free-tier models '
-                    'are marked with ":free". The key stays on this device.',
+                    'Free key: openrouter.ai/keys. The key stays on this '
+                    'device. The LLM only presents the specialized model\'s '
+                    'analysis — short prompts, low latency.',
                     style: theme.textTheme.bodySmall
                         ?.copyWith(color: palette.AppColors.inkSoft),
                   ),
@@ -98,6 +127,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
 
+          // ---------------- Upstream model ----------------
           _sectionHeader(theme, Icons.psychology_alt, 'Upstream model'),
           Card(
             child: Padding(
@@ -106,8 +136,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 children: [
                   for (final (id, label) in _freeModels)
                     RadioListTile<String>(
-                      title:
-                          Text(label, style: const TextStyle(fontSize: 14.5)),
+                      title: Text(label,
+                          style: const TextStyle(fontSize: 14.5)),
                       value: id,
                       groupValue: state.upstreamModel,
                       onChanged: (v) => state.upstreamModel = v!,
@@ -118,47 +148,87 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
 
-          _sectionHeader(theme, Icons.speed, 'Live pipeline'),
+          // ---------------- Local AI (ONNX) ----------------
+          _sectionHeader(theme, Icons.memory, 'Local AI — ONNX Runtime Mobile'),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        onnx.isReady
+                            ? Icons.check_circle
+                            : Icons.info_outline,
+                        size: 18,
+                        color: onnx.isReady
+                            ? palette.AppColors.success
+                            : palette.AppColors.silver,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          onnx.isReady
+                              ? 'Specialized model loaded '
+                                  '(${onnx.labelCount} classes, optimized)'
+                              : 'No ONNX model bundled — using ML Kit '
+                                  'fallback. Run tooling/'
+                                  'convert_mobilenet_onnx.py and place the '
+                                  'files in assets/models/.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                              color: palette.AppColors.inkSoft),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Speak the local label instantly',
+                        style: TextStyle(fontWeight: FontWeight.w600)),
+                    subtitle: const Text(
+                        'Narrates the specialized model result the moment '
+                        'each frame is classified (native TTS, offline).',
+                        style: TextStyle(fontSize: 12.5, height: 1.4)),
+                    value: state.liveSpeak,
+                    onChanged: (v) => state.liveSpeak = v,
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('LLM presentation pass',
+                        style: TextStyle(fontWeight: FontWeight.w600)),
+                    subtitle: const Text(
+                        'Streams the local analysis through OpenRouter for a '
+                        'cleaner spoken explanation + hazard check. Sentences '
+                        'are spoken as they arrive (no full-reply wait).',
+                        style: TextStyle(fontSize: 12.5, height: 1.4)),
+                    value: state.deepReasonEnabled,
+                    onChanged: (v) => state.deepReasonEnabled = v,
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // ---------------- Pipeline ----------------
+          _sectionHeader(theme, Icons.speed, 'Pipeline'),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(14),
               child: Column(
                 children: [
-                  SwitchListTile(
-                    title: const Text('Speak the local label instantly',
-                        style: TextStyle(fontWeight: FontWeight.w600)),
-                    subtitle: const Text(
-                        'Narrates "In front of you is…" as soon as each frame '
-                        'is classified (native TTS, no network).',
-                        style: TextStyle(fontSize: 12.5, height: 1.4)),
-                    value: state.liveSpeak,
-                    onChanged: (v) => state.liveSpeak = v,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                  SwitchListTile(
-                    title: const Text('Deep reasoning upstream',
-                        style: TextStyle(fontWeight: FontWeight.w600)),
-                    subtitle: const Text(
-                        'Sends the local text label to OpenRouter for rich '
-                        'context, tips, and related concepts.',
-                        style: TextStyle(fontSize: 12.5, height: 1.4)),
-                    value: state.deepReasonEnabled,
-                    onChanged: (v) => state.deepReasonEnabled = v,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                  const Divider(),
                   Row(
                     children: [
                       const Expanded(
-                        child: Text('Streaming fps',
+                        child: Text('Analysis cadence',
                             style: TextStyle(fontWeight: FontWeight.w600)),
                       ),
-                      Text(
-                        '${state.fps} fps',
-                        style: const TextStyle(
-                            color: palette.AppColors.dustyLavender,
-                            fontWeight: FontWeight.w700),
-                      ),
+                      Text('${state.fps} fps',
+                          style: const TextStyle(
+                              color: palette.AppColors.dustyLavender,
+                              fontWeight: FontWeight.w700)),
                     ],
                   ),
                   Slider(
@@ -170,16 +240,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     onChanged: (v) => state.fps = v.round(),
                   ),
                   Text(
-                    'Higher fps = faster reactions but drains the glasses '
-                    'battery and floods BLE. 1 fps is the sweet spot.',
+                    '1 fps is the sweet spot for battery; raise it only for '
+                    'fast-moving scenes.',
                     style: theme.textTheme.bodySmall
                         ?.copyWith(color: palette.AppColors.inkSoft),
+                  ),
+                  const Divider(height: 24),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text('Camera rotation',
+                            style: TextStyle(fontWeight: FontWeight.w600)),
+                      ),
+                      Text(
+                        '${context.read<PhoneCameraService>().quarterTurns * 90}°',
+                        style: const TextStyle(
+                            color: palette.AppColors.dustyLavender,
+                            fontWeight: FontWeight.w700),
+                      ),
+                    ],
+                  ),
+                  Slider(
+                    value: context
+                        .read<PhoneCameraService>()
+                        .quarterTurns
+                        .toDouble(),
+                    min: 0,
+                    max: 3,
+                    divisions: 3,
+                    label:
+                        '${context.read<PhoneCameraService>().quarterTurns * 90}°',
+                    onChanged: (v) {
+                      context.read<PhoneCameraService>().quarterTurns =
+                          v.round();
+                      setState(() {});
+                    },
                   ),
                 ],
               ),
             ),
           ),
 
+          // ---------------- OpenRouter TTS ----------------
           _sectionHeader(theme, Icons.record_voice_over,
               'OpenRouter TTS (optional)'),
           Card(
@@ -189,16 +291,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   SwitchListTile(
-                    title: const Text('Use OpenRouter TTS for deep replies',
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Use OpenRouter TTS for AI replies',
                         style: TextStyle(fontWeight: FontWeight.w600)),
                     subtitle: const Text(
-                        'Routes the deep-reasoning text through a premium '
-                        'voice. Requires an audio/speech-capable endpoint. '
-                        'When off, the Android native engine reads it aloud.',
+                        'Premium voice via an OpenAI-compatible '
+                        '/audio/speech endpoint. When off, the Android '
+                        'native engine speaks (lower latency).',
                         style: TextStyle(fontSize: 12.5, height: 1.4)),
                     value: state.useOpenRouterTts,
                     onChanged: (v) => state.useOpenRouterTts = v,
-                    contentPadding: EdgeInsets.zero,
                   ),
                   const SizedBox(height: 8),
                   TextField(
@@ -208,38 +310,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           'TTS base URL (OpenAI-compatible /audio/speech)',
                       border: OutlineInputBorder(),
                     ),
-                    onChanged: (v) =>
-                        context.read<SharedPreferences>().setString(
-                              'tts_base_url',
-                              v,
-                            ),
+                    onChanged: (v) => prefs.setString('tts_base_url', v),
                   ),
                   const SizedBox(height: 10),
                   TextField(
                     controller: _ttsVoiceCtl,
                     decoration: const InputDecoration(
-                      labelText: 'Voice (e.g. alloy, echo, fable)',
+                      labelText: 'Voice (e.g. alloy, echo, nova)',
                       border: OutlineInputBorder(),
                     ),
-                    onChanged: (v) =>
-                        context.read<SharedPreferences>().setString(
-                              'tts_voice',
-                              v,
-                            ),
+                    onChanged: (v) => prefs.setString('tts_voice', v),
                   ),
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
                     onPressed: () {
-                      final prefs = context.read<SharedPreferences>();
                       OpenRouterTtsService.instance.configure(
-                        apiKey:
-                            prefs.getString('openrouter_api_key') ?? '',
+                        apiKey: prefs.getString('openrouter_api_key') ?? '',
                         baseUrl: _ttsUrlCtl.text,
                         voice: _ttsVoiceCtl.text,
                       );
                       OpenRouterTtsService.instance.speakMarkdown(
-                          '## Test\nSpectrulenPor voice test. I am your '
-                          'smart glasses narrator.');
+                          '## Test\nSpectruLenPor voice test. أنا مساعدك '
+                          'الصوتي للتحليل الطيفي.');
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
                             content: Text('Playing TTS test sample…')),
@@ -253,17 +345,59 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
 
+          // ---------------- Moondream ----------------
+          _sectionHeader(theme, Icons.auto_awesome, 'Moondream2 (VLM)'),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        LocalVisionService.instance.moondreamAvailable
+                            ? Icons.check_circle
+                            : Icons.build_circle_outlined,
+                        size: 18,
+                        color: LocalVisionService
+                                .instance.moondreamAvailable
+                            ? palette.AppColors.success
+                            : palette.AppColors.silver,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          LocalVisionService.instance.moondreamAvailable
+                              ? 'GGUF deployed: ${LocalVisionService.instance.moondreamModelPath}'
+                              : 'Native engine not deployed. Build the '
+                                  'llama.cpp platform channel (README → '
+                                  'Moondream native build), push the GGUF to '
+                                  'the device, then set the path here.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                              color: palette.AppColors.inkSoft, height: 1.4),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // ---------------- About ----------------
           _sectionHeader(theme, Icons.info_outline, 'About'),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(14),
               child: Text(
-                'SpectrulenPor v1.0 — smart scientific glasses that analyze '
-                'materials and lab equipment. Pipeline: ESP32-CAM glasses → '
-                'Bluetooth → local ML Kit / Moondream vision → OpenRouter '
-                'deep reasoning → spoken narration.\n\n'
-                'Project by Elaf Al-Tai · Supervised by Dr. Khaled Sibakat · '
-                'Computer Science 2025/2026.',
+                'SpectruLenPor v2.0 — smart glasses for spectrum analysis and '
+                'detection of chemical elements and compounds.\n\n'
+                'Pipeline: sensors + camera → ESP32-CAM → Bluetooth → phone '
+                '(all processing on-device, ONNX Runtime Mobile) → OpenRouter '
+                'presentation pass → bilingual voice narration.\n\n'
+                'Malak Adel Sayed Hassan · Grade 1 secondary, Class 3/1 · '
+                'Ashmounin Secondary School · Budget: 2,500–6,000 EGP.',
                 style: theme.textTheme.bodySmall?.copyWith(
                     color: palette.AppColors.inkSoft, height: 1.5),
               ),

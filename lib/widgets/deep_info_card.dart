@@ -3,6 +3,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 
 import '../models/recognition_state.dart';
 import '../utils/app_theme.dart' as palette;
+import '../utils/strings.dart';
 
 /// Renders the streaming deep-reasoning markdown returned by OpenRouter.
 /// Shows a progress indicator while we wait for the first chunk.
@@ -35,7 +36,8 @@ class DeepInfoCard extends StatelessWidget {
                       color: palette.AppColors.dustyLavender, size: 18),
                 ),
                 const SizedBox(width: 10),
-                Text('Deep reasoning', style: theme.textTheme.titleMedium),
+                Text(S.t(context, S.deepReasoning),
+                    style: theme.textTheme.titleMedium),
                 const Spacer(),
                 _statusBadge(theme),
               ],
@@ -50,8 +52,7 @@ class DeepInfoCard extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 10),
                 child: Text(
-                  'Point the glasses at something, then tap "Describe now" '
-                  'to send the local label upstream for full details.',
+                  S.t(context, S.deepHint),
                   style: theme.textTheme.bodyMedium
                       ?.copyWith(color: palette.AppColors.inkSoft),
                 ),

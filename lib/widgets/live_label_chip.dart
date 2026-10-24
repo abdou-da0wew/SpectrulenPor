@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../models/recognition_state.dart';
 import '../utils/app_theme.dart' as palette;
+import '../utils/strings.dart';
 
-/// Small chip that shows the instant on-device label coming from
-/// Moondream2 / ML Kit, with an icon indicating the source.
+/// Small chip that shows the instant on-device label coming from the
+/// specialized ONNX model / Moondream / ML Kit, with a source icon.
 class LiveLabelChip extends StatelessWidget {
   final String? label;
   final VisionSource source;
@@ -43,7 +44,7 @@ class LiveLabelChip extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Local vision — instant',
+                  S.t(context, S.localVision),
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: color,
                     fontWeight: FontWeight.w700,
@@ -52,7 +53,7 @@ class LiveLabelChip extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  label ?? 'Idle — waiting for next frame.',
+                  label ?? S.t(context, S.idleLabel),
                   style: theme.textTheme.bodyLarge
                       ?.copyWith(color: palette.AppColors.inkDark),
                 ),
@@ -66,10 +67,12 @@ class LiveLabelChip extends StatelessWidget {
 
   Color _sourceColor(VisionSource s) {
     switch (s) {
-      case VisionSource.mlkit:
-        return palette.AppColors.dustyMauve; // fast path accent
+      case VisionSource.onnx:
+        return palette.AppColors.dustyMauve; // specialized fast path
       case VisionSource.moondream:
-        return palette.AppColors.dustyLavender; // deeper AI accent
+        return palette.AppColors.dustyLavender; // deeper VLM
+      case VisionSource.mlkit:
+        return palette.AppColors.silver; // fallback
       case VisionSource.error:
         return palette.AppColors.danger;
       case VisionSource.idle:
@@ -79,10 +82,12 @@ class LiveLabelChip extends StatelessWidget {
 
   IconData _sourceIcon(VisionSource s) {
     switch (s) {
-      case VisionSource.mlkit:
-        return Icons.flash_on;
+      case VisionSource.onnx:
+        return Icons.bolt; // specialized fast path
       case VisionSource.moondream:
         return Icons.auto_awesome;
+      case VisionSource.mlkit:
+        return Icons.flash_on;
       case VisionSource.error:
         return Icons.error_outline;
       case VisionSource.idle:

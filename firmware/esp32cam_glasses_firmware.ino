@@ -1,33 +1,28 @@
 /*
  * ============================================================
- *  SpectrulenPor — ESP32-CAM Smart Glasses Firmware v1.0
+ *  SpectruLenPor — ESP32-CAM Smart Glasses Firmware v2.0
  * ============================================================
- *  Streams JPEG frames from the OV2640 camera over Bluetooth
- *  Classic (BLE is too slow for >10 KB frames on ESP32-CAM,
- *  so we use BluetoothSerial with SPP — the Android side can
- *  swap to `flutter_bluetooth_serial` for Classic, or keep BLE
- *  with heavy downscaling. Default sketch below uses BLE with
- *  QVGA frames ~6-15 KB, chunked at 512 bytes / notification.)
+ *  Per the project paper: the glasses are the CAPTURE end only —
+ *  the phone does all processing. This sketch streams:
  *
- *  Pipeline:
- *    OV2640 (QVGA JPEG) -> ps_frame buffer -> BLE notify chunks
+ *    1. JPEG frames (OV2640, QVGA) over BLE notifications
+ *    2. UV + IR sensor telemetry packets between frames
+ *       -> "$UV:1234;IR:567\n"   (12-bit ADC raw, 0..4095)
+ *    3. Obeys phone commands:
+ *       0x01 stream on · 0x00 stream off · 0x02 single frame
+ *       0x03 flashlight ON · 0x04 flashlight OFF
  *
- *  Pairing service contract (must match bluetooth_camera_service.dart):
- *    Service UUID:  0000ffe0-0000-1000-8000-00805f9b34fb
- *    TX char (ffe1): notify — glasses -> phone (JPEG chunks)
- *    RX char (ffe2): write  — phone -> glasses commands
- *      0x01 = start continuous stream (~1 fps)
- *      0x00 = stop stream
- *      0x02 = capture + send exactly one frame
+ *  Hardware (AI-Thinker ESP32-CAM):
+ *    * OV2640 camera (built-in pin map below)
+ *    * UV sensor  (GUVA-S12SD or similar, analog out) -> GPIO12 (ADC2)
+ *    * IR sensor  (photodiode / thermopile, analog)   -> GPIO13 (ADC2)
+ *    * Onboard flash LED (white, bright!)             -> GPIO4
  *
- *  Board: AI-Thinker ESP32-CAM (no USB — use FTDI adapter)
- *  Library deps (Arduino IDE Library Manager):
- *    - "ESP32Servo" not needed here
- *    - esp32 core includes BLE (install "esp32 by Espressif" boards pkg)
+ *  BLE contract (mirrors lib/services/bluetooth_camera_service.dart):
+ *    Service ffe0 · TX ffe1 (notify) · RX ffe2 (write)
  * ============================================================
  */
 
-#include <WiFi.h>          // unused but silences some boards' warnings
 #include "esp_camera.h"
 #include "BLE2902.h"
 #include "BLEDevice.h"
@@ -50,24 +45,31 @@
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
+// ---------- Sensor + flashlight pins ----------
+#define UV_SENSOR_PIN     12   // ADC2 — analog UV sensor out
+#define IR_SENSOR_PIN     13   // ADC2 — analog IR sensor out
+#define FLASH_LED_PIN      4   // onboard white flash LED
+
 // ---------- BLE UUIDs (match the Flutter app) ----------
 #define SERVICE_UUID "0000ffe0-0000-1000-8000-00805f9b34fb"
 #define TX_CHAR_UUID "0000ffe1-0000-1000-8000-00805f9b34fb"
 #define RX_CHAR_UUID "0000ffe2-0000-1000-8000-00805f9b34fb"
 
 // ---------- Stream config ----------
-const uint32_t  STREAM_INTERVAL_MS = 1000;  // ~1 fps target
-const size_t    CHUNK_SIZE         = 500;   // <= MTU-3; 517 MTU negotiated
-const char*     DEVICE_NAME        = "SpectraGlass-ESP32";
+const uint32_t STREAM_INTERVAL_MS = 1000; // ~1 fps target
+const size_t   CHUNK_SIZE         = 500;  // <= MTU-3
+const char*    DEVICE_NAME        = "SpectruLenPor-ESP32";
 
-BLEServer*         pServer   = nullptr;
-BLECharacteristic* pTxChar   = nullptr;
-BLECharacteristic* pRxChar   = nullptr;
-volatile bool      clientConnected    = false;
-volatile bool      streaming          = false;
-uint32_t           lastFrameMs        = 0;
+BLEServer*         pServer = nullptr;
+BLECharacteristic* pTxChar = nullptr;
+BLECharacteristic* pRxChar = nullptr;
+volatile bool      clientConnected = false;
+volatile bool      streaming       = false;
+volatile bool      flashOn         = false;
+uint32_t           lastFrameMs     = 0;
+uint32_t           lastTelemetryMs = 0;
 
-// Forward declaration (used by RxCallbacks below)
+// Forward declaration
 void sendOneFrame();
 
 // ------------------- camera init -------------------
@@ -89,10 +91,8 @@ bool initCamera() {
   cfg.pin_reset = RESET_GPIO_NUM;
   cfg.xclk_freq_hz = 20000000;
   cfg.pixel_format = PIXFORMAT_JPEG;
-
-  // PSRAM present on AI-Thinker -> QVGA keeps frames ~6-15 KB (BLE-friendly)
-  cfg.frame_size   = FRAMESIZE_QVGA;   // 320x240
-  cfg.jpeg_quality = 14;               // 10-63; lower = better, bigger
+  cfg.frame_size   = FRAMESIZE_QVGA; // 320x240, BLE-friendly
+  cfg.jpeg_quality = 14;
   cfg.fb_count     = 2;
   cfg.fb_location  = CAMERA_FB_IN_PSRAM;
   cfg.grab_mode    = CAMERA_GRAB_LATEST;
@@ -109,8 +109,10 @@ class ServerCallbacks : public BLEServerCallbacks {
   void onDisconnect(BLEServer* s) override {
     clientConnected = false;
     streaming = false;
+    digitalWrite(FLASH_LED_PIN, LOW);
+    flashOn = false;
     BLEDevice::startAdvertising();
-    Serial.println("[BLE] client disconnected — advertising again");
+    Serial.println("[BLE] disconnected — advertising again");
   }
 };
 
@@ -122,10 +124,33 @@ class RxCallbacks : public BLECharacteristicCallbacks {
       case 0x01: streaming = true;  Serial.println("[CMD] stream ON");  break;
       case 0x00: streaming = false; Serial.println("[CMD] stream OFF"); break;
       case 0x02: sendOneFrame();    Serial.println("[CMD] single frame"); break;
+      case 0x03:
+        flashOn = true;
+        digitalWrite(FLASH_LED_PIN, HIGH);   // light the sample
+        Serial.println("[CMD] flashlight ON");
+        break;
+      case 0x04:
+        flashOn = false;
+        digitalWrite(FLASH_LED_PIN, LOW);
+        Serial.println("[CMD] flashlight OFF");
+        break;
       default: break;
     }
   }
 };
+
+// ------------------- telemetry -------------------
+void sendTelemetry() {
+  if (!clientConnected || !pTxChar) return;
+  uint16_t uv = analogRead(UV_SENSOR_PIN); // 0..4095 (12-bit)
+  uint16_t ir = analogRead(IR_SENSOR_PIN);
+
+  char packet[32];
+  snprintf(packet, sizeof(packet), "$UV:%u;IR:%u\n", uv, ir);
+
+  pTxChar->setValue((uint8_t*)packet, strlen(packet));
+  pTxChar->notify();
+}
 
 // ------------------- frame capture + send -------------------
 void sendOneFrame() {
@@ -134,7 +159,6 @@ void sendOneFrame() {
   camera_fb_t* fb = esp_camera_fb_get();
   if (!fb) { Serial.println("[CAM] capture failed"); return; }
 
-  // Validate JPEG SOI / EOI markers just in case
   bool valid = fb->len > 4 &&
                fb->buf[0] == 0xFF && fb->buf[1] == 0xD8 &&
                fb->buf[fb->len - 2] == 0xFF && fb->buf[fb->len - 1] == 0xD9;
@@ -144,8 +168,7 @@ void sendOneFrame() {
       size_t n = (off + CHUNK_SIZE <= fb->len) ? CHUNK_SIZE : (fb->len - off);
       pTxChar->setValue((uint8_t*)(fb->buf + off), n);
       pTxChar->notify();
-      // Throttle slightly so the BLE stack doesn't drop notifications
-      delay(3);
+      delay(3); // let the BLE stack breathe between chunks
     }
     Serial.printf("[CAM] sent %u bytes\n", fb->len);
   }
@@ -155,14 +178,18 @@ void sendOneFrame() {
 
 void setup() {
   Serial.begin(115200);
-  pinMode(4, OUTPUT);            // onboard flash LED — keep off
-  digitalWrite(4, LOW);
+  pinMode(FLASH_LED_PIN, OUTPUT);
+  digitalWrite(FLASH_LED_PIN, LOW);
+  analogReadResolution(12);            // full 0..4095 range
+  pinMode(UV_SENSOR_PIN, INPUT);
+  pinMode(IR_SENSOR_PIN, INPUT);
 
   if (!initCamera()) {
     Serial.println("[CAM] init FAILED — halting");
     while (true) delay(1000);
   }
   Serial.println("[CAM] OV2640 ready (QVGA JPEG)");
+  Serial.println("[SEN] UV on GPIO12, IR on GPIO13, flash on GPIO4");
 
   BLEDevice::init(DEVICE_NAME);
   BLEServer* server = BLEDevice::createServer();
@@ -172,11 +199,11 @@ void setup() {
 
   pTxChar = svc->createCharacteristic(
       TX_CHAR_UUID, BLECharacteristic::PROPERTY_NOTIFY);
-  pTxChar->addDescriptor(new BLE2902());   // enable client notifications
+  pTxChar->addDescriptor(new BLE2902());
 
   pRxChar = svc->createCharacteristic(
       RX_CHAR_UUID, BLECharacteristic::PROPERTY_WRITE);
-  pRxChar->setCallbacks(new RxCallbacks());  // defined below
+  pRxChar->setCallbacks(new RxCallbacks());
 
   svc->start();
 
@@ -184,13 +211,23 @@ void setup() {
   adv->addServiceUUID(SERVICE_UUID);
   adv->setScanResponse(true);
   BLEDevice::startAdvertising();
-  Serial.println("[BLE] advertising as SpectraGlass-ESP32");
+  Serial.println("[BLE] advertising as SpectruLenPor-ESP32");
 }
 
 void loop() {
-  if (clientConnected && streaming && millis() - lastFrameMs >= STREAM_INTERVAL_MS) {
-    lastFrameMs = millis();
+  uint32_t now = millis();
+
+  // UV/IR telemetry at ~5 Hz (cheap, keeps the spectrum panel live)
+  if (clientConnected && now - lastTelemetryMs >= 200) {
+    lastTelemetryMs = now;
+    sendTelemetry();
+  }
+
+  // Camera frames at STREAM_INTERVAL_MS
+  if (clientConnected && streaming && now - lastFrameMs >= STREAM_INTERVAL_MS) {
+    lastFrameMs = now;
     sendOneFrame();
   }
-  delay(10);
+
+  delay(5);
 }

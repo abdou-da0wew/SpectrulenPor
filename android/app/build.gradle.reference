@@ -1,0 +1,65 @@
+// ============================================================
+//  SpectruLenPor — android/app/build.gradle (REFERENCE)
+// ============================================================
+//  This is the complete app-level Gradle file with the native
+//  Moondream build wired in. When you run `flutter create .` to
+//  generate the real android/ folder, merge the marked blocks
+//  into your generated file (or replace it wholesale after setting
+//  namespace/applicationId to com.spectraglass.app).
+// ============================================================
+
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+android {
+    namespace "com.spectraglass.app"
+    compileSdk 35
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions { jvmTarget = "17" }
+
+    defaultConfig {
+        applicationId "com.spectraglass.app"
+        minSdk 24          // flutter_blue_plus + ONNX Runtime floor
+        targetSdk 35
+        versionCode 2
+        versionName "2.0"
+
+        // ---- Moondream native build wiring ----
+        externalNativeBuild {
+            cmake {
+                arguments "-DANDROID_STL=c++_shared"
+                abiFilters "arm64-v8a"   // llama.cpp: arm64 only for phones
+            }
+        }
+    }
+
+    // ---- Moondream native build source ----
+    externalNativeBuild {
+        cmake {
+            path file("src/main/cpp/CMakeLists.txt")
+            version "3.22.1"
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.debug
+            minifyEnabled true
+            shrinkResources true
+        }
+    }
+}
+
+flutter { source "../.." }
+
+dependencies {
+    implementation "androidx.core:core-ktx:1.13.1"
+}

@@ -45,6 +45,10 @@ app.*.map.json
 *.tflite
 *.mmproj
 
+# llama.cpp native build (cloned into cpp/, never committed)
+/android/app/src/main/cpp/llama.cpp/
+/android/app/.cxx/
+
 # Secrets
 .env
 *.keystore

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/recognition_state.dart';
 import '../utils/app_theme.dart' as palette;
+import '../utils/strings.dart';
 
 /// Header pill showing the BLE connection state of the glasses,
 /// plus a connect / disconnect action.
@@ -21,8 +22,7 @@ class ConnectionStatusBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final (label, color, icon) = _map(status);
+    final icon = _iconFor(status);
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -42,7 +42,9 @@ class ConnectionStatusBar extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              deviceName == null ? label : '$label · $deviceName',
+              deviceName == null
+                  ? _label(context, status)
+                  : '${_label(context, status)} · $deviceName',
               style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w600,
@@ -66,8 +68,9 @@ class ConnectionStatusBar extends StatelessWidget {
             TextButton.icon(
               onPressed: onDisconnect,
               icon: const Icon(Icons.link_off, size: 16, color: Colors.white),
-              label: const Text('Disconnect',
-                  style: TextStyle(color: Colors.white, fontSize: 12.5)),
+              label: Text(S.t(context, S.disconnect),
+                  style: const TextStyle(
+                      color: Colors.white, fontSize: 12.5)),
               style: TextButton.styleFrom(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -80,8 +83,9 @@ class ConnectionStatusBar extends StatelessWidget {
               onPressed: onConnect,
               icon: const Icon(Icons.bluetooth_searching,
                   size: 16, color: Colors.white),
-              label: const Text('Connect glasses',
-                  style: TextStyle(color: Colors.white, fontSize: 12.5)),
+              label: Text(S.t(context, S.connectGlasses),
+                  style: const TextStyle(
+                      color: Colors.white, fontSize: 12.5)),
               style: TextButton.styleFrom(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -95,18 +99,18 @@ class ConnectionStatusBar extends StatelessWidget {
     );
   }
 
-  (String, Color, IconData) _map(BluetoothStatus s) {
+  IconData _iconFor(BluetoothStatus s) {
     switch (s) {
       case BluetoothStatus.disconnected:
-        return ('Glasses not connected', palette.AppColors.inkSoft, Icons.bluetooth_disabled);
+        return Icons.bluetooth_disabled;
       case BluetoothStatus.scanning:
-        return ('Scanning for glasses…', palette.AppColors.dustyMauve, Icons.bluetooth_searching);
+        return Icons.bluetooth_searching;
       case BluetoothStatus.connecting:
-        return ('Connecting…', palette.AppColors.dustyMauve, Icons.bluetooth);
+        return Icons.bluetooth;
       case BluetoothStatus.connected:
-        return ('Connected', palette.AppColors.dustyLavender, Icons.bluetooth_connected);
+        return Icons.bluetooth_connected;
       case BluetoothStatus.error:
-        return ('Bluetooth error', palette.AppColors.danger, Icons.error_outline);
+        return Icons.error_outline;
     }
   }
 }
