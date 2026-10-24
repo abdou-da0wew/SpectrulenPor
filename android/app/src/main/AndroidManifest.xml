@@ -54,14 +54,15 @@
         </activity>
 
         <!-- Required by flutter_tts on some engines -->
-        <queries>
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+
+    <queries>
             <intent>
                 <action android:name="android.intent.action.TTS_SERVICE" />
             </intent>
         </queries>
 
-        <meta-data
-            android:name="flutterEmbedding"
-            android:value="2" />
-    </application>
 </manifest>

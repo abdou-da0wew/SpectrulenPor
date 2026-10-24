@@ -30,7 +30,7 @@ dependencies:
   path_provider: ^2.1.4         # where to store downloaded GGUF model
 
   # ---------- ONNX Runtime Mobile (optional specialized offline classifier) ----------
-  onnxruntime: ^1.4.1
+  # onnxruntime: ^1.4.1  # disabled for APK build (cloud Moondream fallback used instead)
 
   # ---------- Audio output ----------
   flutter_tts: ^4.0.2            # Android native TTS (low latency, offline fallback)

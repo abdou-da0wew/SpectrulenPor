@@ -36,7 +36,7 @@ class MoondreamChannel private constructor() {
 
         // Loads libmoondream_jni.so (built by CMake, links llama.cpp + clip).
         init {
-            System.loadLibrary("moondream_jni")
+            try { try { System.loadLibrary("moondream_jni") } catch (e: UnsatisfiedLinkError) { /* libmoondream_jni.so not bundled; cloud path used */ } } catch (e: UnsatisfiedLinkError) { /* libmoondream_jni.so not bundled; cloud path will be used. */ }
         }
 
         @Volatile private var engineInstance: MoondreamChannel? = null
