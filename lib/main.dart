@@ -61,10 +61,10 @@ class SpectruLenPorApp extends StatelessWidget {
           create: (_) => BluetoothCameraService()..init(),
           dispose: (_, svc) => svc.dispose(),
         ),
-        Provider<PhoneCameraService>(
-          create: (_) => PhoneCameraService(),
-          dispose: (_, svc) => svc.dispose(),
-        ),
+        // v3.3: PhoneCameraService is a singleton now — don't dispose it via
+        // Provider (it's a long-lived process service). Other widgets can grab
+        // the same instance via PhoneCameraService.instance.
+        Provider<PhoneCameraService>.value(value: PhoneCameraService.instance),
         Provider<LocalVisionService>.value(value: LocalVisionService.instance),
         Provider<MoondreamService>.value(value: MoondreamService.instance),
         Provider<OpenRouterService>(

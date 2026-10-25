@@ -12,7 +12,9 @@ import '../services/moondream_service.dart';
 import '../services/native_tts_service.dart';
 import '../services/openrouter_service.dart';
 import '../services/openrouter_tts_service.dart';
+import '../services/flashlight_service.dart';
 import '../services/phone_camera_service.dart';
+import '../services/vision_gate.dart';
 
 export '../models/bluetooth_status.dart';
 
@@ -172,17 +174,43 @@ class RecognitionState extends ChangeNotifier {
   }
 
   Future<void> setFlashlight(bool on) async {
+    // User tapped the flashlight button — clear any auto-flash flag so
+    // the user's choice is respected even if the scene darkens again.
+    _autoFlashOn = false;
     _flashOn = on;
     if (_source == CameraSource.glasses) {
       await bluetooth.setFlashlight(on);
     } else {
-      await phoneCamera.setTorch(on);
+      // Phone-camera mode: use FlashlightService which calls native
+      // CameraManager.setTorchMode() — this works WHILE the camera is
+      // streaming, unlike the camera plugin's FlashMode.torch.
+      await FlashlightService.instance.setTorch(on);
     }
     notifyListeners();
   }
 
   bool _flashOn = false;
   bool get flashOn => _flashOn;
+
+  // ---------------------- AUTO-FLASHLIGHT (v3.3) ----------------------
+  /// True when the torch was turned on by the AUTO logic (dark frame),
+  /// as opposed to a manual user tap on the flashlight button. When the
+  /// scene brightens again, only auto-triggered torches are auto-released;
+  /// user-tapped torches stay on until the user taps again.
+  bool _autoFlashOn = false;
+  bool get autoFlashOn => _autoFlashOn;
+
+  /// Latest vision-gate snapshot. Null until the first frame has been
+  /// analyzed. The UI reads this to display the brightness/blur/blocked
+  /// badge on the camera preview.
+  VisionGateResult? _lastGate;
+  VisionGateResult? get lastGate => _lastGate;
+
+  /// True when the most recent frame was too dark AND not blocked — drives
+  /// the auto-flashlight trigger.
+  bool get lastFrameTooDark =>
+      _lastGate != null && _lastGate!.tooDark && !_lastGate!.blocked;
+
 
   void _wireSources() {
     bluetooth.statusStream.listen((s) {
@@ -242,7 +270,63 @@ class RecognitionState extends ChangeNotifier {
       return;
     }
     _lastProcessAt = now;
-    _runLocalVision(frame);
+    // v3.3: vision gate + auto-flashlight + (maybe) vision model call,
+    // all in one async pipeline.
+    _runGatedPipeline(frame);
+  }
+
+  /// v3.3 gated pipeline:
+  ///   1. Run vision gate (brightness/blur/blank/blocked).
+  ///   2. If too dark AND not blocked AND phone-camera mode AND torch not
+  ///      already on → auto-enable torch, return (next frame will be bright).
+  ///   3. If gate passes → run the vision model cascade.
+  ///   4. If gate fails for non-dark reasons (blank / blocked / blurred)
+  ///      → idle, keep showing the last good label.
+  ///   5. If the torch was auto-turned-on AND the scene is no longer too
+  ///      dark → auto-release the torch (unless the user tapped it on).
+  Future<void> _runGatedPipeline(FrameData frame) async {
+    try {
+      // Step 1: gate.
+      final gate = await VisionGate.check(frame.jpegBytes);
+      _lastGate = gate;
+      notifyListeners();
+
+      // Step 2: auto-flashlight trigger.
+      if (gate.tooDark && !gate.blocked &&
+          _source == CameraSource.phone && !_flashOn) {
+        final ok = await phoneCamera.setTorch(true);
+        if (ok) {
+          _autoFlashOn = true;
+          _flashOn = true;
+          notifyListeners();
+        }
+        // Skip this frame — the torch needs ~1 frame to light up the scene.
+        return;
+      }
+
+      // Step 5: auto-release if scene is no longer dark.
+      if (_autoFlashOn && !gate.tooDark && _flashOn) {
+        await phoneCamera.setTorch(false);
+        _autoFlashOn = false;
+        _flashOn = false;
+        notifyListeners();
+      }
+
+      // Step 3/4: gate decision.
+      if (!gate.visible) {
+        // Don't burn model quota on bad frames.
+        _visionSource = VisionSource.idle;
+        notifyListeners();
+        return;
+      }
+
+      // Gate passed — run the vision model cascade.
+      await _runLocalVision(frame);
+    } catch (e) {
+      _visionSource = VisionSource.error;
+      debugPrint('[RecognitionState] gated pipeline error: $e');
+      notifyListeners();
+    }
   }
 
   Future<void> _runLocalVision(FrameData frame) async {

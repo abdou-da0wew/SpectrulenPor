@@ -1,10 +1,10 @@
-/// Conditional ONNX Runtime backend:
-///   * VM / Android / iOS -> real onnxruntime (flutter_onnxruntime 1.9.0) implementation
-///   * Web -> stub (no native libs available)
+/// ONNX Runtime backend (always-stub).
 ///
-/// Uses flutter_onnxruntime (onnxruntime-android 1.28.0, 16KB-page compatible,
-/// supports Android 12-17).
+/// The native flutter_onnxruntime 1.9.0 plugin's AAR has a compileSdk=33
+/// metadata conflict with androidx 34+ transitive deps (fragment 1.7.1,
+/// window 1.2.0, lifecycle 2.7.0). The cloud Moondream3.1-9B-A2B cascade +
+/// local Moondream (GGUF) + ML Kit fallbacks cover the full vision pipeline
+/// without ONNX, so this stub makes the ONNX tier unavailable by design.
 library spectraglass.onnx_vision_service;
 
-export 'onnx_backend_io.dart'
-    if (dart.library.html) 'onnx_backend_stub.dart';
+export 'onnx_backend_stub.dart';

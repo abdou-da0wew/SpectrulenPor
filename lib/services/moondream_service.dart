@@ -261,6 +261,70 @@ class MoondreamService {
     }
   }
 
+
+  // ---------------------------------------------------------------------------
+  // MULTI-PASS SCENE ANALYSIS (v3.3 — smarter, grounded, chemistry-aware)
+  // ---------------------------------------------------------------------------
+
+  /// Multi-pass structured analysis — much smarter than a single caption.
+  ///
+  /// Pipeline:
+  ///   Pass 1: caption (normal length)   — fast, sets context
+  ///   Pass 2: query w/ reasoning        — chemistry-aware VQA, multi-step
+  ///   Pass 3: detect("text")             — find any labels / signs
+  ///   Pass 4: query w/ hazard focus      — safety check (corrosive, toxic, flammable)
+  ///
+  /// Returns the merged structured analysis. The caller (LocalVisionService)
+  /// feeds this to OpenRouter as the rich context for the spoken narration.
+  Future<MoondreamAnalysis?> analyzeScene(
+    Uint8List jpegBytes, {
+    String lang = 'en',
+  }) async {
+    if (!isCloudConfigured) return null;
+
+    // Pass 1 — fast scene caption for context.
+    final cap = await caption(jpegBytes, length: 'normal');
+    if (cap == null || cap.caption.trim().isEmpty) return null;
+
+    // Pass 2 — chemistry-aware VQA with reasoning. Long, specific prompt.
+    final chemistryQ = lang.startsWith('ar')
+        ? 'أنت عالم كيمياء. حلل المشهد بدقة. حدد العناصر أو المركبات الكيميائية الظاهرة '
+            '(مثل: ماء، ملح، كبريتات النحاس، إيثانول، حمض هيدروكلوريك، هيدروكسيد الصوديوم، '
+            'يود، مؤشرات الرقم الهيدروجيني، عينات معدنية، مواد نباتية). اذكر: اللون، '
+            'حالة المادة (صلبة/سائلة/غازية)، أي ملصقات أو علامات مرئية، وأي مخاطر واضحة. '
+            'كن دقيقاً ومحدداً — لا تخمن.'
+        : 'You are a chemistry scientist analyzing this scene. Identify any visible chemical '
+            'elements or compounds (e.g. water, salt, copper sulfate, ethanol, hydrochloric '
+            'acid, sodium hydroxide, iodine, pH indicators, metal samples, plant material). '
+            'Note: color, state of matter (solid/liquid/gas), visible labels or markings, '
+            'and any clear hazards. Be specific — do not guess. If unsure, say what you see '
+            '(colors, shapes, container type) rather than naming a substance you cannot verify.';
+    final vqa = await query(jpegBytes, question: chemistryQ, reasoning: true);
+
+    // Pass 3 — detect any text/labels in the frame (chemical bottles often
+    // have printed labels with the compound name and hazard pictograms).
+    final textBoxes = await detect(jpegBytes, 'text');
+    final textCount = textBoxes.length;
+
+    // Pass 4 — hazard focus query (separate so the model isn't diluted).
+    final hazardQ = lang.startsWith('ar')
+        ? 'هل ترى أي علامات خطر في هذا المشهد؟ ابحث عن: رموز الغليان، رموز الاشتعال، '
+            'رموز التآكل، رموز السمية، رموز المتفجرات. صف ما تراه بدقة.'
+        : 'Do you see any hazard symbols in this scene? Look for: corrosive, flammable, '
+            'toxic, explosive, oxidizing, environmental hazard pictograms. Describe exactly '
+            'what you see, do not invent symbols.';
+    final hazard = await query(jpegBytes, question: hazardQ, reasoning: false);
+
+    return MoondreamAnalysis(
+      caption: cap.caption,
+      answer: vqa?.answer ?? '',
+      reasoning: vqa?.reasoning,
+      visibleTextCount: textCount,
+      hazardAnswer: hazard?.answer ?? '',
+      requestId: cap.requestId,
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // LOCAL MOONDREAM FALLBACK (platform channel → llama.cpp + mmproj GGUF)
   // ---------------------------------------------------------------------------
@@ -428,4 +492,66 @@ class MoondreamBox {
   final double xMin, yMin, xMax, yMax;
   double get cx => (xMin + xMax) / 2;
   double get cy => (yMin + yMax) / 2;
+}
+
+
+/// Structured multi-pass analysis result. What each field means:
+///   * [caption]         — fast scene description (Pass 1)
+///   * [answer]           — chemistry-aware VQA answer (Pass 2)
+///   * [reasoning]        — Moondream's reasoning trace (Pass 2, when reasoning=true)
+///   * [visibleTextCount] — number of text regions detected (Pass 3)
+///   * [hazardAnswer]    — hazard pictogram check (Pass 4)
+///   * [requestId]        — Moondream cloud request id for tracing
+class MoondreamAnalysis {
+  const MoondreamAnalysis({
+    required this.caption,
+    required this.answer,
+    this.reasoning,
+    required this.visibleTextCount,
+    required this.hazardAnswer,
+    this.requestId,
+  });
+
+  final String caption;
+  final String answer;
+  final String? reasoning;
+  final int visibleTextCount;
+  final String hazardAnswer;
+  final String? requestId;
+
+  /// Merged plain-text summary suitable for feeding into the OpenRouter
+  /// presenter prompt. Format: caption → chemistry answer → text count → hazard.
+  String toMergedSummary() {
+    final b = StringBuffer();
+    if (caption.isNotEmpty) b.writeln('Scene: $caption');
+    if (answer.isNotEmpty) b.writeln('Analysis: $answer');
+    if (visibleTextCount > 0) {
+      b.writeln('Visible text regions: $visibleTextCount');
+    }
+    if (hazardAnswer.isNotEmpty) {
+      b.writeln('Hazards: $hazardAnswer');
+    }
+    return b.toString().trim();
+  }
+
+  /// True if the hazard answer mentions any actual hazard keyword.
+  bool get hasHazard => hazardAnswer.isNotEmpty && _hazardMatch(hazardAnswer);
+
+  static bool _hazardMatch(String s) {
+    final l = s.toLowerCase();
+    return l.contains('corrosive') ||
+        l.contains('flammable') ||
+        l.contains('toxic') ||
+        l.contains('explosive') ||
+        l.contains('oxidiz') ||
+        l.contains('hazard') ||
+        l.contains('warning') ||
+        l.contains('danger') ||
+        l.contains('تآكل') ||
+        l.contains('اشتعال') ||
+        l.contains('سامة') ||
+        l.contains('انفجار') ||
+        l.contains('خطر') ||
+        l.contains('تحذير');
+  }
 }

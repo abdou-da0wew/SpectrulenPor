@@ -98,6 +98,26 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             onPressed: () => state.setFlashlight(!state.flashOn),
           ),
+          // v3.3: auto-flashlight indicator — small "A" badge shown when
+          // the torch was auto-triggered by the vision gate (too-dark frame).
+          if (state.autoFlashOn)
+            Container(
+              margin: const EdgeInsets.only(right: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: palette.AppColors.dustyMauve,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Text(
+                'AUTO',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.8,
+                ),
+              ),
+            ),
           // Language quick-toggle EN <-> AR.
           TextButton(
             onPressed: () async {

@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 
 import '../models/frame_data.dart';
+import 'flashlight_service.dart';
 
 /// Live phone-camera source so the app **works today without the glasses**.
 ///
@@ -21,6 +22,9 @@ import '../models/frame_data.dart';
 ///   * preview uses the native `CameraPreview` texture (zero-copy), so the
 ///     heavy YUV->JPEG path only runs at the analysis cadence (1-2 fps).
 class PhoneCameraService {
+  PhoneCameraService._();
+  static final PhoneCameraService instance = PhoneCameraService._();
+
   CameraController? _controller;
   bool _streaming = false;
   bool _encoding = false;
@@ -100,8 +104,24 @@ class PhoneCameraService {
     _controller = null;
   }
 
-  Future<void> setTorch(bool on) async {
-    await _controller?.setFlashMode(on ? FlashMode.torch : FlashMode.off);
+  /// Camera-plugin FlashMode fallback. Used by [FlashlightService] when the
+  /// native CameraManager path fails (some OEMs lock torch during video
+  /// capture). This sets the capture flash mode — applies to subsequent
+  /// stills, NOT to the streaming torch — but it's the best fallback we
+  /// have for devices where native torch is restricted.
+  Future<void> applyCameraFlashMode(FlashMode mode) async {
+    final ctrl = _controller;
+    if (ctrl == null || !ctrl.value.isInitialized) return;
+    await ctrl.setFlashMode(mode);
+  }
+
+  /// Public torch toggle — RecognitionState calls this directly. Delegates
+  /// to [FlashlightService] which uses the native CameraManager.setTorchMode
+  /// path (works WHILE streaming, unlike the camera plugin's FlashMode.torch).
+  /// Returns true if the requested state was successfully applied.
+  Future<bool> setTorch(bool on) async {
+    // Avoid circular import at the file level — do the import lazily.
+    return await FlashlightService.instance.setTorch(on);
   }
 
   void dispose() => stop();
