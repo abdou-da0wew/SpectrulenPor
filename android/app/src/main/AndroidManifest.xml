@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- Internet: OpenRouter deep reasoning + TTS -->
@@ -9,10 +10,12 @@
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
         android:maxSdkVersion="30" />
 
-    <!-- Bluetooth (Android 12+): scan for + connect to the glasses -->
+    <!-- Bluetooth (Android 12+ / API 31+): scan for + connect to the glasses -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
-        android:usesPermissionFlags="neverForLocation" />
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+        android:usesPermissionFlags="neverForLocation"
+        android:minSdkVersion="31" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"
+        android:minSdkVersion="31" />
 
     <!-- Location is required by the OS to discover BLE devices on 6.0–11 -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -20,12 +23,32 @@
     <!-- Phone camera is used as a dev/debug fallback source -->
     <uses-permission android:name="android.permission.CAMERA" />
 
-    <!-- TTS + audio playback of deep reasoning narration -->
+    <!-- Audio playback of fish-audio narration -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <!-- Photo picker alternatives on Android 13+ -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+
+    <!-- Android 13+ (API 33+): runtime POST_NOTIFICATIONS for fish-audio TTS notification channel -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Foreground service permissions — Android 14+ (API 34+) requires both base + type-specific. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
     <!-- The ESP32-CAM module is BLE-only -->
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
+    <!-- Required by flutter_tts on some engines — must be DIRECT CHILD of <manifest>, not <application> -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
 
     <application
         android:label="SpectrulenPor"
@@ -53,16 +76,8 @@
             </intent-filter>
         </activity>
 
-        <!-- Required by flutter_tts on some engines -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
     </application>
-
-    <queries>
-            <intent>
-                <action android:name="android.intent.action.TTS_SERVICE" />
-            </intent>
-        </queries>
-
 </manifest>

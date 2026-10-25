@@ -1,7 +1,7 @@
 name: smart_glass_app
 description: SpectruLenPor — Smart glasses for spectrum analysis and detection of chemical elements and compounds. ESP32-CAM glasses / phone camera → Moondream3 cloud vision (local Moondream fallback) → OpenRouter text+reasoning presentation → streamed fish-audio TTS.
 publish_to: 'none'
-version: 3.1.0+1
+version: 3.2.0+4
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -30,7 +30,7 @@ dependencies:
   path_provider: ^2.1.4         # where to store downloaded GGUF model
 
   # ---------- ONNX Runtime Mobile (optional specialized offline classifier) ----------
-  # onnxruntime: ^1.4.1  # disabled for APK build (cloud Moondream fallback used instead)
+  flutter_onnxruntime: ^1.9.0  # modern maintained fork — onnxruntime-android 1.28.0 (16KB-page compatible, Android 12+ ready)
 
   # ---------- Audio output ----------
   flutter_tts: ^4.0.2            # Android native TTS (low latency, offline fallback)

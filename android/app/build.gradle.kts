@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.spectraglass.app"
-    compileSdk = 36
+    compileSdk = 36  // latest stable = Android 16 (API 36); supports Android 12-17
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -15,10 +15,12 @@ android {
 
     defaultConfig {
         applicationId = "com.spectraglass.app"
-        minSdk = 24
+        // Android 12 (API 31) is the minimum target — required for BLUETOOTH_SCAN/CONNECT
+        // (pre-12 BLE runtime permission flow is no longer used by ESP32-CAM firmware)
+        minSdk = 31
         targetSdk = 36
-        versionCode = 3
-        versionName = "3.1.0"
+        versionCode = 4
+        versionName = "3.2.0"
     }
 
     buildTypes {
