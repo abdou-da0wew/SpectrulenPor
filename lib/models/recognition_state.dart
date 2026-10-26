@@ -3,6 +3,7 @@ import 'package:image/image.dart' as img;
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/bluetooth_status.dart';
@@ -151,6 +152,29 @@ class RecognitionState extends ChangeNotifier {
   CameraSource _source = CameraSource.phone;
 
   CameraSource get source => _source;
+
+  // v5.4: Camera permission state
+  PermissionStatus _cameraPermission = PermissionStatus.denied;
+  PermissionStatus get cameraPermission => _cameraPermission;
+
+  /// Request camera permission — called from the UI 'Grant Access' button.
+  /// On success, auto-starts the phone camera.
+  Future<void> requestCameraPermission() async {
+    _cameraPermission = await Permission.camera.request();
+    if (_cameraPermission.isGranted) {
+      await startPhoneCamera();
+    }
+    notifyListeners();
+  }
+
+  /// Check camera permission status on startup.
+  Future<void> checkCameraPermission() async {
+    _cameraPermission = await Permission.camera.status;
+    if (_cameraPermission.isGranted && _source == CameraSource.phone && !phoneCamera.isStreaming) {
+      await startPhoneCamera();
+    }
+    notifyListeners();
+  }
   bool get usingPhoneCamera => _source == CameraSource.phone;
 
   Future<void> switchSource(CameraSource s) async {
