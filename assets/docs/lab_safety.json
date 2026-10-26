@@ -1,0 +1,83 @@
+/// Lab safety hazard pictograms + standard handling procedures.
+/// Used by the docs-search service for instant in-app hazard lookup.
+{
+  "pictograms": [
+    {
+      "id": "GHS01",
+      "name": "Explosive",
+      "symbol": "exploding bomb",
+      "summary": "Self-reactive; can detonate on shock, friction, or heat.",
+      "examples": ["TNT", "Nitroglycerin", "Ammonium nitrate (>15% N)"],
+      "handling": "Store away from heat/sparks; never strike; use blast shield."
+    },
+    {
+      "id": "GHS02",
+      "name": "Flammable",
+      "symbol": "flame",
+      "summary": "Ignites easily; vapors can form explosive mixtures with air.",
+      "examples": ["Ethanol", "Acetone", "Petrol", "Hydrogen"],
+      "handling": "No open flames; ground containers; use fume hood; keep away from oxidizers."
+    },
+    {
+      "id": "GHS05",
+      "name": "Corrosive",
+      "symbol": "corrosion (test tubes pouring on hand + metal)",
+      "summary": "Destroys living tissue and metals on contact.",
+      "examples": ["HCl (conc.)", "NaOH", "H2SO4 (conc.)", "Bleach"],
+      "handling": "Gloves + goggles + apron; never add water to acid; eyewash station access."
+    },
+    {
+      "id": "GHS06",
+      "name": "Acute Toxicity",
+      "symbol": "skull and crossbones",
+      "summary": "Toxic or lethal in small amounts via inhalation, ingestion, or skin contact.",
+      "examples": ["HCN", "Mercury vapor", "Methanol"],
+      "handling": "Fume hood; specific antidote accessible; emergency shower; medical observation."
+    },
+    {
+      "id": "GHS07",
+      "name": "Irritant",
+      "symbol": "exclamation mark",
+      "summary": "Causes skin/eye/respiratory irritation; less severe than corrosive.",
+      "examples": ["Dilute acids/bases", "Acetic acid", "CuSO4 solution"],
+      "handling": "Gloves + goggles; wash contact area 15 min with water."
+    },
+    {
+      "id": "GHS08",
+      "name": "Health Hazard",
+      "symbol": "person with chest star",
+      "summary": "Carcinogen, mutagen, reproductive toxicant, or organ damage.",
+      "examples": ["Benzene", "Asbestos", "Formaldehyde", "Lead"],
+      "handling": "Minimize exposure; designated handling area; PPE; medical surveillance."
+    },
+    {
+      "id": "GHS09",
+      "name": "Environmental Hazard",
+      "symbol": "tree + dead fish",
+      "summary": "Toxic to aquatic life; may cause long-term environmental damage.",
+      "examples": ["CuSO4", "Pesticides", "Heavy metals"],
+      "handling": "Never pour down drain; collect for hazardous waste disposal."
+    },
+    {
+      "id": "GHS03",
+      "name": "Oxidizer",
+      "symbol": "flame over circle",
+      "summary": "Strong oxidizer; promotes fire by releasing oxygen.",
+      "examples": ["KMnO4", "H2O2 (conc.)", "Nitrates"],
+      "handling": "Store away from flammables; never mix with reducing agents or organics."
+    }
+  ],
+  "generalPPE": [
+    {"item": "Safety goggles", "purpose": "Splash + impact protection for eyes (mandatory at all times in lab)."},
+    {"item": "Lab coat", "purpose": "Clothing protection from spills; cotton or fire-resistant."},
+    {"item": "Nitrile gloves", "purpose": "Skin protection from chemicals; replace if torn."},
+    {"item": "Closed-toe shoes", "purpose": "Foot protection from dropped glass and spills."},
+    {"item": "Long pants", "purpose": "Leg protection from spills; no shorts in lab."},
+    {"item": "Fume hood", "purpose": "Ventilation for volatile / toxic / strong-smelling chemicals."},
+    {"item": "Eyewash station", "purpose": "Flush eyes 15 min if chemical contact; know location."}
+  ],
+  "emergencyContacts": {
+    "poisonControlUS": "1-800-222-1222",
+    "emergency": "911 (US), 999 (UK), 122 (EU), 911 (most countries)"
+  }
+}

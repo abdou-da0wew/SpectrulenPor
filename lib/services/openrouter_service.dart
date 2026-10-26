@@ -5,6 +5,10 @@ import 'dart:developer';
 import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:http/http.dart' as http;
 import '../models/chat_message.dart';
+import '../models/citation.dart';
+import 'docs_search_service.dart';
+import 'wikipedia_service.dart';
+import 'fact_checker_service.dart';
 import 'chat_session.dart';
 
 /// Streams the AI presentation pass from OpenRouter.
@@ -449,6 +453,116 @@ class OpenRouterService {
     } finally {
       client.close();
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // v5.1 — SCIENTIFIC CONTEXT WRITER WITH WIKIPEDIA + DOCS CITATIONS
+  // ---------------------------------------------------------------------------
+
+  /// v5.1 — Like [writeScientificContext] but pre-fetches sources from
+  /// Wikipedia + bundled docs, includes them in the LLM prompt, AND asks
+  /// the LLM to use inline [n] citations like Google AI Overviews.
+  ///
+  /// Returns an [AnnotatedMessage] with the markdown body + the list of
+  /// citations (numbered [1], [2], etc.).
+  Future<AnnotatedMessage> writeScientificContextWithCitations({
+    required String moondreamSummary,
+    required String selectedLabel,
+    String lang = 'en',
+  }) async {
+    // 1. Pre-fetch sources — bundled docs first, then Wikipedia fallback.
+    final docs = await DocsSearchService.instance.search(selectedLabel, startIndex: 1);
+    var nextIdx = docs.isEmpty ? 1 : docs.last.index + 1;
+    final wiki = await WikipediaService.instance.searchWithSummaries(selectedLabel, limit: 3);
+    final wikiCitations = wiki.map((w) => Citation.fromWiki(nextIdx++, w)).toList();
+    final sources = [...docs, ...wikiCitations];
+
+    // 2. Build the system prompt with sources.
+    final sourcesBlock = sources.asMap().entries.map((e) {
+      final c = e.value;
+      return '[${c.index}] ${c.title} — ${c.snippet.isNotEmpty ? c.snippet.substring(0, c.snippet.length.clamp(0, 200)) : ""}';
+    }).join('\n');
+
+    // 3. Build the user prompt — ask LLM to use inline [n] citations.
+    final isAr = lang.startsWith('ar');
+    final userPrompt = isAr
+        ? buildArabicContextPromptWithCitations(moondreamSummary, selectedLabel, sourcesBlock)
+        : buildEnglishContextPromptWithCitations(moondreamSummary, selectedLabel, sourcesBlock);
+
+    // 4. Stream the LLM response.
+    final buffer = StringBuffer();
+    await for (final chunk in streamChat(
+      history: [ChatMessage(role: 'user', content: userPrompt, at: DateTime.now())],
+      anchor: null,
+      lang: lang,
+    )) {
+      buffer.write(chunk);
+    }
+
+    // 5. Fact-check the output — flag verified / unverified claims.
+    final factResult = await FactCheckerService.instance.check(
+      llmMarkdown: buffer.toString(),
+      sources: sources,
+    );
+
+    return AnnotatedMessage(
+      body: factResult.annotatedMarkdown,
+      citations: sources,
+    );
+  }
+
+  String buildArabicContextPromptWithCitations(String moondreamSummary, String selectedLabel, String sourcesBlock) {
+    final parts = <String>[
+      'أنت عالم وكاتب علمي. حصلت على تحليل Moondream المهيكل التالي:',
+      '',
+      moondreamSummary,
+      '',
+      'المكون المحدد من قبل المستخدم هو: "$selectedLabel".',
+      '',
+      'المصادر المتاحة لك (استخدم الأرقام [n] كمراجع داخلية في إجابتك):',
+      sourcesBlock,
+      '',
+      'اكتب سياقاً علمياً شاملاً عن $selectedLabel. يجب أن يشمل:',
+      '1. ما هو $selectedLabel؟ تعريف علمي دقيق. استخدم [n] للمراجع.',
+      '2. ما المكونات الكيميائية أو الفيزيائية فيه؟ صيغة كيميائية إن وجدت.',
+      '3. كيف يتشكل $selectedLabel؟ (طبيعياً، صناعياً، في المعمل؟)',
+      '4. ما هي خصائصه (الكثافة، درجة الانصهار، درجة الغليان، اللون، الرائحة؟)',
+      '5. ما هي استخداماته الشائعة؟',
+      '6. أي مخاطر سلامة يجب أن يعرفها الطالب؟',
+      '7. سياق المشهد: ما الأشياء المحيطة بـ$selectedLabel ولماذا قد تكون مهمة؟',
+      '',
+      'تنسيق: Markdown. كل ادعاء علمي يجب أن يكون مذكوراً بمرجع [n] في نفس السطر.',
+      'إذا لم تجد مرجعاً لادعاء معين، لا تخترع مرجعاً — فقط اتركه بدون [n].',
+      'كن علمياً، مفصلاً، ودقيقاً. لا تخمن.',
+    ];
+    return parts.join('\n');
+  }
+
+  String buildEnglishContextPromptWithCitations(String moondreamSummary, String selectedLabel, String sourcesBlock) {
+    final parts = <String>[
+      'You are a scientist and science writer. You received the following Moondream structured analysis:',
+      '',
+      moondreamSummary,
+      '',
+      'The user-selected component is: "$selectedLabel".',
+      '',
+      'Available sources (use the [n] numbers as inline citations in your answer):',
+      sourcesBlock,
+      '',
+      'Write a comprehensive scientific context about $selectedLabel. It must cover:',
+      '1. What is $selectedLabel? Precise scientific definition — cite [n].',
+      '2. What are its chemical or physical components? Chemical formula if applicable.',
+      '3. How is $selectedLabel formed? (naturally, industrially, in the lab?)',
+      '4. What are its properties (density, melting point, boiling point, color, odor?)',
+      '5. What are its common uses?',
+      '6. Any safety hazards the student should know about?',
+      '7. Scene context: what objects surround $selectedLabel and why might they be relevant?',
+      '',
+      'Formatting: Markdown. Every factual claim MUST be cited with [n] inline at the end of the sentence.',
+      'Do not invent citations — if no source covers a claim, leave it without [n].',
+      'Be scientific, detailed, and accurate. Do not guess.',
+    ];
+    return parts.join('\n');
   }
 
 }

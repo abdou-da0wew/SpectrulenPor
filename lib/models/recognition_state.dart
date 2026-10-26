@@ -18,6 +18,10 @@ import '../services/flashlight_service.dart';
 import '../services/phone_camera_service.dart';
 import '../services/yolo_detector.dart';
 import '../services/mic_service.dart';
+import '../services/docs_search_service.dart';
+import '../services/wikipedia_service.dart';
+import '../services/fact_checker_service.dart';
+import '../models/citation.dart';
 import '../services/chat_session.dart';
 import '../services/moondream_service.dart' show MoondreamService, MoondreamStructuredAnalysis;
 import '../services/vision_gate.dart';
@@ -227,6 +231,15 @@ class RecognitionState extends ChangeNotifier {
   /// First LLM scientific-context write-up (auto-narrated via TTS when ready).
   String? _firstLlmContext;
   String? get firstLlmContext => _firstLlmContext;
+
+  /// Citations + fact-check annotated version of the first LLM response.
+  /// When non-null, the chat screen renders inline [n] + sources block.
+  AnnotatedMessage? _firstLlmAnnotated;
+  AnnotatedMessage? get firstLlmAnnotated => _firstLlmAnnotated;
+
+  /// Citations for the latest chat response (updated each turn).
+  List<Citation> _lastChatCitations = const [];
+  List<Citation> get lastChatCitations => _lastChatCitations;
 
   /// Active chat session anchored on the captured frames + Moondream + LLM context.
   ChatSession? _chatSession;
@@ -627,24 +640,22 @@ class RecognitionState extends ChangeNotifier {
     // Stream the LLM scientific context (auto-narrate the first response).
     final buffer = StringBuffer();
     try {
-      await for (final chunk in openRouter.writeScientificContext(
+      final annotated = await openRouter.writeScientificContextWithCitations(
         moondreamSummary: _moondreamAnalysis?.toMergedSummary() ??
             'YOLO detected: ${box.label} (confidence ${(box.confidence * 100).round()}%)',
         selectedLabel: box.label,
         lang: _localeCode,
-      )) {
-        buffer.write(chunk);
-        _firstLlmContext = buffer.toString();
-        _deepReasoningMarkdown = buffer.toString();
-        notifyListeners();
-        // Sentence-by-sentence low-latency speech via native TTS.
-        if (_liveSpeak && !_useOpenRouterTts) {
-          await _speakCompletedSentences(buffer);
-        }
+      );
+      _firstLlmAnnotated = annotated;
+      _firstLlmContext = annotated.body;
+      _deepReasoningMarkdown = annotated.body;
+      notifyListeners();
+      // Sentence-by-sentence low-latency speech via native TTS.
+      if (_liveSpeak && !_useOpenRouterTts) {
+        await _speakCompletedSentences(StringBuffer(annotated.body));
       }
-      // Final fish-audio narration if enabled.
-      if (_liveSpeak && _useOpenRouterTts && _firstLlmContext != null) {
-        await openRouterTts.speakMarkdown(_firstLlmContext!);
+      if (_liveSpeak && _useOpenRouterTts) {
+        await openRouterTts.speakMarkdown(annotated.body);
       }
     } catch (e) {
       _firstLlmContext = '(LLM context error: $e)';
@@ -734,6 +745,7 @@ class RecognitionState extends ChangeNotifier {
   Future<void> initV5Services() async {
     await _yolo.init();
     await _mic.init();
+    await DocsSearchService.instance.init();
     notifyListeners();
   }
   @override

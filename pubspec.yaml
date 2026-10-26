@@ -1,7 +1,7 @@
 name: smart_glass_app
 description: SpectruLenPor — Smart glasses for spectrum analysis and detection of chemical elements and compounds. ESP32-CAM glasses / phone camera → Moondream3 cloud vision (local Moondream fallback) → OpenRouter text+reasoning presentation → streamed fish-audio TTS.
 publish_to: 'none'
-version: 5.0.0+7
+version: 5.1.0+8
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -71,4 +71,5 @@ flutter:
   assets:
     - assets/models/yolo26n.onnx
     - assets/config/secrets.example.json
+    - assets/docs/
     - assets/fonts/

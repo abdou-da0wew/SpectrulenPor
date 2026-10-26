@@ -1,0 +1,39 @@
+/// Bundled periodic table — element symbols + key facts (atomic number,
+/// atomic mass, common name). Used by the docs-search service for fast
+/// in-app lookup (no network) when the user is offline.
+///
+/// Data sourced from IUPAC standard atomic weights 2021.
+/// Keep this file small — only the most relevant 118 entries.
+[
+  {"num": 1, "sym": "H", "name": "Hydrogen", "mass": 1.008, "category": "nonmetal", "summary": "Lightest element; colorless gas; H2 molecule; key component of water (H2O); most abundant element in the universe."},
+  {"num": 2, "sym": "He", "name": "Helium", "mass": 4.003, "category": "noble gas", "summary": "Colorless, odorless, inert gas; second most abundant element; used in balloons and cryogenics; liquid helium near absolute zero."},
+  {"num": 3, "sym": "Li", "name": "Lithium", "mass": 6.94, "category": "alkali metal", "summary": "Soft silvery metal; lightest metal; used in lithium-ion batteries; mood-stabilizing medication."},
+  {"num": 6, "sym": "C", "name": "Carbon", "mass": 12.011, "category": "nonmetal", "summary": "Backbone of all organic chemistry; forms diamond (transparent) and graphite (black); basis of life; 14C radiocarbon dating."},
+  {"num": 7, "sym": "N", "name": "Nitrogen", "mass": 14.007, "category": "nonmetal", "summary": "Colorless gas; 78% of Earth's atmosphere; key component of amino acids and DNA; liquid nitrogen used as coolant (-196C)."},
+  {"num": 8, "sym": "O", "name": "Oxygen", "mass": 15.999, "category": "nonmetal", "summary": "Colorless gas; 21% of atmosphere; supports combustion; essential for respiration; forms ozone (O3) in stratosphere."},
+  {"num": 9, "sym": "F", "name": "Fluorine", "mass": 18.998, "category": "halogen", "summary": "Pale yellow gas; most reactive nonmetal; Teflon (PTFE) is fluorinated polymer; fluoride ions prevent tooth decay."},
+  {"num": 10, "sym": "Ne", "name": "Neon", "mass": 20.180, "category": "noble gas", "summary": "Colorless inert gas; glows orange-red in discharge tubes; used in neon signs."},
+  {"num": 11, "sym": "Na", "name": "Sodium", "mass": 22.990, "category": "alkali metal", "summary": "Soft silvery metal; highly reactive with water; key electrolyte in blood; NaCl table salt."},
+  {"num": 12, "sym": "Mg", "name": "Magnesium", "mass": 24.305, "category": "alkaline earth", "summary": "Lightweight silvery metal; burns bright white; central atom in chlorophyll; alloy component."},
+  {"num": 13, "sym": "Al", "name": "Aluminum", "mass": 26.982, "category": "post-transition metal", "summary": "Lightweight silvery metal; most abundant metal in Earth's crust; cans, foil, aircraft alloys."},
+  {"num": 14, "sym": "Si", "name": "Silicon", "mass": 28.085, "category": "metalloid", "summary": "Hard brittle metalloid; basis of computer chips; second most abundant element in Earth's crust; glass is SiO2."},
+  {"num": 15, "sym": "P", "name": "Phosphorus", "mass": 30.974, "category": "nonmetal", "summary": "White (pyrophoric) and red (stable) allotropes; key component of DNA, ATP, bones; matches."},
+  {"num": 16, "sym": "S", "name": "Sulfur", "mass": 32.06, "category": "nonmetal", "summary": "Yellow crystalline solid; rotten-egg smell in H2S; vulcanizes rubber; component of gunpowder and sulfuric acid."},
+  {"num": 17, "sym": "Cl", "name": "Chlorine", "mass": 35.45, "category": "halogen", "summary": "Greenish-yellow toxic gas; disinfects water; NaCl table salt; PVC plastic."},
+  {"num": 18, "sym": "Ar", "name": "Argon", "mass": 39.948, "category": "noble gas", "summary": "Colorless inert gas; third most abundant in atmosphere; welding shield gas; lightbulb fill."},
+  {"num": 19, "sym": "K", "name": "Potassium", "mass": 39.098, "category": "alkali metal", "summary": "Soft silvery metal; reactive with water; key electrolyte in cells; KCl is no-salt substitute."},
+  {"num": 20, "sym": "Ca", "name": "Calcium", "mass": 40.078, "category": "alkaline earth", "summary": "Silvery metal; bones and teeth; CaCO3 limestone, chalk, marble; CaO quicklime."},
+  {"num": 24, "sym": "Cr", "name": "Chromium", "mass": 51.996, "category": "transition metal", "summary": "Hard lustrous metal; stainless steel; chrome plating; Cr(VI) is toxic and carcinogenic."},
+  {"num": 25, "sym": "Mn", "name": "Manganese", "mass": 54.938, "category": "transition metal", "summary": "Gray brittle metal; stainless steel; alkaline batteries; MnO2 depolarizer."},
+  {"num": 26, "sym": "Fe", "name": "Iron", "mass": 55.845, "category": "transition metal", "summary": "Most-used metal; hematite Fe2O3; hemoglobin oxygen transport; steel = Fe + C; rusts in moist air."},
+  {"num": 27, "sym": "Co", "name": "Cobalt", "mass": 58.933, "category": "transition metal", "summary": "Hard ferromagnetic metal; blue pigment in glass/ceramics; Li-ion battery cathode; vitamin B12 core."},
+  {"num": 28, "sym": "Ni", "name": "Nickel", "mass": 58.693, "category": "transition metal", "summary": "Silvery lustrous metal; stainless steel; nickel-cadmium batteries; coinage."},
+  {"num": 29, "sym": "Cu", "name": "Copper", "mass": 63.546, "category": "transition metal", "summary": "Reddish metal; excellent conductor; wiring, plumbing; patina (verdigris); CuSO4 blue solution."},
+  {"num": 30, "sym": "Zn", "name": "Zinc", "mass": 65.38, "category": "transition metal", "summary": "Bluish metal; galvanizes steel; brass = Cu + Zn; ZnO sunscreen."},
+  {"num": 35, "sym": "Br", "name": "Bromine", "mass": 79.904, "category": "halogen", "summary": "Reddish-brown liquid; only liquid nonmetal at room temp; flame retardants; water disinfectant."},
+  {"num": 47, "sym": "Ag", "name": "Silver", "mass": 107.868, "category": "transition metal", "summary": "Lustrous metal; best electrical conductor; jewelry, mirrors; AgX photographic film."},
+  {"num": 53, "sym": "I", "name": "Iodine", "mass": 126.904, "category": "halogen", "summary": "Purple-black solid; sublimes to violet vapor; antiseptic; thyroid hormone component."},
+  {"num": 78, "sym": "Pt", "name": "Platinum", "mass": 195.084, "category": "transition metal", "summary": "Dense malleable metal; catalyst in catalytic converters; jewelry; Pt electrodes."},
+  {"num": 79, "sym": "Au", "name": "Gold", "mass": 196.967, "category": "transition metal", "summary": "Yellow metal; most malleable; doesn't tarnish; AuCl3 in photography; currency backing."},
+  {"num": 80, "sym": "Hg", "name": "Mercury", "mass": 200.592, "category": "transition metal", "summary": "Silvery liquid metal; only liquid metal at room temp; thermometers; highly toxic; HgS cinnabar."}
+]

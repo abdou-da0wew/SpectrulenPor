@@ -1,0 +1,149 @@
+/// Common chemical compounds reference. Each entry: formula, name, key
+/// facts (state, color, density, melting point, hazards, common uses).
+/// Used for fast in-app lookup when offline.
+[
+  {
+    "formula": "H2O",
+    "name": "Water",
+    "state": "liquid",
+    "color": "colorless",
+    "density_g_cm3": 1.0,
+    "melting_C": 0,
+    "boiling_C": 100,
+    "summary": "Universal solvent; polar covalent molecule; hydrogen bonding; max density at 4C; essential for all known life.",
+    "uses": ["Drinking", "Cooling", "Solvent", "Hydrolysis"],
+    "hazards": ["Drowning", "Hyperhydration (rare)"]
+  },
+  {
+    "formula": "NaCl",
+    "name": "Sodium chloride",
+    "state": "solid",
+    "color": "white crystalline",
+    "density_g_cm3": 2.16,
+    "melting_C": 801,
+    "boiling_C": 1465,
+    "summary": "Table salt; ionic crystal; electrolyte in blood; used for food preservation and de-icing.",
+    "uses": ["Food seasoning", "Saline IV", "De-icing roads", "Chlor-alkali industry"],
+    "hazards": ["Hypertension (chronic excess)"]
+  },
+  {
+    "formula": "C2H5OH / EtOH",
+    "name": "Ethanol",
+    "state": "liquid",
+    "color": "colorless",
+    "density_g_cm3": 0.789,
+    "melting_C": -114,
+    "boiling_C": 78,
+    "summary": "Polar protic solvent; psychoactive drug; produced by fermentation of sugars; sterilizes by denaturing proteins.",
+    "uses": ["Disinfectant", "Beverage", "Fuel (E10)", "Solvent"],
+    "hazards": ["Flammable", "CNS depressant", "Hepatotoxic (chronic)"]
+  },
+  {
+    "formula": "HCl",
+    "name": "Hydrochloric acid",
+    "state": "aqueous",
+    "color": "colorless",
+    "density_g_cm3": 1.18,
+    "melting_C": -27,
+    "boiling_C": 110,
+    "summary": "Strong monoprotic acid; gastric acid (pH 1-2); picks steel; PVC production.",
+    "uses": ["Steel pickling", "pH adjustment", "Leather processing", "Stomach digestion"],
+    "hazards": ["Corrosive", "Toxic fumes", "Burns skin"]
+  },
+  {
+    "formula": "NaOH",
+    "name": "Sodium hydroxide",
+    "state": "solid / aqueous",
+    "color": "white pellets / colorless solution",
+    "density_g_cm3": 2.13,
+    "melting_C": 318,
+    "boiling_C": 1388,
+    "summary": "Strong base (lye / caustic soda); saponifies fats to soap; paper, textiles, drain cleaners.",
+    "uses": ["Soap making", "Drain cleaner", "Paper bleaching", "Alumina refining"],
+    "hazards": ["Caustic burns", "Dissolves tissue", "Exothermic with water"]
+  },
+  {
+    "formula": "CuSO4",
+    "name": "Copper(II) sulfate",
+    "state": "solid (pentahydrate)",
+    "color": "blue crystals",
+    "density_g_cm3": 2.28,
+    "melting_C": 110,
+    "boiling_C": 650,
+    "summary": "Bright blue hydrated salt; anhydrous form white; electroplating; fungicide; analytical reagent (biuret).",
+    "uses": ["Electroplating bath", "Fungicide (Bordeaux mix)", "Algicide", "Analytical chemistry"],
+    "hazards": ["Toxic if ingested", "Irritant", "Environmental hazard"]
+  },
+  {
+    "formula": "I2",
+    "name": "Iodine",
+    "state": "solid",
+    "color": "purple-black",
+    "density_g_cm3": 4.93,
+    "melting_C": 113,
+    "boiling_C": 184,
+    "summary": "Halogen; sublimes to violet vapor; antiseptic; KI added to table salt to prevent goiter.",
+    "uses": ["Antiseptic (povidone-iodine)", "Iodized salt", "Starch indicator", "Catalyst"],
+    "hazards": ["Toxic in large amounts", "Stains skin", "Vapor irritates lungs"]
+  },
+  {
+    "formula": "C6H12O6",
+    "name": "Glucose",
+    "state": "solid",
+    "color": "white",
+    "density_g_cm3": 1.54,
+    "melting_C": 146,
+    "boiling_C": "decomposes",
+    "summary": "Monosaccharide; main cellular fuel; blood sugar; produced by photosynthesis; reduces Fehling's and Benedict's reagents.",
+    "uses": ["IV fluid (D5W)", "Fermentation substrate", "Confectionery", "Biosynthesis feedstock"],
+    "hazards": ["Hyperglycemia in excess"]
+  },
+  {
+    "formula": "C8H10N4O2",
+    "name": "Caffeine",
+    "state": "solid",
+    "color": "white",
+    "density_g_cm3": 1.23,
+    "melting_C": 235,
+    "boiling_C": 178,
+    "summary": "Methylxanthine alkaloid; adenosine receptor antagonist; mild stimulant; found in coffee, tea, cacao.",
+    "uses": ["Stimulant", "Migraine treatment (with analgesics)", "Pre-workout supplements"],
+    "hazards": ["Insomnia", "Tachycardia", "Mildly addictive", "Withdrawal headache"]
+  },
+  {
+    "formula": "CH3COOH / AcOH",
+    "name": "Acetic acid",
+    "state": "liquid",
+    "color": "colorless",
+    "density_g_cm3": 1.049,
+    "melting_C": 16.6,
+    "boiling_C": 118,
+    "summary": "Weak acid; gives vinegar its sour taste and smell; glacial form freezes at 16.6C; key chemical feedstock.",
+    "uses": ["Vinegar (4-7%)", "Descale coffee makers", "Vinyl acetate monomer", "Ester production"],
+    "hazards": ["Corrosive (concentrated)", "Burns skin", "Vinegar dilute form safe"]
+  },
+  {
+    "formula": "C12H22O11",
+    "name": "Sucrose",
+    "state": "solid",
+    "color": "white crystalline",
+    "density_g_cm3": 1.587,
+    "melting_C": 186,
+    "boiling_C": "decomposes",
+    "summary": "Disaccharide of glucose + fructose; common table sugar; hydrolyzes to invert sugar; yeast ferments it.",
+    "uses": ["Sweetener", "Baking", "Fermentation substrate", "Preservative (jams)"],
+    "hazards": ["Dental caries", "Obesity (chronic excess)", "Diabetes risk"]
+  },
+  {
+    "formula": "CaCO3",
+    "name": "Calcium carbonate",
+    "state": "solid",
+    "color": "white",
+    "density_g_cm3": 2.71,
+    "melting_C": 825,
+    "boiling_C": "decomposes",
+    "summary": "Insoluble salt; main component of limestone, chalk, marble, seashells; antacid; fizzes with acid (CO2).",
+    "uses": ["Antacid (Tums)", "Cement", "Paper filler", "Blackboard chalk"],
+    "hazards": ["Mild irritation (dust)"]
+  }
+]
