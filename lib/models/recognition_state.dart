@@ -385,10 +385,11 @@ class RecognitionState extends ChangeNotifier {
         return;
       }
 
-      // v5.0: run YOLO detection (always local, regardless of cloudOnly).
+      // v5.3: run YOLO detection (always local, regardless of cloudOnly).
+      // Auto-Moondream-cloud was REMOVED — analysis now only runs when the user
+      // taps 'Analyze this' (requires a selected box).
       await _runYoloDetection(frame);
-      // Gate passed — run the vision model cascade.
-      await _runLocalVision(frame);
+      // Vision model cascade is NOT called per-frame — it's user-triggered only.
     } catch (e) {
       _visionSource = VisionSource.error;
       debugPrint('[RecognitionState] gated pipeline error: $e');
