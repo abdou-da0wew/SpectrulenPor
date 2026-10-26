@@ -4,14 +4,12 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 
 /**
- * SpectruLenPor main activity.
+ * SpectruLenPor main activity (v5.0).
  *
  * Registers:
- *   * MoondreamChannel — native llama.cpp vision engine ("com.spectraglass/llama")
+ *   * MoondreamChannel  — native llama.cpp vision engine ("com.spectraglass/llama")
  *   * FlashlightChannel — Android CameraManager torch ("com.spectraglass/flashlight")
- *
- * The Dart MethodChannel names are independent of the Kotlin package name —
- * only the file's location must match the Kotlin package declaration.
+ *   * YoloInferenceChannel — ONNX Runtime YOLO26-Nano ("com.spectraglass/yolo")
  */
 class MainActivity : FlutterActivity() {
 
@@ -19,5 +17,6 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         MoondreamChannel.register(flutterEngine, applicationContext)
         FlashlightChannel.register(flutterEngine, applicationContext)
+        YoloInferenceChannel.register(flutterEngine, applicationContext)
     }
 }

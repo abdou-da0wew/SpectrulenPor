@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+import 'package:image/image.dart' as img;
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -14,6 +16,13 @@ import '../services/openrouter_service.dart';
 import '../services/openrouter_tts_service.dart';
 import '../services/flashlight_service.dart';
 import '../services/phone_camera_service.dart';
+import '../services/yolo_detector.dart';
+import '../services/mic_service.dart';
+import '../services/chat_session.dart';
+import '../services/moondream_service.dart' show MoondreamService, MoondreamStructuredAnalysis;
+import '../services/vision_gate.dart';
+import 'bounding_box.dart';
+import 'captured_frames.dart';
 import '../services/vision_gate.dart';
 
 export '../models/bluetooth_status.dart';
@@ -112,6 +121,7 @@ class RecognitionState extends ChangeNotifier {
   }
 
   void _loadSettings() {
+    _cloudOnly = prefs.getBool('cloud_only') ?? false;
     _liveSpeak = prefs.getBool('live_speak') ?? true;
     _deepReasonEnabled = prefs.getBool('deep_reason') ?? true;
     _useOpenRouterTts = prefs.getBool('use_or_tts') ?? false;
@@ -191,6 +201,48 @@ class RecognitionState extends ChangeNotifier {
 
   bool _flashOn = false;
   bool get flashOn => _flashOn;
+
+  // ----------------------------- v5.0: YOLO + Chat + Cloud-only -----------------------------
+  final YoloDetector _yolo = YoloDetector.instance;
+  final MicService _mic = MicService.instance;
+  YoloDetector get yolo => _yolo;
+  MicService get mic => _mic;
+
+  /// Latest YOLO26-Nano bounding boxes (live, refreshed at the throttled fps).
+  List<BoundingBox> _currentBoxes = const [];
+  List<BoundingBox> get currentBoxes => _currentBoxes;
+
+  /// Box the user tapped on — becomes the "anchor" for the analysis pipeline.
+  BoundingBox? _selectedBox;
+  BoundingBox? get selectedBox => _selectedBox;
+
+  /// Paired capture (clean + with-boxes) used as the Moondream input.
+  CapturedFrames? _capturedFrames;
+  CapturedFrames? get capturedFrames => _capturedFrames;
+
+  /// Structured Moondream analysis (what_it_is / how_its_used / hazards / etc).
+  MoondreamStructuredAnalysis? _moondreamAnalysis;
+  MoondreamStructuredAnalysis? get moondreamAnalysis => _moondreamAnalysis;
+
+  /// First LLM scientific-context write-up (auto-narrated via TTS when ready).
+  String? _firstLlmContext;
+  String? get firstLlmContext => _firstLlmContext;
+
+  /// Active chat session anchored on the captured frames + Moondream + LLM context.
+  ChatSession? _chatSession;
+  ChatSession? get chatSession => _chatSession;
+
+  /// "Cloud-only models" toggle — when true, skip Moondream cloud (use boxes only,
+  /// rely on YOLO labels + the LLM chain). When false (default), full pipeline.
+  /// YOLO is ALWAYS local — this toggle doesn't affect it.
+  bool _cloudOnly = false;
+  bool get cloudOnly => _cloudOnly;
+  set cloudOnly(bool v) {
+    _cloudOnly = v;
+    prefs.setBool('cloud_only', v);
+    notifyListeners();
+  }
+
 
   // ---------------------- AUTO-FLASHLIGHT (v3.3) ----------------------
   /// True when the torch was turned on by the AUTO logic (dark frame),
@@ -320,6 +372,8 @@ class RecognitionState extends ChangeNotifier {
         return;
       }
 
+      // v5.0: run YOLO detection (always local, regardless of cloudOnly).
+      await _runYoloDetection(frame);
       // Gate passed — run the vision model cascade.
       await _runLocalVision(frame);
     } catch (e) {
@@ -517,6 +571,171 @@ class RecognitionState extends ChangeNotifier {
   @visibleForTesting
   void debugPushSensor(SpectrumReading reading) => _onSensor(reading);
 
+
+  // ----------------------------- v5.0: YOLO detection + selection + chat -----------------------------
+
+  /// Run YOLO26-Nano detection on the latest frame — called from
+  /// _runGatedPipeline after the vision gate passes. Updates [currentBoxes].
+  Future<void> _runYoloDetection(FrameData frame) async {
+    if (!_yolo.isReady) return;
+    final boxes = await _yolo.detect(frame.jpegBytes);
+    _currentBoxes = boxes;
+    notifyListeners();
+  }
+
+  /// User tapped a bounding box on the preview overlay.
+  void selectBox(BoundingBox box) {
+    _selectedBox = box;
+    notifyListeners();
+  }
+
+  /// User tapped the "Analyze this" FAB — captures dual JPEGs (clean + with
+  /// boxes painted on), runs Moondream analyzeSelected, then the LLM
+  /// scientific-context writer, then opens the chat session.
+  ///
+  /// Auto-narrates the first LLM response via fish-audio cloud TTS (or
+  /// Android native fallback) before opening chat.
+  Future<void> captureAndAnalyzeSelected() async {
+    final frame = _lastFrame;
+    final box = _selectedBox;
+    if (frame == null || box == null) return;
+
+    // Paint the with-boxes JPEG variant.
+    final cleanJpeg = frame.jpegBytes;
+    final withBoxesJpeg = await _paintBoxesOnJpeg(cleanJpeg, _currentBoxes, box);
+
+    _capturedFrames = CapturedFrames(
+      cleanJpeg: cleanJpeg,
+      withBoxesJpeg: withBoxesJpeg,
+      selectedBox: box,
+      capturedAt: DateTime.now(),
+    );
+    notifyListeners();
+
+    // Skip Moondream cloud if cloud-only toggle is ON.
+    if (!_cloudOnly) {
+      _moondreamAnalysis = await MoondreamService.instance.analyzeSelected(
+        cleanJpeg, withBoxesJpeg,
+        selectedLabel: box.label,
+        lang: _localeCode,
+      );
+    } else {
+      _moondreamAnalysis = null;
+    }
+    notifyListeners();
+
+    // Stream the LLM scientific context (auto-narrate the first response).
+    final buffer = StringBuffer();
+    try {
+      await for (final chunk in openRouter.writeScientificContext(
+        moondreamSummary: _moondreamAnalysis?.toMergedSummary() ??
+            'YOLO detected: ${box.label} (confidence ${(box.confidence * 100).round()}%)',
+        selectedLabel: box.label,
+        lang: _localeCode,
+      )) {
+        buffer.write(chunk);
+        _firstLlmContext = buffer.toString();
+        _deepReasoningMarkdown = buffer.toString();
+        notifyListeners();
+        // Sentence-by-sentence low-latency speech via native TTS.
+        if (_liveSpeak && !_useOpenRouterTts) {
+          await _speakCompletedSentences(buffer);
+        }
+      }
+      // Final fish-audio narration if enabled.
+      if (_liveSpeak && _useOpenRouterTts && _firstLlmContext != null) {
+        await openRouterTts.speakMarkdown(_firstLlmContext!);
+      }
+    } catch (e) {
+      _firstLlmContext = '(LLM context error: $e)';
+    }
+
+    // Open the chat session anchored on the captured frames + analysis.
+    _chatSession = ChatSession(
+      frames: _capturedFrames!,
+      moondreamAnalysis: _moondreamAnalysis ?? MoondreamStructuredAnalysis(
+        caption: '', whatItIs: box.label, howItsUsed: '',
+        whatsAround: '', visibleText: '', hazards: '', stateOfMatter: '',
+      ),
+      firstLlmContext: _firstLlmContext ?? '',
+      openRouter: openRouter,
+    );
+    notifyListeners();
+  }
+
+  /// From the chat screen's "Re-capture" button — re-runs the YOLO + select +
+  /// Moondream pipeline, swaps the anchor, pushes a system message.
+  Future<void> recaptureFromChat() async {
+    final frame = _lastFrame;
+    if (frame == null || _chatSession == null) return;
+    final boxes = await _yolo.detect(frame.jpegBytes);
+    if (boxes.isEmpty) return;
+    final newBox = boxes.first;
+    _selectedBox = newBox;
+    final withBoxes = await _paintBoxesOnJpeg(frame.jpegBytes, boxes, newBox);
+    final newFrames = CapturedFrames(
+      cleanJpeg: frame.jpegBytes,
+      withBoxesJpeg: withBoxes,
+      selectedBox: newBox,
+      capturedAt: DateTime.now(),
+    );
+    _capturedFrames = newFrames;
+    final newAnalysis = await _chatSession!.recapture(
+      newFrames.cleanJpeg, newFrames.withBoxesJpeg,
+      selectedLabel: newBox.label, lang: _localeCode,
+    );
+    if (newAnalysis != null) _moondreamAnalysis = newAnalysis;
+    notifyListeners();
+  }
+
+  /// Paint the live YOLO boxes onto a JPEG (the "with-boxes" variant sent
+  /// to Moondream). Uses image package + CustomPainter-style strokes.
+  Future<Uint8List> _paintBoxesOnJpeg(
+    Uint8List jpeg,
+    List<BoundingBox> boxes,
+    BoundingBox selected,
+  ) async {
+    return await Future.microtask(() {
+      try {
+        final decoded = img.decodeImage(jpeg);
+        if (decoded == null) return jpeg;
+        for (final b in boxes) {
+          final isSel = b.x == selected.x && b.y == selected.y &&
+                         b.w == selected.w && b.h == selected.h;
+          // dusty-mauve (#A67E98) for selected, dusty-lavender (#825376) for others.
+          final color = isSel
+              ? img.ColorRgba8(0xA6, 0x7E, 0x98, 0xFF)  // dusty-mauve
+              : img.ColorRgba8(0x82, 0x53, 0x76, 0xFF);  // dusty-lavender
+          final x1 = (b.x * decoded.width).toDouble();
+          final y1 = (b.y * decoded.height).toDouble();
+          final x2 = ((b.x + b.w) * decoded.width).toDouble();
+          final y2 = ((b.y + b.h) * decoded.height).toDouble();
+          img.drawRect(decoded, x1: x1.toInt(), y1: y1.toInt(), x2: x2.toInt(), y2: y2.toInt(),
+              color: color, thickness: isSel ? 8 : 4);
+          // Label badge
+          final badgeH = (decoded.height * 0.04).round().clamp(20, 60);
+          final badgeY = (y1 - badgeH).clamp(0.0, decoded.height - badgeH.toDouble());
+          img.fillRect(decoded,
+              x1: x1.toInt(), y1: badgeY.toInt(),
+              x2: (x1 + decoded.width * 0.20).toInt(),
+              y2: (badgeY + badgeH.toDouble()).toInt(),
+              color: color);
+        }
+        return Uint8List.fromList(img.encodeJpg(decoded, quality: 88));
+      } catch (e) {
+        debugPrint('[_paintBoxesOnJpeg] failed: $e');
+        return jpeg;
+      }
+    });
+  }
+
+
+  /// Initialize YOLO + Mic services. Call once after construction.
+  Future<void> initV5Services() async {
+    await _yolo.init();
+    await _mic.init();
+    notifyListeners();
+  }
   @override
   void dispose() {
     super.dispose();

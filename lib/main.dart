@@ -7,6 +7,7 @@ import 'l10n/app_localizations.dart';
 import 'config/app_secrets.dart';
 import 'models/recognition_state.dart';
 import 'screens/home_screen.dart';
+import 'screens/home_screen_v5.dart';
 import 'screens/settings_screen.dart';
 import 'services/bluetooth_camera_service.dart';
 import 'services/local_vision_service.dart';
@@ -16,6 +17,8 @@ import 'services/onnx_vision_service.dart';
 import 'services/openrouter_service.dart';
 import 'services/openrouter_tts_service.dart';
 import 'services/phone_camera_service.dart';
+import 'services/yolo_detector.dart';
+import 'services/mic_service.dart';
 import 'utils/app_theme.dart';
 
 /// Reactive app locale — Settings flips this, MaterialApp rebuilds.
@@ -33,6 +36,8 @@ void main() async {
   final secrets = await AppSecrets.load();
 
   await LocalVisionService.instance.init();
+  await YoloDetector.instance.init();  // v5.0: load YOLO26-Nano ONNX model
+  await MicService.instance.init();    // v5.0: init Android SpeechRecognizer
   await OnnxVisionService.instance.init(); // silent no-op if model missing
   await NativeTtsService.instance.init();
   await OpenRouterTtsService.instance.init();
@@ -86,6 +91,8 @@ class SpectruLenPorApp extends StatelessWidget {
         Provider<NativeTtsService>.value(value: NativeTtsService.instance),
         ChangeNotifierProvider(
           create: (ctx) => RecognitionState(
+    // v5.0 init YOLO + Mic (deferred)
+
             bluetooth: ctx.read<BluetoothCameraService>(),
             phoneCamera: ctx.read<PhoneCameraService>(),
             vision: ctx.read<LocalVisionService>(),

@@ -17,8 +17,8 @@ android {
         applicationId = "com.spectraglass.app"
         minSdk = 31
         targetSdk = 36
-        versionCode = 5
-        versionName = "3.3.0"
+        versionCode = 7
+        versionName = "5.0.0"
     }
 
     buildTypes {
@@ -42,4 +42,8 @@ flutter {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
+    // ONNX Runtime for YOLO26-Nano on-device inference. Direct Maven dep
+    // (NOT via flutter_onnxruntime plugin — that had a gradle subproject
+    // build conflict on AGP 9.x). The native .so files are bundled in the AAR.
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.22.0")
 }
