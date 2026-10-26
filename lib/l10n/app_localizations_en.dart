@@ -235,5 +235,5 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get aboutBody =>
-      'SpectruLenPor v3.0 — Moondream3 cloud vision + local Moondream fallback + OpenRouter gemma→inkling→nemotron reasoning chain + streamed fish-audio TTS.\n\nPipeline: sensors + camera → ESP32-CAM → Bluetooth → phone → Moondream3 cloud analysis → OpenRouter presentation → bilingual voice narration.\n\nMalak Adel Sayed Hassan · Grade 1 secondary, Class 3/1 · Ashmounin Secondary School · Budget: 2,500–6,000 EGP.';
+      'SpectruLenPor v5.3.0 — YOLO26-Nano on-device object detection + Moondream3 cloud vision + OpenRouter gemma→inkling→nemotron reasoning chain + streamed fish-audio TTS + Wikipedia + PubChem + DuckDuckGo citations + Google AI Overviews-style inline [n] citations + fact-checking + auto-updating structured context + chat with mic.\n\nPipeline: phone camera / ESP32-CAM → YOLO26-Nano bounding boxes → user taps box → dual capture (clean + boxes) → Moondream analyzeSelected → LLM scientific context with citations + fact-checking → auto-narrate → chat session with auto-updating context.\n\nMalak Adel Sayed Hassan · Grade 1 secondary, Class 3/1 · Ashmounin Secondary School · Budget: 2,500–6,000 EGP.';
 }

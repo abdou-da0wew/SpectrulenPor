@@ -115,7 +115,7 @@ class SpectruLenPorApp extends StatelessWidget {
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           initialRoute: '/',
           routes: {
-            '/': (ctx) => const HomeScreen(),
+            '/': (ctx) => const HomeScreenV5(),
             '/settings': (ctx) => const SettingsScreen(),
           },
         ),

@@ -14,7 +14,7 @@ import '../services/phone_camera_service.dart';
 import '../utils/app_theme.dart' as palette;
 import '../utils/app_typography.dart';
 
-/// Settings — v3 pipeline configuration:
+/// Settings — v5.3 pipeline configuration:
 ///   * Moondream3 cloud API key (primary vision)
 ///   * OpenRouter API key (presentation + streamed fish-audio TTS)
 ///   * Text+reasoning fallback chain (gemma → inkling → nemotron)
