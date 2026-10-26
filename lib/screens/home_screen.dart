@@ -1,325 +1,330 @@
-import 'package:camera/camera.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../l10n/app_localizations.dart';
-import '../main.dart' show appLocale;
+import '../models/bounding_box.dart';
+import '../models/bluetooth_status.dart';
 import '../models/recognition_state.dart';
-import '../services/native_tts_service.dart';
 import '../utils/app_theme.dart' as palette;
-import '../widgets/audio_controls.dart';
-import '../widgets/camera_preview.dart';
-import '../widgets/connection_status_bar.dart';
-import '../widgets/deep_info_card.dart';
-import '../widgets/hazard_banner.dart';
-import '../widgets/live_label_chip.dart';
-import '../widgets/spectrum_card.dart';
+import '../widgets/bounding_box_overlay.dart';
+import 'chat_screen.dart';
 
-/// Main screen — voice-first, bilingual, RTL-aware.
-///
-/// Two camera sources feed the same pipeline:
-///   * Phone camera (works immediately, demo / lab use)
-///   * ESP32-CAM glasses over BLE (the wearable build)
-class HomeScreen extends StatefulWidget {
+/// Main home screen — YOLO26-Nano bounding box overlay on full-bleed camera
+/// preview + tap-to-select + "Analyze this" FAB (requires selected box) +
+/// cloud-only toggle + chat navigation. Settings opens from the app bar.
+class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
-
-  @override
-  State<HomeScreen> createState() => _HomeScreenState();
-}
-
-class _HomeScreenState extends State<HomeScreen> {
-  bool _muted = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _requestPermissions();
-    // Auto-start phone camera so the app is usable out of the box.
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted) return;
-      final state = context.read<RecognitionState>();
-      try {
-        await state.startPhoneCamera();
-      } catch (e) {
-        debugPrint('phone camera autostart: $e');
-      }
-    });
-  }
-
-  Future<void> _requestPermissions() async {
-    // permission_handler has no web/VM engine — skip there (browser preview
-    // grants camera via its own prompt; tests run without plugins).
-    if (kIsWeb) return;
-    try {
-      await [
-        Permission.bluetoothScan,
-        Permission.bluetoothConnect,
-        Permission.location,
-        Permission.camera,
-      ].request();
-    } catch (e) {
-      debugPrint('permission request unavailable: $e');
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<RecognitionState>();
-    final theme = Theme.of(context);
+    final loc = AppLocalizations.of(context);
 
     return Scaffold(
+      backgroundColor: palette.AppColors.alabasterGrey,
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('SpectruLenPor'),
-            Text(
-              AppLocalizations.of(context).appTagline,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 10.5,
-                fontWeight: FontWeight.w400,
-                color: palette.AppColors.alabasterGrey,
-              ),
-            ),
-          ],
+        backgroundColor: palette.AppColors.dustyLavender,
+        title: Text(
+          'SpectruLenPor',
+          style: GoogleFonts.jaro().copyWith(color: Colors.white),
         ),
         actions: [
-          // Flashlight: glasses LED over BLE, or phone torch in phone mode.
+          // Flashlight
           IconButton(
-            tooltip: AppLocalizations.of(context).flashlight,
             icon: Icon(
               state.flashOn ? Icons.flashlight_on : Icons.flashlight_off,
               color: state.flashOn ? palette.AppColors.warning : null,
             ),
             onPressed: () => state.setFlashlight(!state.flashOn),
           ),
-          // v3.3: auto-flashlight indicator — small "A" badge shown when
-          // the torch was auto-triggered by the vision gate (too-dark frame).
+          // Cloud-only toggle quick-access
+          IconButton(
+            icon: Icon(
+              state.cloudOnly ? Icons.cloud_off : Icons.cloud,
+              color: state.cloudOnly ? palette.AppColors.warning : null,
+            ),
+            tooltip: state.cloudOnly ? 'Cloud-only ON' : 'Cloud-only OFF',
+            onPressed: () => state.cloudOnly = !state.cloudOnly,
+          ),
+          TextButton(
+            onPressed: () async {
+              final next = state.isArabic ? 'en' : 'ar';
+              await state.setLocale(next);
+            },
+            child: Text(
+              state.isArabic ? 'EN' : 'ع',
+              style: GoogleFonts.rubik().copyWith(
+                color: Colors.white, fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings, color: Colors.white),
+            onPressed: () => Navigator.pushNamed(context, '/settings'),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          // Status bar — connection / source / gate
+          _StatusBar(state: state),
+          // Source toggle (Phone camera / Glasses)
+          _SourceToggle(state: state),
+          // Camera preview — FIXED: full-bleed AspectRatio that fills container
+          Expanded(child: _CameraPreviewV5(state: state)),
+          // Bottom: live label chip + Analyze FAB + spectrum card
+          _BottomBar(state: state, loc: loc),
+        ],
+      ),
+      floatingActionButton:
+          state.selectedBox != null && state.chatSession == null
+              ? FloatingActionButton.extended(
+                  onPressed: () => state.captureAndAnalyzeSelected(),
+                  backgroundColor: palette.AppColors.dustyMauve,
+                  icon: const Icon(Icons.science, color: Colors.white),
+                  label: Text(
+                    'Analyze ${state.selectedBox!.label}',
+                    style: GoogleFonts.rubik().copyWith(color: Colors.white),
+                  ),
+                )
+              : state.chatSession != null
+                  ? FloatingActionButton.extended(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const ChatScreen()),
+                      ),
+                      backgroundColor: palette.AppColors.dustyLavender,
+                      icon: const Icon(Icons.chat, color: Colors.white),
+                      label: Text(
+                        'Open chat',
+                        style: GoogleFonts.rubik().copyWith(color: Colors.white),
+                      ),
+                    )
+                  : null,
+    );
+  }
+}
+
+class _StatusBar extends StatelessWidget {
+  final RecognitionState state;
+  const _StatusBar({required this.state});
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      color: palette.AppColors.alabasterGrey,
+      child: Row(
+        children: [
+          Icon(state.btStatus == BluetoothStatus.connected ? Icons.bluetooth_connected
+                : Icons.bluetooth_disabled, size: 16, color: palette.AppColors.dustyLavender),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              state.btStatus == BluetoothStatus.connected
+                  ? 'Glasses connected'
+                  : 'Phone camera mode',
+              style: GoogleFonts.rubik().copyWith(fontSize: 12),
+            ),
+          ),
+          if (state.lastGate != null)
+            Text(
+              '${state.lastGate!.reason} · ${state.lastGate!.brightness.toStringAsFixed(0)}',
+              style: GoogleFonts.spaceMono().copyWith(fontSize: 10),
+            ),
           if (state.autoFlashOn)
             Container(
-              margin: const EdgeInsets.only(right: 6),
+              margin: const EdgeInsets.only(left: 6),
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
                 color: palette.AppColors.dustyMauve,
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: const Text(
-                'AUTO',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.8,
-                ),
-              ),
+              child: const Text('AUTO',
+                style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700)),
             ),
-          // Language quick-toggle EN <-> AR.
-          TextButton(
-            onPressed: () async {
-              final next = state.isArabic ? 'en' : 'ar';
-              await state.setLocale(next);
-              appLocale.value = Locale(next);
-            },
-            child: Text(
-              state.isArabic ? 'EN' : 'ع',
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w800),
-            ),
-          ),
-          IconButton(
-            tooltip: AppLocalizations.of(context).settings,
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: () => Navigator.pushNamed(context, '/settings'),
-          ),
         ],
       ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.only(bottom: 24),
-          children: [
-            // Hazard alert (top, unmissable)
-            if (state.hazardActive)
-              HazardBanner(
-                reason: state.hazardReason,
-                onDismiss: state.clearHazard,
-              ),
+    );
+  }
+}
 
-            // Source switch: phone camera <-> glasses
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              child: SegmentedButton<CameraSource>(
-                segments: [
-                  ButtonSegment(
-                    value: CameraSource.phone,
-                    label: Text(AppLocalizations.of(context).phoneCamera),
-                    icon: const Icon(Icons.smartphone, size: 17),
-                  ),
-                  ButtonSegment(
-                    value: CameraSource.glasses,
-                    label: Text(AppLocalizations.of(context).glassesCam),
-                    icon: const Icon(Icons.visibility, size: 17),
-                  ),
-                ],
-                selected: {state.source},
-                onSelectionChanged: (sel) =>
-                    state.switchSource(sel.first),
-                style: SegmentedButton.styleFrom(
-                  selectedBackgroundColor: palette.AppColors.dustyLavender,
-                  selectedForegroundColor: Colors.white,
-                  backgroundColor: palette.AppColors.surfaceLight,
-                  foregroundColor: palette.AppColors.inkSoft,
-                  side: BorderSide(color: palette.AppColors.silver),
-                ),
-              ),
-            ),
+class _SourceToggle extends StatelessWidget {
+  final RecognitionState state;
+  const _SourceToggle({required this.state});
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Row(
+        children: [
+          Expanded(child: _segButton('Phone camera', state.source == CameraSource.phone,
+              () => state.switchSource(CameraSource.phone))),
+          Expanded(child: _segButton('Glasses', state.source == CameraSource.glasses,
+              () => state.switchSource(CameraSource.glasses))),
+        ],
+      ),
+    );
+  }
 
-            // BLE status bar (only meaningful in glasses mode)
-            if (state.source == CameraSource.glasses)
-              ConnectionStatusBar(
-                status: state.btStatus,
-                onConnect: () async {
-                  try {
-                    await state.connectToGlasses();
-                  } catch (e) {
-                    if (!mounted) return;
-                    ScaffoldMessenger.of(context)
-                        .showSnackBar(SnackBar(content: Text('$e')));
-                  }
-                },
-                onDisconnect: state.disconnect,
-              ),
-
-            // Live preview
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              child: state.usingPhoneCamera
-                  ? _PhonePreview(state: state)
-                  : CameraPreviewWidget(
-                      jpegBytes: state.lastFrame?.jpegBytes,
-                      capturedAt: state.lastFrame?.capturedAt,
-                      isLive: state.btStatus == BluetoothStatus.connected,
-                    ),
-            ),
-
-            // Instant local label (specialized model / ML Kit)
-            LiveLabelChip(
-              label: state.lastLabel,
-              source: state.visionSource,
-            ),
-
-            // Actions
-            AudioControls(
-              speaking: !_muted && state.liveSpeak,
-              busy: state.upstreamStatus == UpstreamStatus.streaming,
-              onDescribeNow: () async {
-                if (_muted) {
-                  setState(() => _muted = false);
-                  state.liveSpeak = true;
-                }
-                await state.captureAndAnalyzeNow();
-              },
-              onToggleSpeak: () async {
-                setState(() => _muted = !_muted);
-                state.liveSpeak = !_muted;
-                if (_muted) await NativeTtsService.instance.stop();
-              },
-            ),
-
-            // Spectrum panel (UV/IR + state of matter + ONNX top-3)
-            SpectrumCard(
-              reading: state.lastReading,
-              predictions: state.lastPredictions,
-              state: state.matterState,
-              hazardActive: state.hazardActive,
-              hasTelemetry: state.lastReading != null,
-            ),
-
-            // AI analysis (presentation pass)
-            DeepInfoCard(
-              markdown: state.deepReasoningMarkdown,
-              status: state.upstreamStatus,
-            ),
-
-            // Latency metric (transparency for the science fair!)
-            if (state.upstreamMs > 0)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Text(
-                  AppLocalizations.of(context)
-                      .latencyFirstToken(state.upstreamMs),
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(color: palette.AppColors.inkSoft),
-                ),
-              ),
-
-            const SizedBox(height: 10),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-              child: Text(
-                AppLocalizations.of(context).credits,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: palette.AppColors.silver, height: 1.5),
-              ),
-            ),
-          ],
+  Widget _segButton(String label, bool active, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color: active ? palette.AppColors.dustyLavender : Colors.white,
+          border: Border.all(color: palette.AppColors.dustyLavender, width: 1),
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: GoogleFonts.rubik().copyWith(
+            color: active ? Colors.white : palette.AppColors.dustyLavender,
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+          ),
         ),
       ),
     );
   }
 }
 
-/// Phone-camera live preview (native texture). Taps capture + analyze.
-class _PhonePreview extends StatelessWidget {
+class _CameraPreviewV5 extends StatelessWidget {
   final RecognitionState state;
-  const _PhonePreview({required this.state});
-
+  const _CameraPreviewV5({required this.state});
   @override
   Widget build(BuildContext context) {
-    final ctrl = state.phoneCamera.controller;
-    if (ctrl == null || !ctrl.value.isInitialized) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: AspectRatio(
-          aspectRatio: 4 / 3,
-          child: Container(
+    final frame = state.lastFrame;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (frame != null)
+          Container(
+            color: Colors.black,
+            child: FittedBox(
+              fit: BoxFit.cover,
+              child: AspectRatio(
+                aspectRatio: frame.width / frame.height,
+                child: Image.memory(
+                  frame.jpegBytes,
+                  gaplessPlayback: true,
+                  fit: BoxFit.cover,
+                ),
+              ),
+            ),
+          )
+        else
+          Container(
             color: palette.AppColors.inkDark,
             child: Center(
-              child: Text(
-                AppLocalizations.of(context).waitingFrame,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: palette.AppColors.silver),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.videocam_off, size: 56, color: Colors.white70),
+                  const SizedBox(height: 12),
+                  Text(
+                    state.isArabic ? 'في انتظار إطار...' : 'Waiting for a frame…',
+                    style: GoogleFonts.rubik().copyWith(color: Colors.white70),
+                  ),
+                ],
               ),
             ),
           ),
-        ),
-      );
-    }
-    return Stack(
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          child: AspectRatio(
-            aspectRatio: 4 / 3,
-            child: CameraPreview(ctrl),
+        // Bounding box overlay
+        if (frame != null && state.currentBoxes.isNotEmpty)
+          BoundingBoxOverlay(
+            boxes: state.currentBoxes,
+            selectedBox: state.selectedBox,
+            onTapBox: (b) => state.selectBox(b),
           ),
-        ),
-        if (state.flashOn)
-          const Positioned(
-            top: 10,
-            left: 10,
-            child: Icon(Icons.flashlight_on,
-                color: palette.AppColors.warning, size: 22),
+        // Top-right: LIVE badge
+        if (state.phoneCamera.isStreaming)
+          Positioned(
+            top: 8,
+            right: 8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: palette.AppColors.danger,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.circle, size: 6, color: Colors.white),
+                  SizedBox(width: 4),
+                  Text('LIVE', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1.1)),
+                ],
+              ),
+            ),
+          ),
+        // Center hint: tap a box to analyze
+        if (state.selectedBox == null && state.currentBoxes.isNotEmpty)
+          Positioned(
+            bottom: 12,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  state.isArabic ? 'اضغط على صندوق للتحليل' : 'Tap a box to analyze',
+                  style: GoogleFonts.rubik().copyWith(color: Colors.white, fontSize: 11),
+                ),
+              ),
+            ),
           ),
       ],
+    );
+  }
+}
+
+class _BottomBar extends StatelessWidget {
+  final RecognitionState state;
+  final AppLocalizations loc;
+  const _BottomBar({required this.state, required this.loc});
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: palette.AppColors.dustyLavender.withOpacity(0.1),
+            blurRadius: 4,
+            offset: const Offset(0, -1),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            state.isArabic ? 'التحليل اللحظي' : 'Live analysis',
+            style: GoogleFonts.jaro().copyWith(
+              color: palette.AppColors.dustyLavender, fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            state.lastLabel ?? (state.isArabic ? 'في انتظار التحليل…' : 'Waiting for analysis…'),
+            style: GoogleFonts.spaceMono().copyWith(fontSize: 11),
+          ),
+          if (state.upstreamStatus != UpstreamStatus.idle) ...[
+            const SizedBox(height: 4),
+            Text(
+              state.isArabic ? 'السحابة: ${state.upstreamStatus.name}' : 'Cloud: ${state.upstreamStatus.name}',
+              style: GoogleFonts.rubik().copyWith(fontSize: 10, color: palette.AppColors.silver),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

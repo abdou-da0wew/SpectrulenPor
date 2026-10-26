@@ -17,8 +17,8 @@ android {
         applicationId = "com.spectraglass.app"
         minSdk = 31
         targetSdk = 36
-        versionCode = 11
-        versionName = "5.3.1"
+        versionCode = 12
+        versionName = "5.3.2"
     }
 
     buildTypes {

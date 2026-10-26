@@ -7,7 +7,6 @@ import 'l10n/app_localizations.dart';
 import 'config/app_secrets.dart';
 import 'models/recognition_state.dart';
 import 'screens/home_screen.dart';
-import 'screens/home_screen_v5.dart';
 import 'screens/settings_screen.dart';
 import 'services/bluetooth_camera_service.dart';
 import 'services/local_vision_service.dart';
@@ -115,7 +114,7 @@ class SpectruLenPorApp extends StatelessWidget {
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           initialRoute: '/',
           routes: {
-            '/': (ctx) => const HomeScreenV5(),
+            '/': (ctx) => const HomeScreen(),
             '/settings': (ctx) => const SettingsScreen(),
           },
         ),
