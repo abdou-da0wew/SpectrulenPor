@@ -1,7 +1,7 @@
 name: smart_glass_app
 description: SpectruLenPor — Smart glasses for spectrum analysis and detection of chemical elements and compounds. ESP32-CAM glasses / phone camera → Moondream3 cloud vision (local Moondream fallback) → OpenRouter text+reasoning presentation → streamed fish-audio TTS.
 publish_to: 'none'
-version: 3.3.0+5
+version: 4.0.0+6
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -25,9 +25,13 @@ dependencies:
   dio: ^5.7.0                    # streaming downloads for TTS audio + SSE
 
   # ---------- Local on-device vision fallback (offline) ----------
-  google_mlkit_image_labeling: ^0.11.0     # ML Kit fast labeling (offline fallback)
-  google_mlkit_text_recognition: ^0.13.0  # OCR for signs / bottle labels
+  google_mlkit_image_labeling: ^0.16.1     # ML Kit fast labeling (offline fallback)
+  google_mlkit_text_recognition: ^0.17.1  # OCR for signs / bottle labels
   path_provider: ^2.1.4         # where to store downloaded GGUF model
+
+  # ---------- v4.0: Object Detection + Mic (chat session) ----------
+  google_mlkit_object_detection: ^0.17.1  # ML Kit Object Detection — bounding boxes + labels (no asset needed)
+  speech_to_text: ^7.5.0                   # Android built-in SpeechRecognizer for chat mic input
 
   # ---------- ONNX Runtime Mobile (optional specialized offline classifier) ----------
   # flutter_onnxruntime disabled — onnxruntime-android AAR has compileSdk=33 metadata conflict with androidx 34+ deps.

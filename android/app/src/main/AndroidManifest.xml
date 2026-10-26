@@ -32,6 +32,10 @@
     <!-- Android 13+ (API 33+): runtime POST_NOTIFICATIONS for fish-audio TTS notification channel -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Microphone for chat voice input (Android built-in SpeechRecognizer) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+
     <!-- Foreground service permissions — Android 14+ (API 34+) requires both base + type-specific. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />

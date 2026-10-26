@@ -325,6 +325,101 @@ class MoondreamService {
     );
   }
 
+// Moondream additions: analyzeSelected method + MoondreamStructuredAnalysis class
+// These will be APPENDED to moondream_service.dart.
+
+// ---------------------------------------------------------------------------
+// v4.0 STRUCTURED ANALYSIS — anchored on user-selected bounding box
+// ---------------------------------------------------------------------------
+
+  /// Two-pass structured analysis with TWO images (clean + boxes-painted).
+  ///
+  /// Pass 1: caption the CLEAN image (unobstructed view → color/texture clarity).
+  /// Pass 2: VQA the BOXES image with reasoning + a chemistry-aware prompt
+  ///         anchored on the user-selected object. The boxes visible in the
+  ///         image tell the model which region the user is interested in.
+  ///
+  /// Returns a [MoondreamStructuredAnalysis] with what_it_is / how_its_used /
+  /// whats_around / visible_text / hazards / state_of_matter fields.
+  Future<MoondreamStructuredAnalysis?> analyzeSelected(
+    Uint8List cleanJpeg,
+    Uint8List withBoxesJpeg, {
+    String selectedLabel = 'the selected object',
+    String lang = 'en',
+  }) async {
+    if (!isCloudConfigured) return null;
+
+    // Pass 1 — fast caption of the clean (no-boxes) image.
+    final clean = await caption(cleanJpeg, length: 'normal');
+    if (clean == null || clean.caption.trim().isEmpty) return null;
+
+    // Pass 2 — VQA the boxes image with reasoning + rich prompt.
+    final isAr = lang.startsWith('ar');
+    final prompt = isAr
+        ? buildArabicAnalysisPrompt(selectedLabel)
+        : buildEnglishAnalysisPrompt(selectedLabel);
+
+    final vqa = await query(withBoxesJpeg, question: prompt, reasoning: true);
+    if (vqa == null) {
+      // Fall back to caption-only if VQA failed.
+      return MoondreamStructuredAnalysis(
+        caption: clean.caption,
+        whatItIs: clean.caption,
+        howItsUsed: '',
+        whatsAround: '',
+        visibleText: '',
+        hazards: '',
+        stateOfMatter: '',
+        reasoning: null,
+        requestId: clean.requestId,
+      );
+    }
+
+    // Pass 3 — separate hazard pictogram check.
+    final hazardQ = isAr
+        ? 'هل ترى أي رموز خطر بالقرب من $selectedLabel؟ (تآكل، اشتعال، سمية، انفجار). صف بدقة.'
+        : 'Do you see any hazard pictograms near $selectedLabel? (corrosive, flammable, toxic, explosive). Describe precisely.';
+    final hazard = await query(withBoxesJpeg, question: hazardQ, reasoning: false);
+
+    // Pass 4 — separate "what's around" query for spatial context.
+    final aroundQ = isAr
+        ? 'صف الأشياء المحيطة بـ$selectedLabel في المشهد. ما الأشياء المرئية على الطاولة؟'
+        : 'Describe the objects surrounding $selectedLabel in the scene. What else is visible on the table or surface?';
+    final around = await query(withBoxesJpeg, question: aroundQ, reasoning: false);
+
+    return MoondreamStructuredAnalysis(
+      caption: clean.caption,
+      whatItIs: vqa.answer,
+      howItsUsed: '',
+      whatsAround: around?.answer ?? '',
+      visibleText: '',
+      hazards: hazard?.answer ?? '',
+      stateOfMatter: '',
+      reasoning: vqa.reasoning,
+      requestId: clean.requestId,
+    );
+  }
+
+  String buildArabicAnalysisPrompt(String selectedLabel) {
+    return [
+      'الصورة المعروضة تحتوي على صناديق حدودية. الصندوق المحدد هو "$selectedLabel".',
+      'قم بتحليل $selectedLabel بدقة عالية: ما هو؟ ما المكونات الكيميائية أو الفيزيائية فيه؟',
+      'كيف يتشكل؟ ما هي حالته (صلب/سائل/غاز)؟ ما لونه وملمسه؟',
+      'ما هي الأشياء المحيطة به؟ هل ترى أي ملصقات أو نصوص أو رموز خطر؟',
+      'أعطني إجابة مفصلة وعلمية. لا تخمن — قل ما تراه فعلياً.',
+    ].join(' ');
+  }
+
+  String buildEnglishAnalysisPrompt(String selectedLabel) {
+    return [
+      'The image shown contains bounding boxes. The selected box is "$selectedLabel".',
+      'Analyze $selectedLabel in detail: what is it? What are its chemical or physical components?',
+      'How is it formed? What is its state of matter (solid/liquid/gas)? Color and texture?',
+      'What objects are around it? Are there any visible labels, printed text, or hazard symbols?',
+      'Provide a detailed scientific answer. Do not guess — describe only what you actually see.',
+    ].join(' ');
+  }
+
   // ---------------------------------------------------------------------------
   // LOCAL MOONDREAM FALLBACK (platform channel → llama.cpp + mmproj GGUF)
   // ---------------------------------------------------------------------------
@@ -555,3 +650,52 @@ class MoondreamAnalysis {
         l.contains('تحذير');
   }
 }
+
+// MoondreamStructuredAnalysis class — append to moondream_service.dart
+
+/// Result of [MoondreamService.analyzeSelected] — the structured JSON-style
+/// analysis that gets handed to the LLM "scientific context writer".
+class MoondreamStructuredAnalysis {
+  const MoondreamStructuredAnalysis({
+    required this.caption,
+    required this.whatItIs,
+    required this.howItsUsed,
+    required this.whatsAround,
+    required this.visibleText,
+    required this.hazards,
+    required this.stateOfMatter,
+    this.reasoning,
+    this.requestId,
+  });
+
+  final String caption;
+  final String whatItIs;
+  final String howItsUsed;
+  final String whatsAround;
+  final String visibleText;
+  final String hazards;
+  final String stateOfMatter;
+  final String? reasoning;
+  final String? requestId;
+
+  /// Merged plain-text summary suitable for the LLM context prompt.
+  String toMergedSummary() {
+    final b = StringBuffer();
+    if (caption.isNotEmpty) b.writeln('Scene: $caption');
+    if (whatItIs.isNotEmpty) b.writeln('What it is: $whatItIs');
+    if (whatsAround.isNotEmpty) b.writeln('Around it: $whatsAround');
+    if (hazards.isNotEmpty) b.writeln('Hazards: $hazards');
+    if (stateOfMatter.isNotEmpty) b.writeln('State of matter: $stateOfMatter');
+    return b.toString().trim();
+  }
+
+  bool get hasHazard {
+    final l = hazards.toLowerCase();
+    return l.contains('corrosive') || l.contains('flammable') ||
+        l.contains('toxic') || l.contains('explosive') ||
+        l.contains('oxidiz') || l.contains('hazard') ||
+        l.contains('تآكل') || l.contains('اشتعال') ||
+        l.contains('سامة') || l.contains('انفجار') || l.contains('خطر');
+  }
+}
+

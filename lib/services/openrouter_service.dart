@@ -4,6 +4,8 @@ import 'dart:developer';
 
 import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:http/http.dart' as http;
+import '../models/chat_message.dart';
+import 'chat_session.dart';
 
 /// Streams the AI presentation pass from OpenRouter.
 ///
@@ -269,6 +271,186 @@ class OpenRouterService {
     }
     return buf.toString();
   }
+// CORRECTED OpenRouter additions — replace the broken additions block.
+// This block goes INSIDE the OpenRouterService class, before its final '}'.
+
+  // ---------------------------------------------------------------------------
+  // v4.0 — SCIENTIFIC CONTEXT WRITER + CHAT MODE
+  // ---------------------------------------------------------------------------
+
+  /// Write the first scientific context for the captured image. Auto-narrated
+  /// by the caller via fish-audio TTS (cloud) or Android native TTS (fallback).
+  Stream<String> writeScientificContext({
+    required String moondreamSummary,
+    required String selectedLabel,
+    String lang = 'en',
+  }) async* {
+    final isAr = lang.startsWith('ar');
+    final prompt = isAr
+        ? buildArabicContextPrompt(moondreamSummary, selectedLabel)
+        : buildEnglishContextPrompt(moondreamSummary, selectedLabel);
+
+    yield* streamChat(
+      history: [
+        ChatMessage(role: 'user', content: prompt, at: DateTime.now()),
+      ],
+      anchor: null,
+      lang: lang,
+    );
+  }
+
+  String buildArabicContextPrompt(String moondreamSummary, String selectedLabel) {
+    final parts = <String>[
+      'أنت عالم وكاتب علمي. حصلت على تحليل Moondream المهيكل التالي:',
+      '',
+      moondreamSummary,
+      '',
+      'المكون المحدد من قبل المستخدم هو: "$selectedLabel".',
+      '',
+      'اكتب سياقاً علمياً شاملاً عن $selectedLabel. يجب أن يشمل:',
+      '1. ما هو $selectedLabel؟ تعريف علمي دقيق.',
+      '2. ما المكونات الكيميائية أو الفيزيائية فيه؟ صيغة كيميائية إن وجدت.',
+      '3. كيف يتشكل $selectedLabel؟ (طبيعياً، صناعياً، في المعمل؟)',
+      '4. ما هي خصائصه (الكثافة، درجة الانصهار، درجة الغليان، اللون، الرائحة؟)',
+      '5. ما هي استخداماته الشائعة؟',
+      '6. أي مخاطر سلامة يجب أن يعرفها الطالب؟',
+      '7. سياق المشهد: ما الأشياء المحيطة بـ$selectedLabel ولماذا قد تكون مهمة؟',
+      '',
+      'كن علمياً، مفصلاً، ودقيقاً. استخدم تنسيق Markdown. لا تخمن — إذا لم تعرف قل ذلك.',
+    ];
+    return parts.join('\n');
+  }
+
+  String buildEnglishContextPrompt(String moondreamSummary, String selectedLabel) {
+    final parts = <String>[
+      'You are a scientist and science writer. You received the following Moondream structured analysis:',
+      '',
+      moondreamSummary,
+      '',
+      'The user-selected component is: "$selectedLabel".',
+      '',
+      'Write a comprehensive scientific context about $selectedLabel. It must cover:',
+      '1. What is $selectedLabel? Precise scientific definition.',
+      '2. What are its chemical or physical components? Chemical formula if applicable.',
+      '3. How is $selectedLabel formed? (naturally, industrially, in the lab?)',
+      '4. What are its properties (density, melting point, boiling point, color, odor?)',
+      '5. What are its common uses?',
+      '6. Any safety hazards the student should know about?',
+      '7. Scene context: what objects surround $selectedLabel and why might they be relevant?',
+      '',
+      "Be scientific, detailed, and accurate. Use Markdown formatting. Do not guess - if you don't know, say so.",
+    ];
+    return parts.join('\n');
+  }
+
+  /// Streaming chat mode — walks the gemma → inkling → nemotron chain.
+  Stream<String> streamChat({
+    required List<ChatMessage> history,
+    required AnchorContext? anchor,
+    String lang = 'en',
+  }) async* {
+    final messages = <Map<String, String>>[];
+    if (anchor != null) {
+      messages.add({'role': 'system', 'content': anchor.toSystemPrompt(lang: lang)});
+    }
+    for (final m in history) {
+      messages.add({'role': m.role, 'content': m.content});
+    }
+    yield* streamRawMessages(messages, lang: lang);
+  }
+
+  /// Low-level stream — accepts raw OpenRouter-format messages and walks the
+  /// fallback chain (gemma → inkling → nemotron) until one model streams.
+  Stream<String> streamRawMessages(
+    List<Map<String, String>> messages, {
+    String lang = 'en',
+  }) async* {
+    if (!isConfigured) {
+      yield lang.startsWith('ar')
+          ? '*لم يتم ضبط مفتاح OpenRouter. افتح الإعدادات ← المفاتيح.*'
+          : '*OpenRouter API key not set. Open Settings → API keys.*';
+      return;
+    }
+    var lastError = '';
+    for (var i = 0; i < modelChain.length; i++) {
+      final model = modelChain[i];
+      try {
+        final emitted = <String>[];
+        await for (final chunk in _streamRawOne(model, messages)) {
+          emitted.add(chunk);
+          yield chunk;
+        }
+        if (emitted.isNotEmpty) {
+          lastChainIndex = i;
+          return;
+        }
+        lastError = 'empty stream from $model';
+      } catch (e) {
+        lastError = '$model: $e';
+        log('[OpenRouter chat] $lastError — trying next fallback…');
+      }
+    }
+    yield lang.startsWith('ar')
+        ? '*تعذّر الوصول لأي نموذج عرض. تحقق من الاتصال والمفاتيح. ($lastError)*'
+        : '*Could not reach any presentation model. Check connectivity and keys. ($lastError)*';
+  }
+
+  /// Single-model SSE stream with raw messages payload.
+  Stream<String> _streamRawOne(
+    String model,
+    List<Map<String, String>> messages,
+  ) async* {
+    final client = clientFactory?.call() ?? http.Client();
+    try {
+      final request = http.Request('POST', Uri.parse(endpoint));
+      request.headers['Authorization'] = 'Bearer $apiKey';
+      request.headers['Content-Type'] = 'application/json';
+      request.headers['HTTP-Referer'] = 'https://spectraglass.app';
+      request.headers['X-Title'] = 'SpectruLenPor';
+      request.body = jsonEncode({
+        'model': model,
+        'messages': messages,
+        'stream': true,
+        'reasoning': {'exclude': false},
+      });
+      final streamed = await client.send(request);
+      if (streamed.statusCode != 200) {
+        throw HttpExceptionWithBody(
+            streamed.statusCode, await streamed.stream.bytesToString());
+      }
+      final lineStream = streamed.stream
+          .transform(utf8.decoder)
+          .transform(const LineSplitter());
+      await for (final line in lineStream) {
+        if (!line.startsWith('data: ')) continue;
+        final payload = line.substring(6).trim();
+        if (payload == '[DONE]') break;
+        try {
+          final json = jsonDecode(payload) as Map<String, dynamic>;
+          final choices = json['choices'] as List?;
+          final delta = (choices != null && choices.isNotEmpty)
+              ? (choices[0]?['delta']?['content']) as String?
+              : null;
+          if (delta != null && delta.isNotEmpty) yield delta;
+          // Capture reasoning tokens for diagnostics.
+          final usage = json['usage'];
+          if (usage is Map<String, dynamic>) {
+            final details = (usage['completionTokensDetails'] ??
+                    usage['completion_tokens_details'])
+                as Map<String, dynamic>?;
+            final rt = (details?['reasoningTokens'] ??
+                    details?['reasoning_tokens']) as num?;
+            if (rt != null && rt > 0) lastReasoningTokens = rt.toInt();
+          }
+        } catch (e) {
+          log('SSE parse (chat): $e');
+        }
+      }
+    } finally {
+      client.close();
+    }
+  }
+
 }
 
 class HttpExceptionWithBody implements Exception {
