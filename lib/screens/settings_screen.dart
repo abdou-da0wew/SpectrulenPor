@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -27,10 +28,24 @@ class SettingsScreen extends StatefulWidget {
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
+
+// v5.3.3: Build-time constants — ALL passed via --dart-define at build time.
+// The build script reads pubspec version + git metadata and injects them.
+// Defaults to 'dev'/'?' when not defined (e.g. in IDE without the define).
+const String appVersion = String.fromEnvironment('APP_VERSION', defaultValue: '?');
+const String appBuild = String.fromEnvironment('APP_BUILD', defaultValue: '?');
+const String gitShaShort = String.fromEnvironment('GIT_SHA', defaultValue: 'dev');
+const String gitShaFull = String.fromEnvironment('GIT_SHA_FULL', defaultValue: 'dev');
+const String gitBranch = String.fromEnvironment('GIT_BRANCH', defaultValue: 'unknown');
+const bool gitDirty = String.fromEnvironment('GIT_DIRTY', defaultValue: 'false') == 'true';
+const String buildDate = String.fromEnvironment('BUILD_DATE', defaultValue: 'unknown');
+
 class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _mdKeyCtl;
   late final TextEditingController _orLlmCtl;
   late final TextEditingController _orTtsCtl;
+
+  // v5.3.3: dynamic version info — read from package_info_plus + assets/version.json
 
   @override
   void initState() {
@@ -48,6 +63,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
             (OpenRouterTtsService.instance.isConfigured
                 ? '•••••••• (configured)'
                 : ''));
+    _refreshVersion();
+  }
+
+  void _refreshVersion() {
+    // Version info is now compile-time const — just trigger a rebuild.
+    setState(() {});
+  }
+
+  String get _versionDisplay {
+    final dirty = gitDirty ? ' (dirty)' : '';
+    return 'SpectruLenPor v$appVersion (build $appBuild) — $gitShaShort on $gitBranch$dirty';
+  }
+
+  String get _fullVersionString {
+    return '''SpectruLenPor
+Version: $appVersion
+Build code: $appBuild
+Git SHA (short): $gitShaShort
+Git SHA (full): $gitShaFull
+Git branch: $gitBranch
+Working tree dirty: ${gitDirty ? 'YES' : 'no'}
+Built at: $buildDate''';
+  }
+
+  void _copyFullVersion() {
+    Clipboard.setData(ClipboardData(text: _fullVersionString));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Full version copied to clipboard'),
+        duration: Duration(seconds: 2)),
+    );
   }
 
   @override
@@ -541,4 +586,83 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
   }
+}
+
+
+/// v5.3.3: Card displaying the dynamic version info from pubspec (via
+/// package_info_plus) + git SHA / branch / build date (from assets/version.json
+/// generated at build time by the genVersionJson Gradle task).
+///
+/// Tapping the card copies the full version string to clipboard.
+class _VersionCard extends StatelessWidget {
+  final String versionDisplay;
+  final VoidCallback onCopy;
+
+  const _VersionCard({
+    required this.versionDisplay,
+    required this.onCopy,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final v = appVersion;
+    final b = appBuild;
+    final sha = gitShaShort;
+    final shaFull = gitShaFull;
+    final branch = gitBranch;
+    final builtAt = buildDate;
+    final dirty = gitDirty;
+
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: InkWell(
+        onTap: onCopy,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.info_outline, size: 18, color: theme.colorScheme.primary),
+                  const SizedBox(width: 8),
+                  Text('Version', style: theme.textTheme.titleSmall),
+                  const Spacer(),
+                  Icon(Icons.content_copy, size: 14, color: theme.colorScheme.outline),
+                ],
+              ),
+              const SizedBox(height: 8),
+              _Row('Version', 'v$v'),
+              _Row('Build code', b),
+              _Row('Git SHA (short)', sha),
+              _Row('Git SHA (full)', shaFull.substring(0, shaFull.length > 16 ? 16 : shaFull.length) + '…'),
+              _Row('Git branch', branch),
+              _Row('Working tree dirty', dirty ? 'YES (uncommitted changes)' : 'no (clean)'),
+              _Row('Built at', builtAt),
+              const SizedBox(height: 8),
+              Text(
+                'Tap to copy full version string to clipboard',
+                style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _Row(String k, String v) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 1),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+                width: 120,
+                child: Text(k, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12))),
+            Expanded(child: Text(v, style: const TextStyle(fontSize: 12, fontFamily: 'monospace'))),
+          ],
+        ),
+      );
 }

@@ -17,8 +17,8 @@ android {
         applicationId = "com.spectraglass.app"
         minSdk = 31
         targetSdk = 36
-        versionCode = 12
-        versionName = "5.3.2"
+        versionCode = 13
+        versionName = "5.3.3"
     }
 
     buildTypes {
@@ -35,6 +35,7 @@ kotlin {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
 }
+
 
 flutter {
     source = "../.."
