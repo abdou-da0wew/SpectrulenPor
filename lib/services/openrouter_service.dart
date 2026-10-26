@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:http/http.dart' as http;
 import '../models/chat_message.dart';
 import '../models/citation.dart';
+import '../models/conversation_context.dart';
 import 'docs_search_service.dart';
 import 'wikipedia_service.dart';
 import 'fact_checker_service.dart';
@@ -351,11 +352,15 @@ class OpenRouterService {
   Stream<String> streamChat({
     required List<ChatMessage> history,
     required AnchorContext? anchor,
+    ConversationContext? runningContext,
     String lang = 'en',
   }) async* {
     final messages = <Map<String, String>>[];
-    if (anchor != null) {
-      messages.add({'role': 'system', 'content': anchor.toSystemPrompt(lang: lang)});
+    final systemParts = <String>[];
+    if (anchor != null) systemParts.add(anchor.toSystemPrompt(lang: lang));
+    if (runningContext != null) systemParts.add(runningContext.toSystemPromptBlock(lang: lang));
+    if (systemParts.isNotEmpty) {
+      messages.add({'role': 'system', 'content': systemParts.join('\n\n---\n\n')});
     }
     for (final m in history) {
       messages.add({'role': m.role, 'content': m.content});

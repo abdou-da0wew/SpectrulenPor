@@ -6,52 +6,75 @@ import 'package:flutter/foundation.dart';
 import '../models/bounding_box.dart';
 import '../models/captured_frames.dart';
 import '../models/chat_message.dart';
+import '../models/conversation_context.dart';
 import 'moondream_service.dart';
 import 'openrouter_service.dart';
 
-/// Anchored chat session. The "anchor" is a captured image-pair + the
-/// Moondream structured analysis + the LLM's first scientific context write-up.
-/// Each user message extends the conversation; the AI has tools to re-capture,
-/// zoom, highlight, and (later) web-search.
+/// Anchored chat session with AUTO-UPDATING CONTEXT.
 ///
-/// Flow:
-///   1. User taps a YOLO box on the live preview.
-///   2. CapturedFrames is recorded (clean + with-boxes JPEGs).
-///   3. MoondreamStructuredAnalysis is produced from those frames.
-///   4. The LLM writes the first scientific context (auto-narrated via TTS).
-///   5. This ChatSession holds the conversation from that point forward.
+/// The [ConversationContext] is the persistent structured knowledge:
+///   * Initialized from Moondream analysis + first LLM context.
+///   * Embedded into EVERY system prompt sent to the LLM (every turn).
+///   * Auto-updated when the AI emits `<context_update>{...}</context_update>`
+///     blocks in any response — the AI itself decides what to refine.
+///
+/// Result: every chat turn sees the FULL accumulated knowledge, not just
+/// chat history. The AI can refine / correct / extend fields freely.
 class ChatSession {
   ChatSession({
     required this.frames,
     required this.moondreamAnalysis,
     required this.firstLlmContext,
     required this.openRouter,
-  });
+    String lang = 'en',
+  }) : _lang = lang {
+    // Initialize the running context from the Moondream analysis + first LLM.
+    _context = ConversationContext(
+      objectIdentified: moondreamAnalysis.whatItIs.isNotEmpty
+          ? moondreamAnalysis.whatItIs
+          : frames.selectedBox.label,
+      chemicalFormula: _extractFormula(moondreamAnalysis),
+      stateOfMatter: moondreamAnalysis.stateOfMatter.isNotEmpty
+          ? moondreamAnalysis.stateOfMatter
+          : null,
+      hazards: moondreamAnalysis.hazards.isNotEmpty ? moondreamAnalysis.hazards : null,
+      sceneContext: moondreamAnalysis.whatsAround.isNotEmpty
+          ? moondreamAnalysis.whatsAround
+          : null,
+      moondreamAnalysis: moondreamAnalysis.toMergedSummary(),
+      firstLlmContext: firstLlmContext,
+      commonUses: const [],
+      relatedCompounds: const [],
+      userNotes: const [],
+      openQuestions: const [],
+    );
+  }
 
   final CapturedFrames frames;
   final MoondreamStructuredAnalysis moondreamAnalysis;
   final String firstLlmContext;
   final OpenRouterService openRouter;
+  final String _lang;
+
+  late ConversationContext _context;
+  ConversationContext get context => _context;
 
   final List<ChatMessage> _history = [];
   List<ChatMessage> get history => List.unmodifiable(_history);
 
-  /// Stream controller for the streaming LLM response.
   final StreamController<String> _streamCtl = StreamController<String>.broadcast();
   Stream<String> get responseStream => _streamCtl.stream;
 
   bool _streaming = false;
   bool get isStreaming => _streaming;
 
-  /// Send a user message. Streams the AI's response.
-  Future<void> sendUserMessage(String text, {String lang = 'en'}) async {
+  /// Send a user message. Streams the AI's response, parses any
+  /// `<context_update>` blocks, merges them into the running context.
+  Future<void> sendUserMessage(String text, {String? lang}) async {
     if (_streaming) return;
+    final loc = lang ?? _lang;
     _streaming = true;
-    _history.add(ChatMessage(
-      role: 'user',
-      content: text,
-      at: DateTime.now(),
-    ));
+    _history.add(ChatMessage(role: 'user', content: text, at: DateTime.now()));
 
     try {
       final buffer = StringBuffer();
@@ -62,14 +85,27 @@ class ChatSession {
           moondreamAnalysis: moondreamAnalysis,
           firstLlmContext: firstLlmContext,
         ),
-        lang: lang,
+        runningContext: _context,
+        lang: loc,
       )) {
         buffer.write(chunk);
         _streamCtl.add(chunk);
       }
+
+      // Strip <context_update> blocks + merge them into the running context.
+      final fullResponse = buffer.toString();
+      var cleanResponse = fullResponse;
+      final updates = ConversationContext.extractUpdatesAndStrip(
+        fullResponse,
+        (stripped) => cleanResponse = stripped,
+      );
+      for (final u in updates) {
+        _context.mergeFrom(u);
+      }
+
       _history.add(ChatMessage(
         role: 'assistant',
-        content: buffer.toString(),
+        content: cleanResponse,
         at: DateTime.now(),
       ));
     } catch (e) {
@@ -84,20 +120,28 @@ class ChatSession {
     }
   }
 
-  /// Tool: re-capture. The user points the camera at the same object again
-  /// (or a different one). Returns new Moondream analysis — caller should
-  /// update the anchor + push a system message describing the re-capture.
+  /// Tool: re-capture — re-runs Moondream analyzeSelected with new frames.
+  /// The resulting analysis is merged into the running context AND a system
+  /// message is pushed describing the re-capture.
   Future<MoondreamStructuredAnalysis?> recapture(
     Uint8List cleanJpeg,
     Uint8List withBoxesJpeg, {
     String selectedLabel = 'the new object',
-    String lang = 'en',
+    String? lang,
   }) async {
     final analysis = await MoondreamService.instance.analyzeSelected(
       cleanJpeg, withBoxesJpeg,
-      selectedLabel: selectedLabel, lang: lang,
+      selectedLabel: selectedLabel, lang: lang ?? _lang,
     );
     if (analysis != null) {
+      // Merge new Moondream findings into the running context.
+      _context.mergeFrom(ConversationContext(
+        objectIdentified: analysis.whatItIs.isNotEmpty ? analysis.whatItIs : null,
+        stateOfMatter: analysis.stateOfMatter.isNotEmpty ? analysis.stateOfMatter : null,
+        hazards: analysis.hazards.isNotEmpty ? analysis.hazards : null,
+        sceneContext: analysis.whatsAround.isNotEmpty ? analysis.whatsAround : null,
+        moondreamAnalysis: analysis.toMergedSummary(),
+      ));
       _history.add(ChatMessage(
         role: 'system',
         content: 'Re-captured: ${analysis.toMergedSummary()}',
@@ -108,14 +152,29 @@ class ChatSession {
     return analysis;
   }
 
-  void dispose() {
-    _streamCtl.close();
+  /// User can manually append a note to the running context (UI button).
+  void addUserNote(String note) {
+    _context.userNotes ??= [];
+    if (!_context.userNotes!.contains(note)) {
+      _context.userNotes!.add(note);
+      _context.lastUpdated = DateTime.now();
+    }
+  }
+
+  void dispose() => _streamCtl.close();
+
+  /// Heuristic: extract a chemical formula from Moondream's whatItIs text
+  /// (looks for the pattern "CuSO4", "H2O", etc.).
+  static String? _extractFormula(MoondreamStructuredAnalysis a) {
+    final re = RegExp(r'\b([A-Z][a-z]?\d*(?:[A-Z][a-z]?\d*)+)\b');
+    final match = re.firstMatch(a.whatItIs);
+    return match?.group(1);
   }
 }
 
 /// Immutable anchor for the chat session — the captured images + Moondream
-/// structured analysis + the LLM's first scientific context write-up. The
-/// OpenRouter chat-mode prompt receives this as the system message.
+/// structured analysis + first LLM context write-up. The OpenRouter
+/// chat-mode prompt receives this AS WELL AS the running [ConversationContext].
 class AnchorContext {
   const AnchorContext({
     required this.frames,
@@ -127,36 +186,22 @@ class AnchorContext {
   final MoondreamStructuredAnalysis moondreamAnalysis;
   final String firstLlmContext;
 
-  /// Build the system prompt that introduces the anchor + the chat rules.
   String toSystemPrompt({String lang = 'en'}) {
     final isAr = lang.startsWith('ar');
-    if (isAr) {
-      return [
-        'You are an intelligent scientific assistant for a high-school student. An image captured by the SpectruLenPor smart glasses has been analyzed.',
-        '',
-        'The clean image (no boxes) and a boxes-painted image were sent to Moondream3.1 which produced a structured analysis.',
-        '',
-        'Structured analysis from Moondream:',
-        moondreamAnalysis.toMergedSummary(),
-        '',
-        'First scientific context (auto-generated, narrated to user via TTS):',
-        firstLlmContext,
-        '',
-        'The user will now chat with you to ask questions, request more details, or add information. Your response must be scientific, detailed, and accurate. If you are unsure, say so honestly. You may use available tools: re-capture (take a new image), highlight (mark a region), zoom (enlarge the image).',
-      ].join('\n');
-    }
-    return [
-      'You are an intelligent scientific assistant for a high-school student. An image captured by the SpectruLenPor smart glasses has been analyzed.',
-      '',
-      'The clean image (no boxes) and a boxes-painted image were sent to Moondream3.1 which produced a structured analysis.',
-      '',
-      'Structured analysis from Moondream:',
-      moondreamAnalysis.toMergedSummary(),
-      '',
-      'First scientific context (auto-generated, narrated to user via TTS):',
-      firstLlmContext,
-      '',
-      'The user will now chat with you to ask questions, request more details, or add information. Your response must be scientific, detailed, and accurate. If you are unsure, say so honestly. You may use available tools: re-capture (take a new image), highlight (mark a region), zoom (enlarge the image).',
-    ].join('\n');
+    return isAr
+        ? 'أنت مساعد علمي ذكي لطالب ثانوي. تم التقاط صورة بواسطة نظارة '
+            'SpectruLenPor الذكية وتحليلها بواسطة Moondream3.1 + سلسلة LLM '
+            '(gemma→inkling→nemotron). الصورة الملتقطة + التحليل المهيكل + '
+            'السياق العلمي الأولي مرفقة في السياق المتراكم. المستخدم سيتحدث '
+            'معك الآن. ردودك يجب أن تكون علمية ومفصلة. إذا تعلمت معلومات '
+            'جديدة، أصدر كتلة `<context_update>` لتحديث السياق.'
+        : 'You are an intelligent scientific assistant for a high-school student. '
+            'An image captured by the SpectruLenPor smart glasses has been analyzed '
+            'by Moondream3.1 + the LLM chain (gemma→inkling→nemotron). The captured '
+            'image, structured Moondream analysis, and first scientific context are '
+            'all in the accumulated context below. The user will now chat with you. '
+            'Your responses must be scientific, detailed, and accurate. If you learn '
+            'new information during this conversation, emit a `<context_update>` block '
+            'to update the running context for all subsequent turns.';
   }
 }
