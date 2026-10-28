@@ -1,13 +1,13 @@
 import '../services/wikipedia_service.dart' show WikiSource;
 
-/// One citation source — Wikipedia, bundled docs, or in-app scientific context.
-/// Used by the markdown renderer to show [n] inline + the Sources block at
-/// the bottom of each assistant message.
+/// One citation source — Wikipedia, PubChem, web search, bundled docs, or
+/// in-app scientific context. Used by the markdown renderer to show [n]
+/// inline + the Sources block at the bottom of each assistant message.
 class Citation {
-  final int index;             // [1], [2], ...
+  final int index; // [1], [2], ...
   final String title;
-  final String url;            // empty for in-app docs
-  final String snippet;        // short extract
+  final String url; // empty for offline bundled docs
+  final String snippet; // short extract
   final CitationType type;
 
   const Citation({
@@ -34,26 +34,42 @@ class Citation {
         type: CitationType.wikipedia,
       );
 
-  factory Citation.fromDoc(int i, String title, String snippet) => Citation(
+  factory Citation.fromDoc(
+    int i,
+    String title,
+    String snippet, {
+    String url = '',
+    CitationType type = CitationType.bundledDoc,
+  }) =>
+      Citation(
         index: i,
         title: title,
-        url: '',
+        url: url,
         snippet: snippet,
-        type: CitationType.bundledDoc,
+        type: type,
       );
 }
 
-enum CitationType { wikipedia, bundledDoc, factCheck, moondream }
+enum CitationType { wikipedia, bundledDoc, pubchem, web, factCheck, moondream }
 
 /// An LLM message annotated with citations + fact-check results.
 class AnnotatedMessage {
-  final String body;             // markdown text with [n] inline citations
+  final String body; // markdown text with [n] inline citations
   final List<Citation> citations;
+  final int verifiedCount;
+  final int unverifiedCount;
 
-  const AnnotatedMessage({required this.body, this.citations = const []});
+  const AnnotatedMessage({
+    required this.body,
+    this.citations = const [],
+    this.verifiedCount = 0,
+    this.unverifiedCount = 0,
+  });
 
   Map<String, dynamic> toJson() => {
         'body': body,
         'citations': citations.map((c) => c.toJson()).toList(),
+        'verifiedCount': verifiedCount,
+        'unverifiedCount': unverifiedCount,
       };
 }

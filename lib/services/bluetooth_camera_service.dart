@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import '../models/bluetooth_status.dart';
@@ -24,6 +24,9 @@ class BluetoothCameraService {
   static const String serviceUuid = '0000ffe0-0000-1000-8000-00805f9b34fb';
   static const String txCharUuid = '0000ffe1-0000-1000-8000-00805f9b34fb';
   static const String rxCharUuid = '0000ffe2-0000-1000-8000-00805f9b34fb';
+
+  /// Safety cap for BLE JPEG reassembly if an EOI packet is dropped.
+  static const int maxFrameBytes = 512 * 1024;
 
   // Command bytes (mirrored in firmware)
   static const int cmdStreamOn = 0x01;
@@ -53,10 +56,10 @@ class BluetoothCameraService {
   final StringBuffer _textBuf = StringBuffer();
 
   String? _deviceName;
+  String? get deviceName => _deviceName;
 
   void init() {
     // flutter_blue_plus has no web/VM engine — degrade gracefully there.
-    // setLogLevel fails asynchronously, so guard inside an async closure.
     () async {
       try {
         await FlutterBluePlus.setLogLevel(LogLevel.warning);
@@ -80,7 +83,8 @@ class BluetoothCameraService {
     final subscription = FlutterBluePlus.onScanResults.listen((results) async {
       for (final r in results) {
         final name = r.device.platformName.toLowerCase();
-        final matchesName = name.contains('spectralenpor') ||
+        final matchesName = name.contains('spectrulenpor') ||
+            name.contains('spectralenpor') ||
             name.contains('spectraglass') ||
             name.contains('esp32');
         final advertisesService = r.advertisementData.serviceUuids
@@ -111,6 +115,8 @@ class BluetoothCameraService {
     try {
       device.connectionState.listen((state) {
         if (state == BluetoothConnectionState.disconnected) {
+          _jpegBuf.clear();
+          _capturingJpeg = false;
           _statusCtl.add(BluetoothStatus.disconnected);
         }
       });
@@ -143,6 +149,10 @@ class BluetoothCameraService {
     }
   }
 
+  /// Exposed for unit testing of BLE packet reassembly.
+  @visibleForTesting
+  void debugFeedNotification(List<int> chunk) => _onNotification(chunk);
+
   void _onNotification(List<int> chunk) {
     if (chunk.isEmpty) return;
     final bytes = Uint8List.fromList(chunk);
@@ -154,7 +164,9 @@ class BluetoothCameraService {
       if (s.contains('\n')) {
         for (final line in s.split('\n')) {
           final reading = SpectrumReading.tryParse(line.trim());
-          if (reading != null) _sensorCtl.add(reading);
+          if (reading != null) {
+            _sensorCtl.add(reading);
+          }
         }
         _textBuf.clear();
       }
@@ -162,41 +174,48 @@ class BluetoothCameraService {
     }
 
     // --- JPEG reassembly ---
-    int i = 0;
-    while (i < bytes.length - 1) {
-      if (!_capturingJpeg && bytes[i] == 0xFF && bytes[i + 1] == 0xD8) {
-        _jpegBuf.clear();
-        _jpegBuf.add(bytes.sublist(i));
-        _capturingJpeg = true;
-        break;
+    if (!_capturingJpeg) {
+      for (int i = 0; i < bytes.length - 1; i++) {
+        if (bytes[i] == 0xFF && bytes[i + 1] == 0xD8) {
+          _jpegBuf.clear();
+          _jpegBuf.add(bytes.sublist(i));
+          _capturingJpeg = true;
+          break;
+        }
       }
-      i++;
-    }
-
-    if (_capturingJpeg && i > 0) {
-      _jpegBuf.add(bytes.sublist(i));
+    } else {
+      if (_jpegBuf.length + bytes.length > maxFrameBytes) {
+        debugPrint('[BLE] frame exceeded max size — resetting buffer.');
+        _jpegBuf.clear();
+        _capturingJpeg = false;
+        return;
+      }
+      _jpegBuf.add(bytes);
     }
 
     if (_capturingJpeg) {
       final built = _jpegBuf.toBytes();
-      if (built.length >= 2 &&
-          built[built.length - 2] == 0xFF &&
-          built[built.length - 1] == 0xD9) {
-        _frameCtl.add(FrameData(
-          jpegBytes: Uint8List.fromList(built),
-          width: 640,
-          height: 480,
-          capturedAt: DateTime.now(),
-        ));
-        _jpegBuf.clear();
-        _capturingJpeg = false;
+      for (int j = 2; j < built.length - 1; j++) {
+        if (built[j] == 0xFF && built[j + 1] == 0xD9) {
+          _frameCtl.add(FrameData(
+            jpegBytes: Uint8List.fromList(built.sublist(0, j + 2)),
+            width: 320, // ESP32-CAM firmware streams QVGA (320x240)
+            height: 240,
+            capturedAt: DateTime.now(),
+          ));
+          _jpegBuf.clear();
+          _capturingJpeg = false;
+          break;
+        }
       }
     }
   }
 
-  /// Minimal ASCII decode (telemetry packets are pure ASCII).
+  /// Minimal ASCII decode (telemetry packets are pure ASCII, plus newline).
   String asciiDecode(Uint8List bytes) {
-    return String.fromCharCodes(bytes.where((b) => b >= 0x20 && b < 0x7F));
+    return String.fromCharCodes(
+      bytes.where((b) => b == 0x0A || b == 0x0D || (b >= 0x20 && b < 0x7F)),
+    );
   }
 
   // ------------------- Commands -------------------
@@ -229,8 +248,11 @@ class BluetoothCameraService {
     await setFlashlight(false);
     await _device?.disconnect();
     _device = null;
+    _deviceName = null;
     _txChar = null;
     _rxChar = null;
+    _jpegBuf.clear();
+    _capturingJpeg = false;
     _statusCtl.add(BluetoothStatus.disconnected);
   }
 

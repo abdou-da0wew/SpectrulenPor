@@ -17,6 +17,8 @@ import 'package:path_provider/path_provider.dart';
 class TtsSink {
   ja.AudioPlayer? _streamPlayer;
   AudioPlayer? _filePlayer;
+  StreamSubscription<ja.PlayerState>? _playerStateSub;
+  StreamSubscription<List<int>>? _byteSub;
 
   /// Flips false if just_audio streaming init fails once — afterwards all
   /// audio goes through the audioplayers file path.
@@ -26,10 +28,11 @@ class TtsSink {
     try {
       _streamPlayer ??= ja.AudioPlayer();
 
-      // Buffer bytes through a controller so the audio sink pulls at its
-      // own pace while dio keeps downloading.
+      await _playerStateSub?.cancel();
+      await _byteSub?.cancel();
+
       final controller = StreamController<List<int>>();
-      final sub = byteStream.listen(
+      _byteSub = byteStream.listen(
         controller.add,
         onError: controller.addError,
         onDone: controller.close,
@@ -39,10 +42,11 @@ class TtsSink {
       final source = _TtsStreamSource(controller.stream);
       await _streamPlayer!.setAudioSource(source);
       await _streamPlayer!.play();
-      // Cleanup after playback completes (or next speak() stops us).
-      _streamPlayer!.playerStateStream.listen((state) {
+
+      _playerStateSub = _streamPlayer!.playerStateStream.listen((state) {
         if (state.processingState == ja.ProcessingState.completed) {
-          sub.cancel();
+          _byteSub?.cancel();
+          _byteSub = null;
         }
       });
     } catch (e) {
@@ -64,6 +68,10 @@ class TtsSink {
   }
 
   Future<void> stop() async {
+    await _playerStateSub?.cancel();
+    _playerStateSub = null;
+    await _byteSub?.cancel();
+    _byteSub = null;
     try {
       await _streamPlayer?.stop();
     } catch (_) {}
@@ -73,6 +81,7 @@ class TtsSink {
   }
 
   Future<void> dispose() async {
+    await stop();
     await _streamPlayer?.dispose();
     await _filePlayer?.dispose();
   }

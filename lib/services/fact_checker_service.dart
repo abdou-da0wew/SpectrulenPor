@@ -1,7 +1,4 @@
-import 'package:flutter/foundation.dart';
-
 import '../models/citation.dart';
-import 'wikipedia_service.dart';
 
 /// Fact-checker — extracts factual claims from LLM output and verifies
 /// each against the supplied sources (Wikipedia summaries + bundled docs).
@@ -102,14 +99,19 @@ class FactCheckerService {
     'mass', 'density', 'temperature', 'melting', 'boiling', 'atomic',
     'molar', 'formula', 'compound', 'element', 'oxidation', 'reduction',
     'acid', 'base', 'polar', 'covalent', 'ionic', 'solubility', 'reactive',
-    'inert', 'isotope', 'valence', 'pH', 'solution', 'concentration',
+    'inert', 'isotope', 'valence', 'ph', 'solution', 'concentration',
     'crystal', 'liquid', 'gas', 'solid', 'metal', 'nonmetal', 'halogen',
+    'كتلة', 'كثافة', 'انصهار', 'غليان', 'ذري', 'مركب', 'عنصر', 'حمض', 'محلول',
   };
 
   bool _hasKeyword(String s) {
     final l = s.toLowerCase();
     for (final k in _keywords) {
-      if (l.contains(k)) return true;
+      if (k == 'ph') {
+        if (RegExp(r'\bph\b').hasMatch(l)) return true;
+      } else if (l.contains(k)) {
+        return true;
+      }
     }
     return false;
   }
@@ -118,8 +120,10 @@ class FactCheckerService {
   /// keyword overlap with the claim text.
   _SourceMatch? _matchClaim(String claim, List<Citation> sources) {
     _SourceMatch? best;
+    final lowerClaim = claim.toLowerCase();
     for (final s in sources) {
-      final score = _keywordOverlap(claim.toLowerCase(), s.snippet.toLowerCase());
+      final refText = '${s.title} ${s.snippet}'.toLowerCase();
+      final score = _keywordOverlap(lowerClaim, refText);
       if (score > 0.40) {
         if (best == null || score > best.confidence) {
           best = _SourceMatch(index: s.index, confidence: score);
@@ -129,7 +133,7 @@ class FactCheckerService {
     return best;
   }
 
-  /// Token overlap (Jaccard-ish) between [claim] and [source].
+  /// Token overlap between [claim] and [source] across English, numbers, and Arabic.
   double _keywordOverlap(String claim, String source) {
     final cTokens = _tokenize(claim);
     final sTokens = _tokenize(source);
@@ -141,8 +145,9 @@ class FactCheckerService {
   Set<String> _tokenize(String s) {
     return s
         .toLowerCase()
-        .split(RegExp(r'[^a-z0-9]+'))
-        .where((t) => t.length > 3)
+        .split(RegExp(r'[^a-z0-9\u0600-\u06FF.]+'))
+        .map((t) => t.replaceAll(RegExp(r'^\.+|\.+$'), ''))
+        .where((t) => t.length >= 3 || RegExp(r'\d').hasMatch(t))
         .toSet();
   }
 }

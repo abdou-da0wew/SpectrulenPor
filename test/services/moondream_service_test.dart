@@ -146,4 +146,39 @@ void main() {
     // default is empty (or a --dart-define) so GitHub push protection passes.
     expect(MoondreamService.defaultApiKey, isA<String>());
   });
+
+  test('hasHazard ignores negated replies and detects real hazards', () {
+    const benignEn = MoondreamStructuredAnalysis(
+      caption: 'a cup of water',
+      whatItIs: 'water',
+      howItsUsed: 'drinking',
+      whatsAround: 'desk',
+      visibleText: '',
+      hazards: 'No, there are no hazard pictograms (corrosive, flammable, toxic) visible.',
+      stateOfMatter: 'liquid',
+    );
+    const benignAr = MoondreamStructuredAnalysis(
+      caption: 'كوب ماء',
+      whatItIs: 'ماء',
+      howItsUsed: '',
+      whatsAround: '',
+      visibleText: '',
+      hazards: 'لا توجد أي رموز خطر بالقرب من الكوب.',
+      stateOfMatter: 'سائل',
+    );
+    const corrosive = MoondreamStructuredAnalysis(
+      caption: 'reagent bottle',
+      whatItIs: 'hydrochloric acid',
+      howItsUsed: 'etching',
+      whatsAround: 'lab bench',
+      visibleText: 'HCl',
+      hazards: 'Corrosive acid pictogram clearly visible on the bottle.',
+      stateOfMatter: 'liquid',
+    );
+
+    expect(benignEn.hasHazard, isFalse);
+    expect(benignAr.hasHazard, isFalse);
+    expect(corrosive.hasHazard, isTrue);
+    expect(corrosive.toMergedSummary(), contains('Visible text: HCl'));
+  });
 }

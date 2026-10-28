@@ -36,6 +36,8 @@ const int  N_THREADS      = 4;   // matches big cores on most phones
 const int  CTX_N_CTX      = 2048;
 const float CLIP_MIN_SCORE = 0.0f;
 
+void nativeUnloadImpl();
+
 bool ensureLoaded(const std::string& modelPath) {
     if (g_ctx.model && g_loadedModelPath == modelPath) return true;
 
@@ -123,9 +125,9 @@ std::string runCaption(const std::string& modelPath,
 
     // 5) Greedy generation loop.
     std::string out;
+    llama_sampler* greedy = llama_sampler_init_greedy();
     for (int i = 0; i < maxTokens; ++i) {
-        llama_token next = llama_sampler_sample(
-            llama_sampler_init_greedy(), g_ctx.ctx, -1);
+        llama_token next = llama_sampler_sample(greedy, g_ctx.ctx, -1);
         if (llama_vocab_is_eog(vocab, next)) break;
 
         char buf[64];
@@ -136,6 +138,7 @@ std::string runCaption(const std::string& modelPath,
         if (llama_decode(g_ctx.ctx, llama_batch_get_one(t, 1, n_prompt, 0))) break;
         n_prompt++;
     }
+    llama_sampler_free(greedy);
 
     llava_image_embed_free(embeds);
     LOGI("caption: %s", out.c_str());

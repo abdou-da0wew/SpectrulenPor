@@ -6,40 +6,48 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
 import '../l10n/app_localizations.dart';
-import '../models/bounding_box.dart';
+import '../main.dart' show appLocale;
 import '../models/bluetooth_status.dart';
 import '../models/recognition_state.dart';
 import '../utils/app_theme.dart' as palette;
+import '../utils/app_typography.dart';
 import '../widgets/bounding_box_overlay.dart';
+import '../widgets/camera_preview.dart';
+import '../widgets/connection_status_bar.dart';
+import '../widgets/hazard_banner.dart';
+import '../widgets/spectrum_card.dart';
 import 'chat_screen.dart';
+import 'history_screen.dart';
 
-/// Main home screen — full UX with permission flow, native camera preview,
-/// YOLO bounding box overlay, loading states, microinteractions, and
-/// animated transitions.
+/// Main home screen:
+///   * Full-viewport un-shrimped camera preview (`SizedBox.expand` + `FittedBox.cover`)
+///   * Real-time local YOLO26-Nano interactive bounding boxes + target lock-on marker
+///   * Strict user-gated dual JPEG capture (`cleanJpeg` + marked `withBoxesJpeg`) ONLY
+///     when a bounding box is selected and the user taps Capture & Analyze
+///   * BLE smart-glasses feed + UV/IR telemetry + hazard alerts + History/Docs access
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
-  late final AnimationController _fabController;
-  late final Animation<double> _fabScale;
-
+class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _fabController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 300),
-    );
-    _fabScale = CurvedAnimation(parent: _fabController, curve: Curves.elasticOut);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<RecognitionState>().checkCameraPermission();
+    });
   }
 
-  @override
-  void dispose() {
-    _fabController.dispose();
-    super.dispose();
+  Future<void> _triggerCaptureAndOpenChat(RecognitionState state) async {
+    if (state.selectedBox == null || state.isAnalyzingSelected) return;
+    HapticFeedback.mediumImpact();
+    final ok = await state.captureAndAnalyzeSelected();
+    if (ok && mounted && state.chatSession != null) {
+      await Navigator.push(context, _createSlideRoute(const ChatScreen()));
+    }
   }
 
   @override
@@ -47,71 +55,128 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final state = context.watch<RecognitionState>();
     final loc = AppLocalizations.of(context);
 
-    // Animate FAB when selectedBox changes
-    if (state.selectedBox != null && state.chatSession == null) {
-      _fabController.forward();
-    } else {
-      _fabController.reverse();
-    }
-
     return Scaffold(
       backgroundColor: palette.AppColors.alabasterGrey,
-      appBar: _buildAppBar(state, loc),
+      appBar: _buildAppBar(context, state, loc),
       body: Column(
         children: [
-          _buildStatusBar(state),
-          _buildSourceToggle(state),
+          _buildStatusBar(context, state, loc),
+          if (state.hazardActive)
+            HazardBanner(
+              reason: state.hazardReason,
+              onDismiss: state.clearHazard,
+            ),
+          _buildSourceToggle(context, state, loc),
+          if (state.source == CameraSource.glasses)
+            ConnectionStatusBar(
+              status: state.btStatus,
+              deviceName: state.bluetooth.deviceName,
+              onConnect: state.connectToGlasses,
+              onDisconnect: state.disconnect,
+            ),
           Expanded(child: _buildCameraArea(state, loc)),
-          _buildBottomBar(state),
+          _buildCaptureControlBar(context, state),
+          if (state.source == CameraSource.glasses && state.lastReading != null)
+            SpectrumCard(
+              reading: state.lastReading,
+              predictions: state.lastPredictions,
+              state: state.matterState,
+              hazardActive: state.hazardActive,
+              hasTelemetry: true,
+            ),
+          _buildBottomBar(context, state, loc),
         ],
       ),
-      floatingActionButton: _buildFab(context, state),
     );
   }
 
   // ---------------------------------------------------------------------------
   // APP BAR
   // ---------------------------------------------------------------------------
-  PreferredSizeWidget _buildAppBar(RecognitionState state, AppLocalizations loc) {
+  PreferredSizeWidget _buildAppBar(
+    BuildContext context,
+    RecognitionState state,
+    AppLocalizations loc,
+  ) {
+    final isAr = Localizations.localeOf(context).languageCode.startsWith('ar');
     return AppBar(
       backgroundColor: palette.AppColors.dustyLavender,
       elevation: 0,
       title: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.visibility, color: Colors.white, size: 20),
+          const Icon(Icons.visibility_rounded, color: Colors.white, size: 20),
           const SizedBox(width: 6),
-          Text('SpectruLenPor',
-              style: GoogleFonts.jaro(color: Colors.white, fontSize: 18)),
+          Flexible(
+            child: Text(
+              loc.appName,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.displayOf(
+                context,
+                color: Colors.white,
+                fontSize: 18,
+              ),
+            ),
+          ),
         ],
       ),
       actions: [
-        // Flashlight toggle with animation
         _AnimatedIconButton(
-          icon: state.flashOn ? Icons.flashlight_on : Icons.flashlight_off,
-          color: state.flashOn ? palette.AppColors.warning : Colors.white70,
-          tooltip: 'Flashlight',
-          onTap: () => state.setFlashlight(!state.flashOn),
-        ),
-        // Cloud-only toggle
-        _AnimatedIconButton(
-          icon: state.cloudOnly ? Icons.cloud_off : Icons.cloud,
-          color: state.cloudOnly ? palette.AppColors.warning : Colors.white70,
-          tooltip: state.cloudOnly ? 'Cloud-only ON' : 'Cloud-only OFF',
-          onTap: () => state.cloudOnly = !state.cloudOnly,
-        ),
-        // Language toggle
-        TextButton(
-          onPressed: () async => state.setLocale(state.isArabic ? 'en' : 'ar'),
-          child: Text(
-            state.isArabic ? 'EN' : 'ع',
-            style: GoogleFonts.rubik(color: Colors.white, fontWeight: FontWeight.w700),
+          icon: Icons.history_edu_rounded,
+          color: Colors.white,
+          tooltip: isAr ? 'السجل والموسوعة العلمية' : 'History & Scientific Docs',
+          onTap: () => Navigator.push(
+            context,
+            _createSlideRoute(const HistoryScreen()),
           ),
         ),
-        // Settings
+        if (state.chatSession != null)
+          _AnimatedIconButton(
+            icon: Icons.forum_outlined,
+            color: Colors.white,
+            tooltip: isAr ? 'فتح المحادثة' : 'Open chat',
+            onTap: () => Navigator.push(
+              context,
+              _createSlideRoute(const ChatScreen()),
+            ),
+          ),
+        _AnimatedIconButton(
+          icon: state.flashOn
+              ? Icons.flashlight_on_rounded
+              : Icons.flashlight_off_rounded,
+          color: state.flashOn ? palette.AppColors.warning : Colors.white70,
+          tooltip: loc.flashlight,
+          onTap: () => state.setFlashlight(!state.flashOn),
+        ),
+        _AnimatedIconButton(
+          icon: state.cloudOnly
+              ? Icons.cloud_done_rounded
+              : Icons.cloud_queue_rounded,
+          color: state.cloudOnly ? palette.AppColors.warning : Colors.white70,
+          tooltip: state.cloudOnly
+              ? 'Cloud-only models ON (YOLO local)'
+              : 'Hybrid Cloud + Offline models',
+          onTap: () => state.cloudOnly = !state.cloudOnly,
+        ),
+        TextButton(
+          onPressed: () async {
+            final next = isAr ? 'en' : 'ar';
+            await state.setLocale(next);
+            appLocale.value = Locale(next);
+          },
+          child: Text(
+            isAr ? 'EN' : 'ع',
+            style: AppTypography.bodyOf(
+              context,
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
         _AnimatedIconButton(
           icon: Icons.settings_outlined,
           color: Colors.white,
-          tooltip: 'Settings',
+          tooltip: loc.settings,
           onTap: () => Navigator.pushNamed(context, '/settings'),
         ),
       ],
@@ -121,34 +186,57 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // ---------------------------------------------------------------------------
   // STATUS BAR
   // ---------------------------------------------------------------------------
-  Widget _buildStatusBar(RecognitionState state) {
+  Widget _buildStatusBar(
+    BuildContext context,
+    RecognitionState state,
+    AppLocalizations loc,
+  ) {
+    final statusText = state.btStatus == BluetoothStatus.connected
+        ? loc.connected
+        : (state.usingPhoneCamera ? loc.phoneCamera : loc.glassesNotConnected);
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
       color: palette.AppColors.dustGrey,
       child: Row(
         children: [
           Icon(
             state.btStatus == BluetoothStatus.connected
-                ? Icons.bluetooth_connected
-                : Icons.bluetooth_disabled,
-            size: 16,
+                ? Icons.bluetooth_connected_rounded
+                : Icons.sensors_rounded,
+            size: 15,
             color: palette.AppColors.dustyLavender,
           ),
           const SizedBox(width: 6),
           Expanded(
             child: Text(
-              state.btStatus == BluetoothStatus.connected
-                  ? 'Glasses connected'
-                  : 'Phone camera mode',
-              style: GoogleFonts.rubik(fontSize: 12),
+              statusText,
+              style: AppTypography.bodyOf(context, fontSize: 12),
             ),
           ),
+          if (state.cloudOnly)
+            Container(
+              margin: const EdgeInsets.only(right: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: palette.AppColors.dustyLavender,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                'CLOUD+YOLO',
+                style: GoogleFonts.spaceMono(
+                  color: Colors.white,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
           if (state.lastGate != null)
             Text(
               '${state.lastGate!.reason} · ${state.lastGate!.brightness.toStringAsFixed(0)}',
               style: GoogleFonts.spaceMono(fontSize: 10),
             ),
-          if (state.autoFlashOn) _AutoFlashBadge(),
+          if (state.autoFlashOn) const _AutoFlashBadge(),
         ],
       ),
     );
@@ -157,44 +245,87 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // ---------------------------------------------------------------------------
   // SOURCE TOGGLE
   // ---------------------------------------------------------------------------
-  Widget _buildSourceToggle(RecognitionState state) {
+  Widget _buildSourceToggle(
+    BuildContext context,
+    RecognitionState state,
+    AppLocalizations loc,
+  ) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.fromLTRB(10, 5, 10, 5),
       child: Row(
         children: [
-          Expanded(child: _segButton('Phone camera',
+          Expanded(
+            child: _segButton(
+              context,
+              Icons.smartphone_rounded,
+              loc.phoneCamera,
               state.source == CameraSource.phone,
-              () => state.switchSource(CameraSource.phone))),
-          Expanded(child: _segButton('Glasses',
+              () => state.switchSource(CameraSource.phone),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _segButton(
+              context,
+              Icons.visibility_rounded,
+              loc.glassesCam,
               state.source == CameraSource.glasses,
-              () => state.switchSource(CameraSource.glasses))),
+              () => state.switchSource(CameraSource.glasses),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _segButton(String label, bool active, VoidCallback onTap) {
+  Widget _segButton(
+    BuildContext context,
+    IconData icon,
+    String label,
+    bool active,
+    VoidCallback onTap,
+  ) {
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(10),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 10),
           decoration: BoxDecoration(
             color: active ? palette.AppColors.dustyLavender : Colors.white,
-            border: Border.all(color: palette.AppColors.dustyLavender, width: 1),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: GoogleFonts.rubik(
-              color: active ? Colors.white : palette.AppColors.dustyLavender,
-              fontWeight: FontWeight.w600,
-              fontSize: 13,
+            border: Border.all(
+              color: palette.AppColors.dustyLavender,
+              width: 1,
             ),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: 16,
+                color: active ? Colors.white : palette.AppColors.dustyLavender,
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: AppTypography.bodyOf(
+                    context,
+                    color:
+                        active ? Colors.white : palette.AppColors.dustyLavender,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -202,40 +333,146 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   // ---------------------------------------------------------------------------
-  // CAMERA AREA — permission flow + native preview + overlay + loading
+  // CAMERA VIEWPORT — generous full-width/full-height un-shrimped preview
   // ---------------------------------------------------------------------------
   Widget _buildCameraArea(RecognitionState state, AppLocalizations loc) {
-    return Expanded(
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
       child: ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 400),
-          child: _resolveCameraState(state, loc),
+        borderRadius: BorderRadius.circular(16),
+        child: SizedBox.expand(
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 280),
+            child: _resolveCameraState(state, loc),
+          ),
         ),
       ),
     );
   }
 
   Widget _resolveCameraState(RecognitionState state, AppLocalizations loc) {
-    // 1. Permission not granted → show permission request card
-    if (state.cameraPermission != PermissionStatus.granted) {
-      return _PermissionCard(state: state);
+    if (state.source == CameraSource.glasses) {
+      return _GlassesPreviewArea(
+        key: const ValueKey('glasses_preview'),
+        state: state,
+      );
     }
-    // 2. Camera controller not initialized → loading shimmer
+
+    if (state.cameraPermission != PermissionStatus.granted) {
+      return _PermissionCard(
+        key: const ValueKey('permission_card'),
+        state: state,
+      );
+    }
+
     final ctrl = state.phoneCamera.controller;
     if (ctrl == null || !ctrl.value.isInitialized) {
-      return _LoadingState(message: 'Starting camera…');
+      return _LoadingState(
+        key: const ValueKey('camera_loading'),
+        message: state.isArabic ? 'جارٍ تشغيل الكاميرا…' : 'Starting camera…',
+      );
     }
-    // 3. Camera ready → native CameraPreview + overlay
-    return _CameraPreviewNative(state: state);
+
+    return _CameraPreviewNative(
+      key: const ValueKey('phone_preview'),
+      state: state,
+    );
   }
 
   // ---------------------------------------------------------------------------
-  // BOTTOM BAR
+  // STRICT USER-GATED CAPTURE & ANALYZE CONTROL BAR
   // ---------------------------------------------------------------------------
-  Widget _buildBottomBar(RecognitionState state) {
+  Widget _buildCaptureControlBar(BuildContext context, RecognitionState state) {
+    final isAr = Localizations.localeOf(context).languageCode.startsWith('ar');
+    final sel = state.selectedBox;
+    final canCapture = sel != null && !state.isAnalyzingSelected;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: FilledButton.icon(
+              onPressed:
+                  canCapture ? () => _triggerCaptureAndOpenChat(state) : null,
+              icon: Icon(
+                sel != null
+                    ? Icons.camera_enhance_rounded
+                    : Icons.touch_app_rounded,
+                size: 18,
+              ),
+              label: Text(
+                state.isAnalyzingSelected
+                    ? (isAr
+                        ? 'جارٍ التقاط الإطارين والتحليل…'
+                        : 'Capturing Clean + Marked Frames…')
+                    : sel != null
+                        ? (isAr
+                            ? 'التقاط صورتين وتحليل "${sel.label}"'
+                            : 'Capture 2 Frames & Analyze "${sel.label}"')
+                        : (isAr
+                            ? 'حدّد صندوقاً من الكاميرا لتفعيل الالتقاط'
+                            : 'Select a YOLO Box on Camera to Capture'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: sel != null
+                    ? palette.AppColors.dustyLavender
+                    : palette.AppColors.silver,
+                disabledBackgroundColor:
+                    palette.AppColors.dustGrey.withOpacity(0.9),
+                disabledForegroundColor: palette.AppColors.inkSoft,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+          if (sel != null && !state.isAnalyzingSelected) ...[
+            const SizedBox(width: 6),
+            IconButton.outlined(
+              tooltip: isAr ? 'إلغاء التحديد' : 'Clear selected target',
+              onPressed: () => state.selectBox(null),
+              icon: const Icon(Icons.deselect_rounded, size: 19),
+            ),
+          ] else if (state.chatSession != null && !state.isAnalyzingSelected) ...[
+            const SizedBox(width: 6),
+            IconButton.filledTonal(
+              tooltip: isAr ? 'متابعة المحادثة' : 'Open active chat',
+              onPressed: () => Navigator.push(
+                context,
+                _createSlideRoute(const ChatScreen()),
+              ),
+              icon: const Icon(Icons.forum_rounded, size: 19),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // BOTTOM LIVE ANALYSIS SUMMARY BAR
+  // ---------------------------------------------------------------------------
+  Widget _buildBottomBar(
+    BuildContext context,
+    RecognitionState state,
+    AppLocalizations loc,
+  ) {
+    final busy = state.isAnalyzingSelected ||
+        state.upstreamStatus == UpstreamStatus.waiting ||
+        state.upstreamStatus == UpstreamStatus.streaming;
+    final isAr = Localizations.localeOf(context).languageCode.startsWith('ar');
+
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
@@ -251,28 +488,42 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         children: [
           Row(
             children: [
-              Icon(Icons.science, size: 16, color: palette.AppColors.dustyLavender),
-              const SizedBox(width: 4),
-              Text('Live analysis',
-                  style: GoogleFonts.jaro(
-                      color: palette.AppColors.dustyLavender, fontSize: 14)),
+              const Icon(
+                Icons.science_rounded,
+                size: 16,
+                color: palette.AppColors.dustyLavender,
+              ),
+              const SizedBox(width: 5),
+              Text(
+                loc.deepReasoning,
+                style: AppTypography.displayOf(
+                  context,
+                  color: palette.AppColors.dustyLavender,
+                  fontSize: 14,
+                ),
+              ),
               const Spacer(),
-              if (state.upstreamStatus != UpstreamStatus.idle)
-                SizedBox(
-                  width: 12, height: 12,
-                  child: CircularProgressIndicator(strokeWidth: 2,
-                      color: palette.AppColors.dustyLavender),
+              if (busy)
+                const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: palette.AppColors.dustyLavender,
+                  ),
                 ),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 3),
           AnimatedSwitcher(
-            duration: const Duration(milliseconds: 300),
+            duration: const Duration(milliseconds: 250),
             child: Text(
               state.lastLabel ??
-                  (state.isArabic ? 'في انتظار التحليل…' : 'Waiting for analysis…'),
+                  (isAr ? 'في انتظار التحليل…' : 'Waiting for analysis…'),
               key: ValueKey(state.lastLabel),
-              style: GoogleFonts.spaceMono(fontSize: 11),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.paragraphOf(context, fontSize: 11.5),
             ),
           ),
         ],
@@ -280,43 +531,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // FAB — animated entrance when a box is selected
-  // ---------------------------------------------------------------------------
-  Widget? _buildFab(BuildContext context, RecognitionState state) {
-    if (state.chatSession != null) {
-      return FloatingActionButton.extended(
-        onPressed: () => Navigator.push(context,
-            _createSlideRoute(const ChatScreen())),
-        backgroundColor: palette.AppColors.dustyLavender,
-        icon: const Icon(Icons.chat, color: Colors.white),
-        label: Text('Open chat',
-            style: GoogleFonts.rubik(color: Colors.white)),
-      );
-    }
-    if (state.selectedBox == null) return null;
-    return ScaleTransition(
-      scale: _fabScale,
-      child: FloatingActionButton.extended(
-        onPressed: () {
-          HapticFeedback.mediumImpact();
-          state.captureAndAnalyzeSelected();
-        },
-        backgroundColor: palette.AppColors.dustyMauve,
-        icon: const Icon(Icons.science, color: Colors.white),
-        label: Text('Analyze ${state.selectedBox!.label}',
-            style: GoogleFonts.rubik(color: Colors.white)),
-      ),
-    );
-  }
-
-  Route _createSlideRoute(Widget page) {
-    return PageRouteBuilder(
+  Route<void> _createSlideRoute(Widget page) {
+    return PageRouteBuilder<void>(
       pageBuilder: (context, animation, secondary) => page,
       transitionsBuilder: (context, animation, secondary, child) {
         return SlideTransition(
-          position: Tween<Offset>(begin: const Offset(1, 0), end: Offset.zero)
-              .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
+          position: Tween<Offset>(
+            begin: const Offset(1, 0),
+            end: Offset.zero,
+          ).animate(
+            CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+          ),
           child: child,
         );
       },
@@ -325,85 +550,165 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 }
 
 // ===========================================================================
-// PERMISSION CARD — shown when camera permission isn't granted
+// GLASSES PREVIEW AREA — Full-bleed BLE JPEG stream + YOLO overlay
 // ===========================================================================
-class _PermissionCard extends StatelessWidget {
+class _GlassesPreviewArea extends StatelessWidget {
   final RecognitionState state;
-  const _PermissionCard({required this.state});
+  const _GlassesPreviewArea({super.key, required this.state});
 
   @override
   Widget build(BuildContext context) {
+    final frame = state.lastFrame;
+    final aspect = (frame != null && frame.width > 0 && frame.height > 0)
+        ? frame.width / frame.height
+        : (320.0 / 240.0);
+
+    return Container(
+      color: palette.AppColors.inkDark,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          CameraPreviewWidget(
+            frame: frame,
+            status: state.btStatus,
+            liveLabel: null,
+          ),
+          if (state.currentBoxes.isNotEmpty || state.selectedBox != null)
+            BoundingBoxOverlay(
+              boxes: state.currentBoxes,
+              selected: state.selectedBox,
+              sourceAspectRatio: aspect,
+              onSelect: (b) {
+                HapticFeedback.selectionClick();
+                state.selectBox(b);
+              },
+            ),
+          if (state.currentBoxes.isNotEmpty)
+            Positioned(
+              top: 44,
+              left: 10,
+              child: _DetectionCountBadge(count: state.currentBoxes.length),
+            ),
+          if (state.selectedBox == null && state.currentBoxes.isNotEmpty)
+            Positioned(
+              bottom: 12,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: _HintChip(
+                  text: state.isArabic
+                      ? 'اضغط على صندوق لتحديده ثم اضغط التقاط'
+                      : 'Tap a box to mark target, then press Capture',
+                ),
+              ),
+            ),
+          if (state.isAnalyzingSelected)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black54,
+                child: Center(child: _AnalyzingOverlay(state: state)),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ===========================================================================
+// PERMISSION CARD
+// ===========================================================================
+class _PermissionCard extends StatelessWidget {
+  final RecognitionState state;
+  const _PermissionCard({super.key, required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    final isAr = Localizations.localeOf(context).languageCode.startsWith('ar');
     return Container(
       color: palette.AppColors.inkDark,
       child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(28),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Animated camera icon
-              TweenAnimationBuilder<double>(
-                tween: Tween(begin: 0.8, end: 1.0),
-                duration: const Duration(milliseconds: 800),
-                curve: Curves.elasticOut,
-                builder: (context, scale, child) =>
-                    Transform.scale(scale: scale, child: child),
-                child: Container(
-                  width: 80, height: 80,
-                  decoration: BoxDecoration(
-                    color: palette.AppColors.dustyLavender.withOpacity(0.15),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(Icons.camera_alt_outlined,
-                      size: 40, color: Colors.white70),
+              Container(
+                width: 76,
+                height: 76,
+                decoration: BoxDecoration(
+                  color: palette.AppColors.dustyLavender.withOpacity(0.18),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.camera_alt_outlined,
+                  size: 38,
+                  color: Colors.white70,
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 18),
               Text(
-                state.isArabic
-                    ? 'يلزم إذن الكاميرا'
-                    : 'Camera Access Required',
-                style: GoogleFonts.jaro(
-                    color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                isAr ? 'يلزم إذن الكاميرا' : 'Camera Access Required',
+                style: AppTypography.displayOf(
+                  context,
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 8),
               Text(
-                state.isArabic
-                    ? 'يحتاج التطبيق إلى الكاميرا لاكتشاف الكائنات وتحليلها'
-                    : 'SpectruLenPor needs the camera to detect objects and analyze them with YOLO26-Nano + Moondream AI.',
+                isAr
+                    ? 'يحتاج التطبيق إلى الكاميرا لرصد الكائنات عبر YOLO26-Nano محلياً وتحليلها علمياً.'
+                    : 'SpectruLenPor uses the camera for real-time local YOLO26-Nano detection and grounded scientific analysis.',
                 textAlign: TextAlign.center,
-                style: GoogleFonts.rubik(color: Colors.white60, fontSize: 13, height: 1.5),
+                style: AppTypography.bodyOf(
+                  context,
+                  color: Colors.white60,
+                  fontSize: 13,
+                ),
               ),
-              const SizedBox(height: 24),
-              // Grant Access button
+              const SizedBox(height: 22),
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
                   onPressed: () => state.requestCameraPermission(),
-                  icon: const Icon(Icons.lock_open, size: 18),
+                  icon: const Icon(Icons.lock_open_rounded, size: 18),
                   label: Text(
-                    state.isArabic ? 'السماح بالوصول' : 'Grant Access',
-                    style: GoogleFonts.rubik(fontWeight: FontWeight.w600, fontSize: 15),
+                    isAr ? 'السماح بالوصول' : 'Grant Access',
+                    style: AppTypography.bodyOf(
+                      context,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
+                    ),
                   ),
                   style: FilledButton.styleFrom(
                     backgroundColor: palette.AppColors.dustyMauve,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-              if (state.cameraPermission == PermissionStatus.permanentlyDenied)
+              if (state.cameraPermission ==
+                  PermissionStatus.permanentlyDenied) ...[
+                const SizedBox(height: 12),
                 TextButton(
                   onPressed: () => openAppSettings(),
                   child: Text(
-                    state.isArabic
+                    isAr
                         ? 'تم الرفض — افتح الإعدادات'
                         : 'Permanently denied — Open Settings',
-                    style: GoogleFonts.rubik(color: Colors.white54, fontSize: 12),
+                    style: AppTypography.bodyOf(
+                      context,
+                      color: Colors.white54,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
+              ],
             ],
           ),
         ),
@@ -413,11 +718,11 @@ class _PermissionCard extends StatelessWidget {
 }
 
 // ===========================================================================
-// LOADING STATE — shimmer + spinner while camera initializes
+// LOADING STATE
 // ===========================================================================
 class _LoadingState extends StatelessWidget {
   final String message;
-  const _LoadingState({required this.message});
+  const _LoadingState({super.key, required this.message});
 
   @override
   Widget build(BuildContext context) {
@@ -427,8 +732,9 @@ class _LoadingState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(
-              width: 32, height: 32,
+            const SizedBox(
+              width: 32,
+              height: 32,
               child: CircularProgressIndicator(
                 strokeWidth: 3,
                 color: palette.AppColors.dustyLavender,
@@ -437,7 +743,11 @@ class _LoadingState extends StatelessWidget {
             const SizedBox(height: 16),
             Text(
               message,
-              style: GoogleFonts.rubik(color: Colors.white70, fontSize: 13),
+              style: AppTypography.bodyOf(
+                context,
+                color: Colors.white70,
+                fontSize: 13,
+              ),
             ),
           ],
         ),
@@ -447,79 +757,114 @@ class _LoadingState extends StatelessWidget {
 }
 
 // ===========================================================================
-// NATIVE CAMERA PREVIEW — uses CameraController directly (zero latency)
+// NATIVE PHONE CAMERA PREVIEW — Full-viewport edge-to-edge BoxFit.cover
 // ===========================================================================
 class _CameraPreviewNative extends StatelessWidget {
   final RecognitionState state;
-  const _CameraPreviewNative({required this.state});
+  const _CameraPreviewNative({super.key, required this.state});
 
   @override
   Widget build(BuildContext context) {
     final ctrl = state.phoneCamera.controller;
     if (ctrl == null || !ctrl.value.isInitialized) {
-      return _LoadingState(message: 'Initializing camera…');
+      return _LoadingState(
+        message:
+            state.isArabic ? 'جارٍ تهيئة الكاميرا…' : 'Initializing camera…',
+      );
     }
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        // Native camera texture — zero latency
-        ClipRect(
-          child: OverflowBox(
-            alignment: Alignment.center,
-            child: FittedBox(
-              fit: BoxFit.cover,
-              child: SizedBox(
-                width: ctrl.value.previewSize?.height ?? 640,
-                height: ctrl.value.previewSize?.width ?? 480,
-                child: CameraPreview(ctrl),
+    // Sensor previewSize is reported in landscape (width > height); in locked
+    // portrait orientation, the upright preview dimensions are (height, width).
+    final isLandscape =
+        MediaQuery.of(context).orientation == Orientation.landscape;
+    final ps = ctrl.value.previewSize;
+    final double previewW;
+    final double previewH;
+    if (ps != null && ps.width > 0 && ps.height > 0) {
+      previewW = isLandscape ? ps.width : ps.height;
+      previewH = isLandscape ? ps.height : ps.width;
+    } else {
+      final fallback =
+          state.phoneCamera.previewLogicalSize ?? const Size(720, 1280);
+      previewW = fallback.width;
+      previewH = fallback.height;
+    }
+
+    final coverAspect = previewW / previewH;
+
+    return Container(
+      color: Colors.black,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Edge-to-edge full-viewport native preview (never shrimped/letterboxed)
+          ClipRect(
+            child: SizedBox.expand(
+              child: FittedBox(
+                fit: BoxFit.cover,
+                alignment: Alignment.center,
+                child: SizedBox(
+                  width: previewW,
+                  height: previewH,
+                  child: CameraPreview(ctrl),
+                ),
               ),
             ),
           ),
-        ),
-        // Bounding box overlay
-        if (state.currentBoxes.isNotEmpty)
-          BoundingBoxOverlay(
-            boxes: state.currentBoxes,
-            selectedBox: state.selectedBox,
-            onTapBox: (b) {
-              HapticFeedback.selectionClick();
-              state.selectBox(b);
-            },
-          ),
-        // LIVE badge
-        if (state.phoneCamera.isStreaming)
+
+          // Interactive YOLO26-Nano bounding boxes projected with identical cover math
+          if (state.currentBoxes.isNotEmpty || state.selectedBox != null)
+            BoundingBoxOverlay(
+              boxes: state.currentBoxes,
+              selected: state.selectedBox,
+              sourceAspectRatio: coverAspect,
+              onSelect: (b) {
+                HapticFeedback.selectionClick();
+                state.selectBox(b);
+              },
+            ),
+
+          if (state.phoneCamera.isStreaming)
+            const Positioned(
+              top: 10,
+              right: 10,
+              child: _LiveBadge(),
+            ),
+
           Positioned(
-            top: 8, right: 8,
-            child: _LiveBadge(),
-          ),
-        // Detection count badge
-        if (state.currentBoxes.isNotEmpty)
-          Positioned(
-            top: 8, left: 8,
-            child: _DetectionCountBadge(count: state.currentBoxes.length),
-          ),
-        // Hint when no box selected
-        if (state.selectedBox == null && state.currentBoxes.isNotEmpty)
-          Positioned(
-            bottom: 12, left: 0, right: 0,
-            child: Center(
-              child: _HintChip(
-                text: state.isArabic ? 'اضغط على صندوق للتحليل' : 'Tap a box to analyze',
-              ),
+            top: 10,
+            left: 10,
+            child: _DetectionCountBadge(
+              count: state.currentBoxes.length,
+              yoloReady: state.yolo.isReady,
             ),
           ),
-        // Analyzing overlay — when Moondream + LLM are running
-        if (state.chatSession == null && state.firstLlmContext != null)
-          Positioned.fill(
-            child: Container(
-              color: Colors.black54,
+
+          if (state.selectedBox == null && state.currentBoxes.isNotEmpty)
+            Positioned(
+              bottom: 12,
+              left: 12,
+              right: 12,
               child: Center(
-                child: _AnalyzingOverlay(state: state),
+                child: _HintChip(
+                  text: state.isArabic
+                      ? 'اضغط على أي صندوق لوضع علامة الهدف ثم اضغط التقاط'
+                      : 'Tap any box to lock target marker, then press Capture',
+                ),
               ),
             ),
-          ),
-      ],
+
+          if (state.isAnalyzingSelected)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black54,
+                child: Center(
+                  child: _AnalyzingOverlay(state: state),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -528,22 +873,31 @@ class _CameraPreviewNative extends StatelessWidget {
 // BADGES & CHIPS
 // ===========================================================================
 class _LiveBadge extends StatelessWidget {
+  const _LiveBadge();
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: palette.AppColors.danger,
-        borderRadius: BorderRadius.circular(6),
+        color: palette.AppColors.danger.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(7),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.circle, size: 6, color: Colors.white),
+          const Icon(Icons.fiber_manual_record_rounded,
+              size: 8, color: Colors.white),
           const SizedBox(width: 4),
-          Text('LIVE', style: GoogleFonts.spaceMono(
-              color: Colors.white, fontSize: 10,
-              fontWeight: FontWeight.w700, letterSpacing: 1.1)),
+          Text(
+            'LIVE',
+            style: GoogleFonts.spaceMono(
+              color: Colors.white,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.0,
+            ),
+          ),
         ],
       ),
     );
@@ -552,22 +906,40 @@ class _LiveBadge extends StatelessWidget {
 
 class _DetectionCountBadge extends StatelessWidget {
   final int count;
-  const _DetectionCountBadge({required this.count});
+  final bool yoloReady;
+  const _DetectionCountBadge({
+    required this.count,
+    this.yoloReady = true,
+  });
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
       decoration: BoxDecoration(
-        color: palette.AppColors.dustyLavender.withOpacity(0.85),
-        borderRadius: BorderRadius.circular(6),
+        color: palette.AppColors.inkDark.withOpacity(0.8),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: palette.AppColors.dustyMauve.withOpacity(0.8),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.center_focus_strong, size: 12, color: Colors.white),
-          const SizedBox(width: 4),
-          Text('$count detected', style: GoogleFonts.rubik(
-              color: Colors.white, fontSize: 10, fontWeight: FontWeight.w600)),
+          Icon(
+            yoloReady ? Icons.radar_rounded : Icons.downloading_rounded,
+            size: 13,
+            color: Colors.white,
+          ),
+          const SizedBox(width: 5),
+          Text(
+            yoloReady ? 'YOLO26n · $count' : 'YOLO26n staging…',
+            style: GoogleFonts.rubik(
+              color: Colors.white,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ],
       ),
     );
@@ -577,21 +949,42 @@ class _DetectionCountBadge extends StatelessWidget {
 class _HintChip extends StatelessWidget {
   final String text;
   const _HintChip({required this.text});
+
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.6),
-        borderRadius: BorderRadius.circular(16),
+        color: palette.AppColors.inkDark.withOpacity(0.76),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white24),
       ),
-      child: Text(text,
-          style: GoogleFonts.rubik(color: Colors.white, fontSize: 12)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.touch_app_rounded, size: 14, color: Colors.white),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.bodyOf(
+                context,
+                color: Colors.white,
+                fontSize: 11.5,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
 class _AutoFlashBadge extends StatelessWidget {
+  const _AutoFlashBadge();
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -601,9 +994,14 @@ class _AutoFlashBadge extends StatelessWidget {
         color: palette.AppColors.dustyMauve,
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Text('AUTO',
-          style: GoogleFonts.spaceMono(
-              color: Colors.white, fontSize: 9, fontWeight: FontWeight.w700)),
+      child: Text(
+        'AUTO',
+        style: GoogleFonts.spaceMono(
+          color: Colors.white,
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
     );
   }
 }
@@ -611,54 +1009,84 @@ class _AutoFlashBadge extends StatelessWidget {
 class _AnalyzingOverlay extends StatelessWidget {
   final RecognitionState state;
   const _AnalyzingOverlay({required this.state});
+
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SizedBox(
-          width: 48, height: 48,
-          child: CircularProgressIndicator(
-            strokeWidth: 4,
-            color: palette.AppColors.dustyMauve,
+    final msg = state.analyzingStage.isNotEmpty
+        ? state.analyzingStage
+        : (state.isArabic
+            ? 'جارٍ التحليل عبر موندريم…'
+            : 'Analyzing with Moondream AI…');
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(
+            width: 46,
+            height: 46,
+            child: CircularProgressIndicator(
+              strokeWidth: 3.5,
+              color: palette.AppColors.dustyMauve,
+            ),
           ),
-        ),
-        const SizedBox(height: 12),
-        Text('Analyzing with Moondream AI…',
-            style: GoogleFonts.rubik(color: Colors.white, fontSize: 13)),
-      ],
+          const SizedBox(height: 12),
+          Text(
+            msg,
+            textAlign: TextAlign.center,
+            style: AppTypography.bodyOf(
+              context,
+              color: Colors.white,
+              fontSize: 13,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
-// ===========================================================================
-// ANIMATED ICON BUTTON — scale feedback on tap
-// ===========================================================================
-class _AnimatedIconButton extends StatelessWidget {
+class _AnimatedIconButton extends StatefulWidget {
   final IconData icon;
   final Color color;
   final String tooltip;
   final VoidCallback onTap;
+
   const _AnimatedIconButton({
     required this.icon,
     required this.color,
     required this.tooltip,
     required this.onTap,
   });
+
+  @override
+  State<_AnimatedIconButton> createState() => _AnimatedIconButtonState();
+}
+
+class _AnimatedIconButtonState extends State<_AnimatedIconButton> {
+  double _scale = 1.0;
+
+  Future<void> _handlePressed() async {
+    HapticFeedback.selectionClick();
+    setState(() => _scale = 0.85);
+    widget.onTap();
+    await Future<void>.delayed(const Duration(milliseconds: 110));
+    if (mounted) {
+      setState(() => _scale = 1.0);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 1.0, end: 1.0),
-      duration: const Duration(milliseconds: 100),
-      builder: (context, scale, child) =>
-          Transform.scale(scale: scale, child: child),
+    return AnimatedScale(
+      scale: _scale,
+      duration: const Duration(milliseconds: 110),
+      curve: Curves.easeOutBack,
       child: IconButton(
-        icon: Icon(icon, color: color, size: 22),
-        tooltip: tooltip,
-        onPressed: () {
-          HapticFeedback.selectionClick();
-          onTap();
-        },
+        icon: Icon(widget.icon, color: widget.color, size: 21),
+        tooltip: widget.tooltip,
+        onPressed: _handlePressed,
       ),
     );
   }

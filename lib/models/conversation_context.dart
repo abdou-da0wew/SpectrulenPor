@@ -1,275 +1,450 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
-
-/// Structured, self-updating conversation context — auto-embedded into every
-/// system prompt sent to the LLM (so every chat turn sees the FULL accumulated
-/// knowledge, not just chat history).
+/// Structured, auto-updating scientific & conversational memory embedded into
+/// EVERY system prompt sent to the LLM across turns.
 ///
-/// The AI can emit `<context_update>{...}</context_update>` blocks in any
-/// response. The system parses them and merges them into this object — so
-/// the AI itself decides what to add / refine / correct.
-///
-/// Shape (JSON keys the AI uses for updates):
-///   {
-///     "objectIdentified": "copper sulfate (CuSO4)",
-///     "chemicalFormula": "CuSO4·5H2O",
-///     "stateOfMatter": "solid (blue pentahydrate crystals)",
-///     "physicalProperties": "density 2.28 g/cm³, mp 110°C, blue color",
-///     "chemicalProperties": "soluble in water, weakly acidic in solution",
-///     "composition": "Cu²⁺ + SO₄²⁻ + 5H₂O",
-///     "formation": "produced by treating copper oxide with sulfuric acid",
-///     "commonUses": ["electroplating", "fungicide", "algicide"],
-///     "hazards": "toxic if ingested, irritant to skin/eyes",
-///     "sceneContext": "bottle of CuSO4 next to a glass beaker",
-///     "userNotes": ["user wants to know about crystal structure"],
-///     "openQuestions": ["is the sample anhydrous or hydrated?"],
-///     "labFindings": "added water → blue color deepened",
-///     "safetyProtocols": "wear gloves + goggles",
-///     "relatedCompounds": ["Cu2O", "CuO", "CuCl2"]
-///   }
-///
-/// All fields are nullable + the AI can add new keys — unknown keys are
-/// preserved in [extra] for round-tripping.
+/// At the end of each turn the LLM emits a `<context_update>{...}</context_update>`
+/// JSON delta containing newly discovered facts, refined properties, or resolved
+/// questions; [ChatSession] strips the tag from visible Markdown, merges it into
+/// the running [ConversationContext], and persists the updated state in
+/// `InternalDatabaseService`.
 class ConversationContext {
-  String? objectIdentified;
-  String? chemicalFormula;
-  String? stateOfMatter;
-  String? physicalProperties;
-  String? chemicalProperties;
-  String? composition;
-  String? formation;
-  List<String>? commonUses;
-  String? hazards;
-  String? sceneContext;
-  String? moondreamAnalysis;
-  String? firstLlmContext;
-  List<String>? userNotes;
-  List<String>? openQuestions;
-  String? labFindings;
-  String? safetyProtocols;
-  List<String>? relatedCompounds;
+  final String objectIdentified;
+  final String userGoal;
+  final String chemicalFormula;
+  final String stateOfMatter;
+  final String physicalProperties;
+  final String chemicalProperties;
+  final String composition;
+  final String formation;
+  final List<String> commonUses;
+  final String hazards;
+  final String sceneContext;
+  final String labFindings;
+  final String safetyProtocols;
+  final List<String> relatedCompounds;
+  final List<String> establishedFacts;
+  final List<String> openQuestions;
+  final List<String> referencedEntities;
+  final List<String> userNotes;
+  final Map<String, dynamic> extra;
+  final int turnCount;
+  final DateTime? lastUpdated;
 
-  /// Free-form keys the AI added that aren't in the known schema above.
-  /// Round-tripped verbatim.
-  final Map<String, dynamic> extra = {};
+  const ConversationContext({
+    String? objectIdentified,
+    String? topic,
+    this.userGoal = '',
+    this.chemicalFormula = '',
+    this.stateOfMatter = '',
+    this.physicalProperties = '',
+    this.chemicalProperties = '',
+    this.composition = '',
+    this.formation = '',
+    this.commonUses = const [],
+    this.hazards = '',
+    this.sceneContext = '',
+    this.labFindings = '',
+    this.safetyProtocols = '',
+    this.relatedCompounds = const [],
+    this.establishedFacts = const [],
+    this.openQuestions = const [],
+    this.referencedEntities = const [],
+    this.userNotes = const [],
+    this.extra = const {},
+    this.turnCount = 0,
+    this.lastUpdated,
+  }) : objectIdentified = objectIdentified ?? topic ?? '';
 
-  DateTime lastUpdated;
+  /// Backward-compatible alias for [objectIdentified].
+  String get topic => objectIdentified;
 
-  ConversationContext({
-    this.objectIdentified,
-    this.chemicalFormula,
-    this.stateOfMatter,
-    this.physicalProperties,
-    this.chemicalProperties,
-    this.composition,
-    this.formation,
-    this.commonUses,
-    this.hazards,
-    this.sceneContext,
-    this.moondreamAnalysis,
-    this.firstLlmContext,
-    this.userNotes,
-    this.openQuestions,
-    this.labFindings,
-    this.safetyProtocols,
-    this.relatedCompounds,
-    DateTime? lastUpdated,
-  }) : lastUpdated = lastUpdated ?? DateTime.now();
+  bool get isEmpty =>
+      objectIdentified.isEmpty &&
+      userGoal.isEmpty &&
+      chemicalFormula.isEmpty &&
+      stateOfMatter.isEmpty &&
+      physicalProperties.isEmpty &&
+      chemicalProperties.isEmpty &&
+      composition.isEmpty &&
+      formation.isEmpty &&
+      commonUses.isEmpty &&
+      hazards.isEmpty &&
+      sceneContext.isEmpty &&
+      labFindings.isEmpty &&
+      safetyProtocols.isEmpty &&
+      relatedCompounds.isEmpty &&
+      establishedFacts.isEmpty &&
+      openQuestions.isEmpty &&
+      referencedEntities.isEmpty &&
+      userNotes.isEmpty &&
+      extra.isEmpty;
 
-  /// Build from a JSON map (the AI's `<context_update>` payload, or a saved
-  /// session). Unknown keys go into [extra].
+  static const Set<String> _knownKeys = {
+    'objectIdentified',
+    'object_identified',
+    'topic',
+    'userGoal',
+    'user_goal',
+    'chemicalFormula',
+    'chemical_formula',
+    'stateOfMatter',
+    'state_of_matter',
+    'physicalProperties',
+    'physical_properties',
+    'chemicalProperties',
+    'chemical_properties',
+    'composition',
+    'formation',
+    'commonUses',
+    'common_uses',
+    'hazards',
+    'sceneContext',
+    'scene_context',
+    'labFindings',
+    'lab_findings',
+    'safetyProtocols',
+    'safety_protocols',
+    'relatedCompounds',
+    'related_compounds',
+    'establishedFacts',
+    'established_facts',
+    'openQuestions',
+    'open_questions',
+    'referencedEntities',
+    'referenced_entities',
+    'userNotes',
+    'user_notes',
+    'extra',
+    'turnCount',
+    'turn_count',
+    'lastUpdated',
+    'last_updated',
+  };
+
   factory ConversationContext.fromJson(Map<String, dynamic> j) {
-    final knownKeys = <String>{
-      'objectIdentified', 'chemicalFormula', 'stateOfMatter',
-      'physicalProperties', 'chemicalProperties', 'composition',
-      'formation', 'commonUses', 'hazards', 'sceneContext',
-      'moondreamAnalysis', 'firstLlmContext', 'userNotes',
-      'openQuestions', 'labFindings', 'safetyProtocols',
-      'relatedCompounds', 'lastUpdated',
-    };
-    final ctx = ConversationContext(
-      objectIdentified: j['objectIdentified'] as String?,
-      chemicalFormula: j['chemicalFormula'] as String?,
-      stateOfMatter: j['stateOfMatter'] as String?,
-      physicalProperties: j['physicalProperties'] as String?,
-      chemicalProperties: j['chemicalProperties'] as String?,
-      composition: j['composition'] as String?,
-      formation: j['formation'] as String?,
-      commonUses: (j['commonUses'] as List?)?.map((e) => e.toString()).toList(),
-      hazards: j['hazards'] as String?,
-      sceneContext: j['sceneContext'] as String?,
-      moondreamAnalysis: j['moondreamAnalysis'] as String?,
-      firstLlmContext: j['firstLlmContext'] as String?,
-      userNotes: (j['userNotes'] as List?)?.map((e) => e.toString()).toList(),
-      openQuestions: (j['openQuestions'] as List?)?.map((e) => e.toString()).toList(),
-      labFindings: j['labFindings'] as String?,
-      safetyProtocols: j['safetyProtocols'] as String?,
-      relatedCompounds: (j['relatedCompounds'] as List?)?.map((e) => e.toString()).toList(),
-    );
-    for (final k in j.keys) {
-      if (!knownKeys.contains(k)) ctx.extra[k] = j[k];
+    List<String> strList(dynamic v) {
+      if (v is List) {
+        return v
+            .map((e) => e.toString().trim())
+            .where((s) => s.isNotEmpty)
+            .toList(growable: false);
+      }
+      if (v is String && v.trim().isNotEmpty) {
+        return [v.trim()];
+      }
+      return const [];
     }
-    return ctx;
-  }
 
-  /// Serialize to JSON for persistence / display.
-  Map<String, dynamic> toJson() {
-    final m = <String, dynamic>{
-      if (objectIdentified != null) 'objectIdentified': objectIdentified,
-      if (chemicalFormula != null) 'chemicalFormula': chemicalFormula,
-      if (stateOfMatter != null) 'stateOfMatter': stateOfMatter,
-      if (physicalProperties != null) 'physicalProperties': physicalProperties,
-      if (chemicalProperties != null) 'chemicalProperties': chemicalProperties,
-      if (composition != null) 'composition': composition,
-      if (formation != null) 'formation': formation,
-      if (commonUses != null) 'commonUses': commonUses,
-      if (hazards != null) 'hazards': hazards,
-      if (sceneContext != null) 'sceneContext': sceneContext,
-      if (moondreamAnalysis != null) 'moondreamAnalysis': moondreamAnalysis,
-      if (firstLlmContext != null) 'firstLlmContext': firstLlmContext,
-      if (userNotes != null) 'userNotes': userNotes,
-      if (openQuestions != null) 'openQuestions': openQuestions,
-      if (labFindings != null) 'labFindings': labFindings,
-      if (safetyProtocols != null) 'safetyProtocols': safetyProtocols,
-      if (relatedCompounds != null) 'relatedCompounds': relatedCompounds,
-      ...extra,
-      'lastUpdated': lastUpdated.toIso8601String(),
-    };
-    return m;
-  }
+    String str(String camel, [String? snake, String? alt]) {
+      final raw = j[camel] ?? (snake != null ? j[snake] : null) ?? (alt != null ? j[alt] : null);
+      return raw?.toString().trim() ?? '';
+    }
 
-  /// Merge another context into this one. Non-null fields from [other]
-  /// OVERRIDE this one's fields. Lists are appended (deduped). [extra]
-  /// keys are merged (other's extras override this one's for matching keys).
-  void mergeFrom(ConversationContext other) {
-    if (other.objectIdentified != null) objectIdentified = other.objectIdentified;
-    if (other.chemicalFormula != null) chemicalFormula = other.chemicalFormula;
-    if (other.stateOfMatter != null) stateOfMatter = other.stateOfMatter;
-    if (other.physicalProperties != null) physicalProperties = other.physicalProperties;
-    if (other.chemicalProperties != null) chemicalProperties = other.chemicalProperties;
-    if (other.composition != null) composition = other.composition;
-    if (other.formation != null) formation = other.formation;
-    if (other.hazards != null) hazards = other.hazards;
-    if (other.sceneContext != null) sceneContext = other.sceneContext;
-    if (other.moondreamAnalysis != null) moondreamAnalysis = other.moondreamAnalysis;
-    if (other.firstLlmContext != null) firstLlmContext = other.firstLlmContext;
-    if (other.labFindings != null) labFindings = other.labFindings;
-    if (other.safetyProtocols != null) safetyProtocols = other.safetyProtocols;
-    if (other.commonUses != null) {
-      commonUses = [...?commonUses, ...other.commonUses!].toSet().toList();
+    final extraMap = <String, dynamic>{};
+    if (j['extra'] is Map) {
+      (j['extra'] as Map).forEach((k, v) {
+        extraMap[k.toString()] = v;
+      });
     }
-    if (other.relatedCompounds != null) {
-      relatedCompounds = [...?relatedCompounds, ...other.relatedCompounds!].toSet().toList();
-    }
-    if (other.userNotes != null) {
-      userNotes = [...?userNotes, ...other.userNotes!].toSet().toList();
-    }
-    if (other.openQuestions != null) {
-      // Open questions: replace (the AI can mark them resolved).
-      openQuestions = other.openQuestions;
-    }
-    extra.addAll(other.extra);
-    lastUpdated = DateTime.now();
-  }
-
-  /// Build the SYSTEM PROMPT BLOCK that gets prepended to every chat call.
-  /// Format: structured markdown with the known fields + extras + the
-  /// instruction for the AI to emit `<context_update>` blocks.
-  String toSystemPromptBlock({String lang = 'en'}) {
-    final isAr = lang.startsWith('ar');
-    final sb = StringBuffer();
-    sb.writeln(isAr
-        ? '# السياق المتراكم (يتم تحديثه تلقائياً)'
-        : '# Accumulated context (auto-updating)');
-    sb.writeln(isAr
-        ? 'آخر تحديث: ${lastUpdated.toIso8601String()}'
-        : 'Last updated: ${lastUpdated.toIso8601String()}');
-    sb.writeln();
-    if (objectIdentified != null) sb.writeln('- OBJECT: $objectIdentified');
-    if (chemicalFormula != null) sb.writeln('- FORMULA: $chemicalFormula');
-    if (stateOfMatter != null) sb.writeln('- STATE: $stateOfMatter');
-    if (physicalProperties != null) sb.writeln('- PHYSICAL PROPERTIES: $physicalProperties');
-    if (chemicalProperties != null) sb.writeln('- CHEMICAL PROPERTIES: $chemicalProperties');
-    if (composition != null) sb.writeln('- COMPOSITION: $composition');
-    if (formation != null) sb.writeln('- FORMATION: $formation');
-    if (commonUses != null && commonUses!.isNotEmpty) {
-      sb.writeln('- COMMON USES: ${commonUses!.join(', ')}');
-    }
-    if (hazards != null) sb.writeln('- HAZARDS: $hazards');
-    if (sceneContext != null) sb.writeln('- SCENE: $sceneContext');
-    if (labFindings != null) sb.writeln('- LAB FINDINGS: $labFindings');
-    if (safetyProtocols != null) sb.writeln('- SAFETY: $safetyProtocols');
-    if (relatedCompounds != null && relatedCompounds!.isNotEmpty) {
-      sb.writeln('- RELATED COMPOUNDS: ${relatedCompounds!.join(', ')}');
-    }
-    if (userNotes != null && userNotes!.isNotEmpty) {
-      sb.writeln('- USER NOTES:');
-      for (final n in userNotes!) sb.writeln('  - $n');
-    }
-    if (openQuestions != null && openQuestions!.isNotEmpty) {
-      sb.writeln('- OPEN QUESTIONS:');
-      for (final q in openQuestions!) sb.writeln('  - $q');
-    }
-    if (moondreamAnalysis != null) {
-      sb.writeln('- MOONDREAM ANALYSIS: $moondreamAnalysis');
-    }
-    if (firstLlmContext != null) {
-      sb.writeln('- FIRST SCIENTIFIC CONTEXT (excerpt): ${_truncate(firstLlmContext!, 400)}');
-    }
-    if (extra.isNotEmpty) {
-      sb.writeln('- ADDITIONAL FIELDS:');
-      for (final e in extra.entries) sb.writeln('  - ${e.key}: ${e.value}');
-    }
-    sb.writeln();
-    sb.writeln(isAr
-        ? '## تعليمات التحديث التلقائي'
-        : '## Auto-update instructions');
-    sb.writeln(isAr
-        ? 'إذا تعلمت معلومات جديدة أو صححت معلومة موجودة أثناء هذه المحادثة، '
-            'يجب عليك إصدار كتلة `<context_update>` في إجابتك بالتنسيق JSON التالي. '
-            'سيقوم النظام بدمجها في السياق لجميع الرسائل اللاحقة. '
-            'فقط ضع المفاتيح التي تريد تحديثها — لا تكرر المفاتيح التي لم تتغير. '
-            'لا تضع الكتلة في تعليق أو داخل نص Markdown آخر — يجب أن تكون نصاً خاماً.'
-        : 'If you learn new information OR correct an existing field during this '
-            'conversation, you MUST emit a `<context_update>` block in your '
-            'response with the JSON shape below. The system will parse it and '
-            'merge it into the running context for ALL subsequent messages. '
-            'Only include keys you want to update — do not repeat unchanged keys. '
-            'Do not wrap the block in a code fence or any other markdown — it must be raw text.');
-    sb.writeln('```');
-    sb.writeln('<context_update>');
-    sb.writeln('  {"objectIdentified": "...", "chemicalFormula": "...", "stateOfMatter": "...", "physicalProperties": "...", "chemicalProperties": "...", "composition": "...", "formation": "...", "commonUses": ["..."], "hazards": "...", "sceneContext": "...", "labFindings": "...", "safetyProtocols": "...", "relatedCompounds": ["..."], "userNotes": ["..."], "openQuestions": ["..."]}');
-    sb.writeln('</context_update>');
-    sb.writeln('```');
-    return sb.toString();
-  }
-
-  String _truncate(String s, int max) =>
-      s.length <= max ? s : '${s.substring(0, max)}…';
-
-  /// Extract all `<context_update>{...}</context_update>` blocks from a
-  /// markdown body. Returns the parsed JSON maps (in order of appearance).
-  /// Returns the input with the blocks STRIPPED so the rendered markdown is
-  /// clean. Updates the `lastUpdated` timestamp on each merged block.
-  static List<ConversationContext> extractUpdatesAndStrip(
-      String body, String Function(String) onStripped) {
-    final regex = RegExp(
-      r'<context_update>\s*(\{[^]*?\})\s*</context_update>',
-      multiLine: true,
-    );
-    final updates = <ConversationContext>[];
-    final stripped = body.replaceAllMapped(regex, (m) {
-      try {
-        final json = jsonDecode(m.group(1)!) as Map<String, dynamic>;
-        updates.add(ConversationContext.fromJson(json));
-        return '';  // strip from rendered markdown
-      } catch (e) {
-        debugPrint('[ConversationContext] parse failed: $e');
-        return m.group(0)!;  // keep original on parse error
+    j.forEach((k, v) {
+      if (!_knownKeys.contains(k) && v != null) {
+        extraMap[k] = v;
       }
     });
-    onStripped(stripped);
-    return updates;
+
+    DateTime? parsedTs;
+    final rawTs = j['lastUpdated'] ?? j['last_updated'];
+    if (rawTs is String && rawTs.isNotEmpty) {
+      parsedTs = DateTime.tryParse(rawTs);
+    } else if (rawTs is int) {
+      parsedTs = DateTime.fromMillisecondsSinceEpoch(rawTs);
+    }
+
+    return ConversationContext(
+      objectIdentified: str('objectIdentified', 'object_identified', 'topic'),
+      userGoal: str('userGoal', 'user_goal'),
+      chemicalFormula: str('chemicalFormula', 'chemical_formula'),
+      stateOfMatter: str('stateOfMatter', 'state_of_matter'),
+      physicalProperties: str('physicalProperties', 'physical_properties'),
+      chemicalProperties: str('chemicalProperties', 'chemical_properties'),
+      composition: str('composition'),
+      formation: str('formation'),
+      commonUses: strList(j['commonUses'] ?? j['common_uses']),
+      hazards: str('hazards'),
+      sceneContext: str('sceneContext', 'scene_context'),
+      labFindings: str('labFindings', 'lab_findings'),
+      safetyProtocols: str('safetyProtocols', 'safety_protocols'),
+      relatedCompounds: strList(j['relatedCompounds'] ?? j['related_compounds']),
+      establishedFacts: strList(j['establishedFacts'] ?? j['established_facts']),
+      openQuestions: strList(j['openQuestions'] ?? j['open_questions']),
+      referencedEntities:
+          strList(j['referencedEntities'] ?? j['referenced_entities']),
+      userNotes: strList(j['userNotes'] ?? j['user_notes']),
+      extra: extraMap,
+      turnCount: ((j['turnCount'] ?? j['turn_count']) as num?)?.toInt() ?? 0,
+      lastUpdated: parsedTs,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'objectIdentified': objectIdentified,
+        'topic': objectIdentified,
+        'userGoal': userGoal,
+        'chemicalFormula': chemicalFormula,
+        'stateOfMatter': stateOfMatter,
+        'physicalProperties': physicalProperties,
+        'chemicalProperties': chemicalProperties,
+        'composition': composition,
+        'formation': formation,
+        'commonUses': commonUses,
+        'hazards': hazards,
+        'sceneContext': sceneContext,
+        'labFindings': labFindings,
+        'safetyProtocols': safetyProtocols,
+        'relatedCompounds': relatedCompounds,
+        'establishedFacts': establishedFacts,
+        'openQuestions': openQuestions,
+        'referencedEntities': referencedEntities,
+        'userNotes': userNotes,
+        'extra': extra,
+        'turnCount': turnCount,
+        'lastUpdated': (lastUpdated ?? DateTime.now()).toIso8601String(),
+      };
+
+  static List<String> _dedupMerge(List<String> a, List<String> b,
+      {int maxItems = 16}) {
+    final seen = <String>{};
+    final out = <String>[];
+    for (final item in [...a, ...b]) {
+      final norm = item.trim();
+      if (norm.isEmpty) continue;
+      if (seen.add(norm.toLowerCase())) {
+        out.add(norm);
+      }
+    }
+    return out.length > maxItems
+        ? out.sublist(out.length - maxItems)
+        : out;
+  }
+
+  static String _pickNonEmpty(String current, String incoming) =>
+      incoming.trim().isNotEmpty ? incoming.trim() : current;
+
+  /// Non-destructively merges a `<context_update>` delta into this context.
+  ConversationContext merge(ConversationContext delta) {
+    final mergedExtra = <String, dynamic>{...extra, ...delta.extra};
+    return ConversationContext(
+      objectIdentified: _pickNonEmpty(objectIdentified, delta.objectIdentified),
+      userGoal: _pickNonEmpty(userGoal, delta.userGoal),
+      chemicalFormula: _pickNonEmpty(chemicalFormula, delta.chemicalFormula),
+      stateOfMatter: _pickNonEmpty(stateOfMatter, delta.stateOfMatter),
+      physicalProperties:
+          _pickNonEmpty(physicalProperties, delta.physicalProperties),
+      chemicalProperties:
+          _pickNonEmpty(chemicalProperties, delta.chemicalProperties),
+      composition: _pickNonEmpty(composition, delta.composition),
+      formation: _pickNonEmpty(formation, delta.formation),
+      commonUses: _dedupMerge(commonUses, delta.commonUses),
+      hazards: _pickNonEmpty(hazards, delta.hazards),
+      sceneContext: _pickNonEmpty(sceneContext, delta.sceneContext),
+      labFindings: _pickNonEmpty(labFindings, delta.labFindings),
+      safetyProtocols: _pickNonEmpty(safetyProtocols, delta.safetyProtocols),
+      relatedCompounds: _dedupMerge(relatedCompounds, delta.relatedCompounds),
+      establishedFacts: _dedupMerge(establishedFacts, delta.establishedFacts),
+      openQuestions: delta.openQuestions.isNotEmpty
+          ? delta.openQuestions.take(8).toList(growable: false)
+          : openQuestions,
+      referencedEntities:
+          _dedupMerge(referencedEntities, delta.referencedEntities),
+      userNotes: _dedupMerge(userNotes, delta.userNotes),
+      extra: mergedExtra,
+      turnCount: turnCount + 1,
+      lastUpdated: DateTime.now(),
+    );
+  }
+
+  /// Alias matching v5.2 naming.
+  ConversationContext mergeFrom(ConversationContext delta) => merge(delta);
+
+  /// Matches `<context_update>...</context_update>` anywhere in the response,
+  /// including when the LLM wraps it in ```json / ```xml code fences.
+  static final RegExp _blockRegex = RegExp(
+    r'(?:```(?:\w+)?\s*)?<context_update>\s*([\s\S]*?)\s*</context_update>(?:\s*```)?',
+    multiLine: true,
+  );
+
+  /// Matches an in-flight partial `<context_update>...` tail during token streaming.
+  static final RegExp _partialTailRegex = RegExp(
+    r'(?:```(?:\w+)?\s*)?<context_update>[\s\S]*$',
+    multiLine: true,
+  );
+
+  /// Extracts all `<context_update>` blocks, merges them in order, and returns
+  /// `(cleanedVisibleText, mergedDeltaOrNull)`.
+  static (String, ConversationContext?) extractFromResponse(String raw) {
+    final matches = _blockRegex.allMatches(raw).toList(growable: false);
+    if (matches.isEmpty) {
+      return (stripPartialStreamBlock(raw).trim(), null);
+    }
+
+    ConversationContext? combined;
+    for (final m in matches) {
+      final jsonStr = (m.group(1) ?? '').trim();
+      if (jsonStr.isEmpty) continue;
+      try {
+        final decoded = jsonDecode(jsonStr);
+        if (decoded is Map<String, dynamic>) {
+          final parsed = ConversationContext.fromJson(decoded);
+          combined = combined == null ? parsed : combined.merge(parsed);
+        }
+      } catch (_) {
+        // Ignore malformed JSON delta while still stripping the raw block.
+      }
+    }
+
+    final cleaned =
+        stripPartialStreamBlock(raw.replaceAll(_blockRegex, '')).trim();
+    return (cleaned, combined);
+  }
+
+  /// Hides an incomplete `<context_update>` block while tokens are streaming.
+  static String stripPartialStreamBlock(String streamingText) {
+    return streamingText
+        .replaceAll(_blockRegex, '')
+        .replaceAll(_partialTailRegex, '')
+        .trimRight();
+  }
+
+  /// Renders the full structured running context + mandatory `<context_update>`
+  /// instructions for injection into EVERY system prompt sent to the LLM.
+  String toSystemPromptBlock({String lang = 'en'}) {
+    final b = StringBuffer();
+    if (lang.startsWith('ar')) {
+      b.writeln('## السياق العلمي التراكمي المثبت (يُحدَّث تلقائياً في كل رسالة)');
+      if (!isEmpty) {
+        if (objectIdentified.isNotEmpty) b.writeln('- العنصر/الكائن المحدد: $objectIdentified');
+        if (userGoal.isNotEmpty) b.writeln('- هدف المستخدم: $userGoal');
+        if (chemicalFormula.isNotEmpty) b.writeln('- الصيغة الكيميائية: $chemicalFormula');
+        if (stateOfMatter.isNotEmpty) b.writeln('- حالة المادة: $stateOfMatter');
+        if (composition.isNotEmpty) b.writeln('- التركيب والمكونات: $composition');
+        if (physicalProperties.isNotEmpty) b.writeln('- الخصائص الفيزيائية: $physicalProperties');
+        if (chemicalProperties.isNotEmpty) b.writeln('- الخصائص الكيميائية: $chemicalProperties');
+        if (formation.isNotEmpty) b.writeln('- التكوين/التحضير: $formation');
+        if (commonUses.isNotEmpty) b.writeln('- الاستخدامات: ${commonUses.join('، ')}');
+        if (hazards.isNotEmpty) b.writeln('- المخاطر: $hazards');
+        if (safetyProtocols.isNotEmpty) b.writeln('- إجراءات السلامة: $safetyProtocols');
+        if (sceneContext.isNotEmpty) b.writeln('- سياق المشهد: $sceneContext');
+        if (labFindings.isNotEmpty) b.writeln('- ملاحظات التحليل: $labFindings');
+        if (relatedCompounds.isNotEmpty) {
+          b.writeln('- مركبات ذات صلة: ${relatedCompounds.join('، ')}');
+        }
+        if (establishedFacts.isNotEmpty) {
+          b.writeln('- حقائق علمية مثبتة: ${establishedFacts.join(' ؛ ')}');
+        }
+        if (openQuestions.isNotEmpty) {
+          b.writeln('- أسئلة مفتوحة: ${openQuestions.join(' ؛ ')}');
+        }
+        if (userNotes.isNotEmpty) {
+          b.writeln('- ملاحظات المستخدم: ${userNotes.join(' ؛ ')}');
+        }
+        extra.forEach((k, v) => b.writeln('- $k: $v'));
+      }
+      b.writeln();
+      b.writeln(
+        'في نهاية ردك تماماً (بدون أسوار كود ```)، أضف كتلة تحديث السياق المهيكل بالشكل التالي لتحديث المعرفة العلمية المتراكمة:',
+      );
+      b.writeln(
+        '<context_update>{"objectIdentified":"...","userGoal":"...","chemicalFormula":"...","stateOfMatter":"...","physicalProperties":"...","chemicalProperties":"...","composition":"...","hazards":"...","commonUses":[...],"establishedFacts":[...],"openQuestions":[...],"referencedEntities":[...]}</context_update>',
+      );
+    } else {
+      b.writeln('## Anchored Auto-Updating Scientific Context (Turn #$turnCount)');
+      if (!isEmpty) {
+        if (objectIdentified.isNotEmpty) b.writeln('- OBJECT IDENTIFIED: $objectIdentified');
+        if (userGoal.isNotEmpty) b.writeln('- USER GOAL: $userGoal');
+        if (chemicalFormula.isNotEmpty) b.writeln('- CHEMICAL FORMULA: $chemicalFormula');
+        if (stateOfMatter.isNotEmpty) b.writeln('- STATE OF MATTER: $stateOfMatter');
+        if (composition.isNotEmpty) b.writeln('- COMPOSITION: $composition');
+        if (physicalProperties.isNotEmpty) b.writeln('- PHYSICAL PROPERTIES: $physicalProperties');
+        if (chemicalProperties.isNotEmpty) b.writeln('- CHEMICAL PROPERTIES: $chemicalProperties');
+        if (formation.isNotEmpty) b.writeln('- FORMATION / ORIGIN: $formation');
+        if (commonUses.isNotEmpty) b.writeln('- COMMON USES: ${commonUses.join(', ')}');
+        if (hazards.isNotEmpty) b.writeln('- HAZARDS: $hazards');
+        if (safetyProtocols.isNotEmpty) b.writeln('- SAFETY PROTOCOLS: $safetyProtocols');
+        if (sceneContext.isNotEmpty) b.writeln('- SCENE CONTEXT: $sceneContext');
+        if (labFindings.isNotEmpty) b.writeln('- LAB FINDINGS: $labFindings');
+        if (relatedCompounds.isNotEmpty) {
+          b.writeln('- RELATED COMPOUNDS: ${relatedCompounds.join(', ')}');
+        }
+        if (establishedFacts.isNotEmpty) {
+          b.writeln('- ESTABLISHED FACTS: ${establishedFacts.join('; ')}');
+        }
+        if (openQuestions.isNotEmpty) {
+          b.writeln('- OPEN QUESTIONS: ${openQuestions.join('; ')}');
+        }
+        if (referencedEntities.isNotEmpty) {
+          b.writeln('- ENTITIES: ${referencedEntities.join(', ')}');
+        }
+        if (userNotes.isNotEmpty) {
+          b.writeln('- USER NOTES: ${userNotes.join('; ')}');
+        }
+        extra.forEach((k, v) => b.writeln('- $k: $v'));
+      }
+      b.writeln();
+      b.writeln(
+        'At the very end of EVERY reply (plain tag, NO ``` code fences), emit a structured JSON delta inside `<context_update>...</context_update>` updating any newly learned scientific details:',
+      );
+      b.writeln(
+        '<context_update>{"objectIdentified":"...","userGoal":"...","chemicalFormula":"...","stateOfMatter":"...","physicalProperties":"...","chemicalProperties":"...","composition":"...","hazards":"...","commonUses":[...],"relatedCompounds":[...],"establishedFacts":[...],"openQuestions":[...],"referencedEntities":[...]}</context_update>',
+      );
+    }
+    return b.toString().trim();
+  }
+}
+
+/// Visual & scientific anchor pinned at the start of an analyzed session.
+///
+/// Embedded into every LLM system prompt alongside the auto-updating
+/// [ConversationContext] so the AI always knows the originally captured object,
+/// Moondream's structured visual inspection, and the initial scientific overview.
+class AnchorContext {
+  final String selectedLabel;
+  final String moondreamSummary;
+  final String firstLlmContext;
+  final DateTime capturedAt;
+
+  const AnchorContext({
+    required this.selectedLabel,
+    required this.moondreamSummary,
+    required this.firstLlmContext,
+    required this.capturedAt,
+  });
+
+  String toSystemPrompt({String lang = 'en'}) {
+    final excerpt = firstLlmContext.length > 750
+        ? '${firstLlmContext.substring(0, 750)}…'
+        : firstLlmContext;
+    if (lang.startsWith('ar')) {
+      return [
+        '## مرساة المشهد البصري (سبكترو لِن بور)',
+        '- العنصر المحدد من الكاميرا: $selectedLabel',
+        '- وقت الالتقاط: ${capturedAt.toIso8601String()}',
+        '- تحليل موندريم البصري المهيكل:\n$moondreamSummary',
+        if (excerpt.trim().isNotEmpty)
+          '- ملخص السياق العلمي الأولي:\n$excerpt',
+        '',
+        'أجب بدقة علمية بالاعتماد على المشهد الملتقط والمصادر المرفقة [n]. لا تخترع مراجع.',
+      ].join('\n');
+    }
+    return [
+      '## Visual Capture Anchor (SpectruLenPor)',
+      '- Selected target object: $selectedLabel',
+      '- Captured at: ${capturedAt.toIso8601String()}',
+      '- Moondream structured visual inspection:\n$moondreamSummary',
+      if (excerpt.trim().isNotEmpty)
+        '- Initial grounded scientific report (excerpt):\n$excerpt',
+      '',
+      'Answer with scientific rigor grounded in the captured object and inline [n] sources. Never invent citations.',
+    ].join('\n');
   }
 }

@@ -1,7 +1,14 @@
 name: smart_glass_app
-description: SpectruLenPor — Smart glasses for spectrum analysis and detection of chemical elements and compounds. ESP32-CAM glasses / phone camera → Moondream3 cloud vision (local Moondream fallback) → OpenRouter text+reasoning presentation → streamed fish-audio TTS.
+description: >-
+  SpectruLenPor (v5.5) — Smart scientific glasses & Android app for spectrum
+  analysis and chemical element/compound identification. Local YOLO26-Nano ONNX
+  interactive bounding boxes + user-gated dual capture + Moondream3 Cloud VLM +
+  3-mode RAG (119 elements, 110 compounds, GHS safety, PubChem, Wikipedia, Web) +
+  OpenRouter reasoning chain with inline [n] citations, fact-checking,
+  auto-updating structured scientific context, streamed fish-audio TTS, and a
+  9-table SQLite WAL internal database.
 publish_to: 'none'
-version: 5.4.0+14
+version: 5.5.0+15
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -14,51 +21,47 @@ dependencies:
     sdk: flutter
   intl: any                     # pinned by flutter_localizations
 
-  # ---------- Bluetooth (ESP32-CAM frame stream) ----------
-  flutter_blue_plus: ^1.32.12    # BLE connection to ESP32-CAM
+  # ---------- Bluetooth (ESP32-CAM frame + UV/IR telemetry stream) ----------
+  flutter_blue_plus: ^1.32.12
 
-  # ---------- Camera fallback (use phone camera for demo / no-glasses dev) ----------
+  # ---------- Phone camera source (high-res native preview + YUV->JPEG isolate) ----------
   camera: ^0.11.0+2
 
-  # ---------- Networking (Moondream cloud, OpenRouter text+TTS) ----------
+  # ---------- Networking (Moondream3 Cloud, OpenRouter LLM+TTS, PubChem, Wiki, Web) ----------
   http: ^1.2.2
-  dio: ^5.7.0                    # streaming downloads for TTS audio + SSE
+  dio: ^5.7.0
 
-  # ---------- Local on-device vision fallback (offline) ----------
-  google_mlkit_image_labeling: ^0.16.1     # ML Kit fast labeling (offline fallback)
-  google_mlkit_text_recognition: ^0.17.1  # OCR for signs / bottle labels
-  path_provider: ^2.1.4         # where to store downloaded GGUF model
+  # ---------- Local offline vision fallbacks (disabled when Cloud-Only toggle is ON) ----------
+  google_mlkit_image_labeling: ^0.16.1
+  google_mlkit_text_recognition: ^0.17.1
+  google_mlkit_object_detection: ^0.17.1
+  path_provider: ^2.1.4
 
-  # ---------- v4.0: Object Detection + Mic (chat session) ----------
-  google_mlkit_object_detection: ^0.17.1  # ML Kit Object Detection — bounding boxes + labels (no asset needed)
-  speech_to_text: ^7.5.0                   # Android built-in SpeechRecognizer for chat mic input
+  # ---------- Voice input (Android SpeechRecognizer) ----------
+  speech_to_text: ^7.5.0
 
-  # ---------- ONNX Runtime Mobile (optional specialized offline classifier) ----------
-  # flutter_onnxruntime disabled — onnxruntime-android AAR has compileSdk=33 metadata conflict with androidx 34+ deps.
-  # Vision cascade still uses: Moondream cloud → local Moondream (GGUF) → ML Kit (3 tiers).
-
-  # ---------- Audio output ----------
-  flutter_tts: ^4.0.2            # Android native TTS (low latency, offline fallback)
-  audioplayers: ^6.0.0           # play TTS bytes (legacy path)
-  just_audio: ^0.9.39            # streamed fish-audio TTS playback (StreamAudioSource)
+  # ---------- Audio output (Native Android TTS + streamed fish-audio TTS) ----------
+  flutter_tts: ^4.0.2
+  audioplayers: ^6.0.0
+  just_audio: ^0.9.39
 
   # ---------- State management ----------
-  provider: ^6.1.2               # lightweight ChangeNotifier DI
-  rxdart: ^0.28.0                # throttle / debounce frame stream
+  provider: ^6.1.2
+  rxdart: ^0.28.0
 
   # ---------- Permissions ----------
   permission_handler: ^11.3.1
 
-  # ---------- UI helpers ----------
-  flutter_markdown: ^0.7.3+1     # render OpenRouter markdown replies
+  # ---------- UI & Typography ----------
+  flutter_markdown: ^0.7.3+1
   cupertino_icons: ^1.0.8
   google_fonts: ^6.2.1
 
-  # ---------- Persistence ----------
-  shared_preferences: ^2.3.2     # store API keys + settings
+  # ---------- Persistence (settings + SQLite WAL channel / file store fallback) ----------
+  shared_preferences: ^2.3.2
 
-  # ---------- Image decoding ----------
-  image: ^4.2.0                  # decode/resize/rotate raw JPEG + YUV frames
+  # ---------- Image processing (target marker painting + YUV->JPEG) ----------
+  image: ^4.2.0
 
 dev_dependencies:
   flutter_test:

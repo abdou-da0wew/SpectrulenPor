@@ -8,21 +8,6 @@ import 'package:flutter/foundation.dart';
 import 'tts_sink.dart';
 
 /// Streamed TTS from OpenRouter — model `fish-audio/s2.1-pro-free:free`.
-///
-/// The user-specified integration (HTTP equivalent of the OpenRouter SDK
-/// `openrouter.tts.createSpeech({speechRequest: {model, input}})`):
-///
-///   POST https://openrouter.ai/api/v1/audio/speech
-///   Authorization: Bearer $OPENROUTER_API_KEY
-///   Content-Type: application/json
-///   { "model": "fish-audio/s2.1-pro-free:free", "input": "…" }
-///   -> response body streams MP3 bytes (chunked).
-///
-/// "Make the audio get streamed": on mobile/desktop the dio response stream
-/// is piped straight into a [StreamAudioSource] (just_audio) so playback
-/// begins on the FIRST chunks. On the web preview the chunks are buffered
-/// and played through a blob URL (browsers can't progressively decode a
-/// raw stream into <audio>).
 class OpenRouterTtsService {
   OpenRouterTtsService._();
   static final OpenRouterTtsService instance = OpenRouterTtsService._();
@@ -30,8 +15,7 @@ class OpenRouterTtsService {
   static const String ttsModel = 'fish-audio/s2.1-pro-free:free';
 
   /// Key resolution: Settings (SharedPreferences) →
-  /// `assets/config/secrets.json` → `--dart-define` → ''. Empty in source so
-  /// pushes pass GitHub push protection.
+  /// `assets/config/secrets.json` → `--dart-define` → ''.
   static const String defaultApiKey =
       String.fromEnvironment('OPENROUTER_TTS_KEY');
 
@@ -41,6 +25,8 @@ class OpenRouterTtsService {
 
   late Dio _dio;
   String? _apiKey;
+
+  String get apiKey => _apiKey ?? '';
 
   /// Swappable for tests.
   @visibleForTesting
@@ -55,7 +41,7 @@ class OpenRouterTtsService {
   Future<void> init() async {
     _dio = Dio(BaseOptions(
       connectTimeout: const Duration(seconds: 10),
-      receiveTimeout: const Duration(seconds: 60), // long narrations stream
+      receiveTimeout: const Duration(seconds: 60),
       sendTimeout: const Duration(seconds: 15),
     ));
   }
@@ -72,8 +58,6 @@ class OpenRouterTtsService {
       };
 
   /// Send markdown to TTS and STREAM the audio while it downloads.
-  /// Strips markdown formatting for cleaner speech. Cancels any
-  /// in-flight narration first (only one voice at a time).
   Future<void> speakMarkdown(String markdown) async {
     if (!isConfigured) return;
     final cleaned = stripMarkdownForTest(markdown);
@@ -82,8 +66,7 @@ class OpenRouterTtsService {
     await stop();
 
     try {
-      if (kIsWeb) {
-        // Browser adapter can't hand us a live byte stream — buffer bytes.
+      if (kIsWeb || !sink.streamingAvailable) {
         final res = await _dio.post<List<int>>(
           '$baseUrl/audio/speech',
           options: Options(
@@ -128,6 +111,16 @@ class OpenRouterTtsService {
   @visibleForTesting
   static String stripMarkdownForTest(String md) {
     var s = md;
+    // Strip <context_update> blocks and fact-check / citation tags.
+    s = s.replaceAll(
+      RegExp(
+        r'(?:```(?:\w+)?\s*)?<context_update>[\s\S]*?</context_update>(?:\s*```)?',
+      ),
+      ' ',
+    );
+    s = s.replaceAll(RegExp(r'\[VERIFIED\s+\d+\]'), '');
+    s = s.replaceAll('[UNVERIFIED]', '');
+    s = s.replaceAll(RegExp(r'\[\d+\]'), '');
     s = s.replaceAll(RegExp(r'^#{1,6}\s*', multiLine: true), '');
     s = s.replaceAll(RegExp(r'\*{1,3}'), '');
     s = s.replaceAll(RegExp(r'_{1,3}'), '');
