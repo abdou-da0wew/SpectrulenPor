@@ -183,4 +183,25 @@ void main() {
       () {
     expect(OpenRouterService.defaultApiKey, isA<String>());
   });
+
+  test('out-of-range startModel clamps safely without RangeError', () async {
+    String? seenModel;
+    final svc = OpenRouterService(
+      apiKey: 'k',
+      clientFactory: () => MockClient.streaming((req, _) async {
+        final body =
+            jsonDecode((req as http.Request).body) as Map<String, dynamic>;
+        seenModel = body['model'] as String;
+        return http.StreamedResponse(
+          http.ByteStream.fromBytes(
+              utf8.encode(sseBody(model: seenModel!, deltas: ['clamped']))),
+          200,
+        );
+      }),
+    );
+
+    final out = await svc.streamAnalysis(labelSentence: 'x', startModel: 99).toList();
+    expect(out.join(), 'clamped');
+    expect(seenModel, OpenRouterService.modelChain.last);
+  });
 }

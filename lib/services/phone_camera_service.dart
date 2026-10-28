@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'dart:ui' show Size;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -22,8 +23,8 @@ import 'flashlight_service.dart';
 ///   * preview uses the native `CameraPreview` texture (zero-copy), so the
 ///     heavy YUV->JPEG path only runs at the analysis cadence (1-2 fps).
 class PhoneCameraService {
-  PhoneCameraService._();
-  static final PhoneCameraService instance = PhoneCameraService._();
+  PhoneCameraService();
+  static final PhoneCameraService instance = PhoneCameraService();
 
   CameraController? _controller;
   bool _streaming = false;
@@ -38,12 +39,20 @@ class PhoneCameraService {
   CameraController? get controller => _controller;
   bool get isStreaming => _streaming;
 
+  /// Logical portrait-oriented preview dimensions matching the encoded JPEG.
+  Size? get previewLogicalSize {
+    final ps = _controller?.value.previewSize;
+    if (ps == null) return null;
+    final rotated = (_quarterTurns % 2) == 1;
+    return rotated ? Size(ps.height, ps.width) : Size(ps.width, ps.height);
+  }
+
   final StreamController<FrameData> _frameCtl =
       StreamController<FrameData>.broadcast();
   Stream<FrameData> get frameStream => _frameCtl.stream;
 
   Future<void> start(
-      {ResolutionPreset preset = ResolutionPreset.medium}) async {
+      {ResolutionPreset preset = ResolutionPreset.high}) async {
     if (_streaming) return;
     final cameras = await availableCameras();
     if (cameras.isEmpty) throw 'No camera found on this device.';
@@ -83,10 +92,11 @@ class PhoneCameraService {
     compute(_encodeIsolate, args).then((jpeg) {
       _encoding = false;
       if (jpeg == null) return;
+      final rotated = (args.quarterTurns % 2) == 1;
       _frameCtl.add(FrameData(
         jpegBytes: jpeg,
-        width: args.width,
-        height: args.height,
+        width: rotated ? args.height : args.width,
+        height: rotated ? args.width : args.height,
         capturedAt: DateTime.now(),
       ));
     }).catchError((e) {

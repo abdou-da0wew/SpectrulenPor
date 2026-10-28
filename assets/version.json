@@ -1,9 +1,9 @@
 {
-  "version": "5.3.3",
-  "versionCode": 13,
-  "gitSha": "dev",
-  "gitShaFull": "dev",
-  "gitBranch": "main",
+  "version": "5.5.0",
+  "versionCode": 15,
+  "gitSha": "3b1967b",
+  "gitShaFull": "3b1967b2ee44c46a495346fac7ee4048eab24a76",
+  "gitBranch": "arena/f0a63bec-spectrulenpor",
   "gitDirty": false,
-  "buildDate": "1970-01-01T00:00:00Z"
+  "buildDate": "2026-10-28T00:00:00Z"
 }

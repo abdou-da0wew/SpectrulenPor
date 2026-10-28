@@ -1,6 +1,8 @@
 package com.spectraglass.app
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
@@ -14,11 +16,7 @@ import io.flutter.plugin.common.MethodChannel
  *   moondream_unload() -> Boolean
  *
  * Threading: inference runs on a dedicated background thread; the result is
- * delivered back to Flutter by the MethodChannel (thread-safe success/error).
- *
- * Build: see README "Moondream native build" — requires llama.cpp sources
- * under android/app/src/main/cpp/llama.cpp and the CMake target wired in
- * app/build.gradle (reference file next to this folder).
+ * posted back to Flutter on the Android main UI thread per @UiThread contract.
  */
 class MoondreamChannel private constructor() {
 
@@ -34,9 +32,18 @@ class MoondreamChannel private constructor() {
     companion object {
         const val CHANNEL = "com.spectraglass/llama"
 
+        @Volatile private var nativeLoaded = false
+        private val mainHandler = Handler(Looper.getMainLooper())
+
         // Loads libmoondream_jni.so (built by CMake, links llama.cpp + clip).
         init {
-            try { try { System.loadLibrary("moondream_jni") } catch (e: UnsatisfiedLinkError) { /* libmoondream_jni.so not bundled; cloud path used */ } } catch (e: UnsatisfiedLinkError) { /* libmoondream_jni.so not bundled; cloud path will be used. */ }
+            try {
+                System.loadLibrary("moondream_jni")
+                nativeLoaded = true
+            } catch (_: UnsatisfiedLinkError) {
+                // libmoondream_jni.so not bundled; cloud / ML Kit path will be used.
+                nativeLoaded = false
+            }
         }
 
         @Volatile private var engineInstance: MoondreamChannel? = null
@@ -50,6 +57,10 @@ class MoondreamChannel private constructor() {
                 .setMethodCallHandler { call, result ->
                     when (call.method) {
                         "moondream_caption" -> {
+                            if (!nativeLoaded) {
+                                result.success(null)
+                                return@setMethodCallHandler
+                            }
                             val modelPath = call.argument<String>("modelPath")
                             val jpgBytes = call.argument<ByteArray>("jpgBytes")
                             val prompt = call.argument<String>("prompt")
@@ -63,20 +74,26 @@ class MoondreamChannel private constructor() {
                                 return@setMethodCallHandler
                             }
 
-                            // Heavy work off the platform thread.
+                            // Heavy work off the platform thread; reply on main thread.
                             Thread {
                                 try {
                                     val caption = self.nativeCaption(
                                         modelPath, jpgBytes, prompt, maxTokens
                                     )
-                                    result.success(caption)
+                                    mainHandler.post { result.success(caption) }
                                 } catch (t: Throwable) {
-                                    result.error("inference_error", t.message, null)
+                                    mainHandler.post {
+                                        result.error("inference_error", t.message, null)
+                                    }
                                 }
                             }.start()
                         }
                         "moondream_unload" -> {
-                            Thread { self.nativeUnload() }.start()
+                            if (nativeLoaded) {
+                                Thread {
+                                    try { self.nativeUnload() } catch (_: Throwable) {}
+                                }.start()
+                            }
                             result.success(true)
                         }
                         else -> result.notImplemented()

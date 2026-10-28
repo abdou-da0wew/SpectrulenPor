@@ -90,12 +90,20 @@ void main() {
       expect(textSignalsHazard('Warning: toxic fumes'), isTrue);
       expect(textSignalsHazard('highly flammable'), isTrue);
       expect(textSignalsHazard('benign water'), isFalse);
+      expect(
+        textSignalsHazard('Pure water is non-toxic, non-flammable, and poses no hazard.'),
+        isFalse,
+      );
     });
 
     test('Arabic hazard keywords', () {
       expect(textSignalsHazard('تحذير: مادة سامة'), isTrue);
       expect(textSignalsHazard('قابل للاشتعال'), isTrue);
       expect(textSignalsHazard('ماء نقي'), isFalse);
+      expect(
+        textSignalsHazard('كلوريد الصوديوم غير سام وغير قابل للاشتعال ولا يوجد خطر.'),
+        isFalse,
+      );
     });
   });
 }

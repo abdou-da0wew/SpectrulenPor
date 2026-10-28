@@ -1,6 +1,5 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
-import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
@@ -142,11 +141,17 @@ class VisionGate {
     final tooBlurred = lapVar < VisionGateResult.kMinBlurScore;
 
     String reason;
-    if (blocked) reason = 'blocked';
-    else if (tooDark) reason = 'too_dark';
-    else if (tooBlank) reason = 'blank';
-    else if (tooBlurred) reason = 'blurred';
-    else reason = 'ok';
+    if (blocked) {
+      reason = 'blocked';
+    } else if (tooDark) {
+      reason = 'too_dark';
+    } else if (tooBlank) {
+      reason = 'blank';
+    } else if (tooBlurred) {
+      reason = 'blurred';
+    } else {
+      reason = 'ok';
+    }
 
     final visible = !tooDark && !tooBlank && !tooBlurred && !blocked;
 

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
@@ -9,208 +10,178 @@ import 'onnx_vision_service.dart';
 import 'vision_gate.dart';
 import 'vision_mlkit.dart';
 
-/// Vision cascade for SpectruLenPor — who looks at the frame, in order:
+/// Cascade vision coordinator — turns a raw JPEG frame into a short, truthful
+/// factual description for the user AND for the upstream LLM presenter.
 ///
-///   0. **VISION GATE** (always) — brightness + variance + blur + blocked.
-///      If the gate fails, NO model call is made — we don't waste cloud
-///      quota on pitch-dark / blank / motion-blurred frames.
-///   1. **Moondream3 CLOUD** (primary) — `moondream3.1-9B-A2B` via
-///      api.moondream.ai. Multi-pass analyzeScene() = caption + VQA +
-///      text-detect + hazard-check, merged into structured context.
-///   2. **Local Moondream** (fallback) — GGUF via native platform channel
-///      `com.spectraglass/llama` (llama.cpp + mmproj). Works offline.
-///   3. **ONNX Runtime Mobile** — specialized quantized classifier
-///      (<100 ms, offline) when assets/models/ is populated.
-///   4. **ML Kit** (always available on device) — image labeling + OCR.
-///
-/// All tiers are injectable so the unit-test suite can exercise the full
-/// cascade ordering with fakes.
+/// Priority order:
+///   0. **VisionGate**        — brightness + texture check
+///   1. **Moondream3 Cloud**  — `moondream3.1-9B-A2B` at api.moondream.ai (PRIMARY)
+///   2. **Local Moondream**   — on-device GGUF via `com.spectraglass/llama` (skipped when `cloudOnly`)
+///   3. **ONNX Runtime**      — optional local quantized classifier (skipped when `cloudOnly`)
+///   4. **Google ML Kit**     — image labeling + OCR fallback (skipped when `cloudOnly`)
 class LocalVisionService {
   final MoondreamService _md;
   final OnnxVisionService _onnx;
   final MlKitAnalyzer _mlkit;
   final FlashlightService _flash;
+  final Future<VisionGateResult> Function(Uint8List)? _gateCheckOverride;
 
-  /// Production singleton.
   LocalVisionService._()
       : _md = MoondreamService.instance,
         _onnx = OnnxVisionService.instance,
         _mlkit = MlKitAnalyzer(),
-        _flash = FlashlightService.instance;
+        _flash = FlashlightService.instance,
+        _gateCheckOverride = null;
 
   static final LocalVisionService instance = LocalVisionService._();
 
-  /// Test constructor with fake tiers.
+  static Future<VisionGateResult> _alwaysVisibleGate(Uint8List _) async =>
+      const VisionGateResult(
+        visible: true,
+        tooDark: false,
+        blocked: false,
+        brightness: 120,
+        stdDev: 40,
+        reason: 'ok',
+      );
+
+  /// Test constructor with fake tiers. Defaults [gateCheck] to visible so
+  /// synthetic non-JPEG byte buffers can exercise the cascade unless overridden.
   @visibleForTesting
   LocalVisionService.forTest({
     MoondreamService? moondream,
     OnnxVisionService? onnx,
     MlKitAnalyzer? mlkit,
     FlashlightService? flash,
+    Future<VisionGateResult> Function(Uint8List)? gateCheck,
   })  : _md = moondream ?? MoondreamService.instance,
         _onnx = onnx ?? OnnxVisionService.instance,
         _mlkit = mlkit ?? MlKitAnalyzer(),
-        _flash = flash ?? FlashlightService.instance;
+        _flash = flash ?? FlashlightService.instance,
+        _gateCheckOverride = gateCheck ?? _alwaysVisibleGate;
 
   bool _ready = false;
   bool get isReady => _ready;
 
-  /// Last vision-gate result. Read by RecognitionState to decide whether to
-  /// auto-enable the torch (tooDark) and to gate upstream calls.
   VisionGateResult? lastGate;
-
-  /// Which engine produced the last description ('moondream_cloud' |
-  /// 'moondream_local' | 'onnx' | 'mlkit' | 'idle' | 'gate_blocked').
   String lastEngine = 'idle';
-
-  /// Top-k predictions when the ONNX engine won (empty otherwise).
   List<OnnxPrediction> lastTopK = const [];
-
-  /// Full cloud answer from the last Moondream3 multi-pass analyzeScene() call.
-  /// This is the rich structured context (caption + chemistry VQA + text
-  /// count + hazard check) that gets fed to OpenRouter for the spoken
-  /// narration. Falls back to last simple caption if multi-pass fails.
   String? lastCloudAnalysis;
 
-  /// Reasoning trace from the last Moondream3 query when reasoning was on.
-  String? lastCloudReasoning;
-
-  /// Local Moondream GGUF path (Settings sets this when deployed).
   String? moondreamModelPath;
-  bool get moondreamAvailable =>
-      moondreamModelPath != null && moondreamModelPath!.isNotEmpty;
-
-  Future<void> init() async {
-    await _mlkit.init();
-    _ready = true;
-    debugPrint('[LocalVision] ready — vision-gated Moondream3 cascade.');
-  }
-
+  bool get moondreamAvailable => moondreamModelPath != null;
   bool get cloudEnabled => _md.isCloudConfigured;
 
-  /// Returns true if the most-recent frame was too dark AND not blocked.
-  /// RecognitionState uses this to drive the AUTO-FLASHLIGHT logic.
-  bool get lastFrameWasTooDark =>
-      lastGate != null && lastGate!.tooDark && !lastGate!.blocked;
+  Future<void> init() async {
+    if (_ready) return;
+    await _mlkit.init();
+    _ready = true;
+  }
 
-  /// Produce a concise spoken-style description for an incoming JPEG.
+  /// Describe a single JPEG frame.
   ///
-  /// The pipeline runs the VISION GATE FIRST. If the frame is pitch-dark /
-  /// blank / blocked / blurred, returns null and sets [lastEngine]='gate_blocked'.
-  /// RecognitionState then: (a) doesn't call upstream, (b) auto-enables the
-  /// torch if [lastFrameWasTooDark], and (c) waits for the next brighter frame.
-  Future<String?> describe(Uint8List jpegBytes, {String lang = 'en'}) async {
-    if (!_ready) return null;
-    final isAr = lang.startsWith('ar');
+  /// When [cloudOnly] is `true` ("Cloud-only models, except YOLO26-Nano"),
+  /// non-YOLO local fallback models (local Moondream GGUF, ONNX classifier,
+  /// ML Kit) are skipped so only Moondream3 Cloud is queried here.
+  Future<String?> describe(
+    Uint8List jpegBytes, {
+    String lang = 'en',
+    bool cloudOnly = false,
+  }) async {
+    if (!_ready) await init();
+    lastTopK = const [];
+    lastCloudAnalysis = null;
 
-    // ============================================================
-    // 0. VISION GATE — never call a model on a bad frame.
-    // ============================================================
-    final gate = await VisionGate.check(jpegBytes);
+    // ---- 0. VISION GATE ----
+    final gate = _gateCheckOverride != null
+        ? await _gateCheckOverride!(jpegBytes)
+        : await VisionGate.check(jpegBytes);
     lastGate = gate;
+
     if (!gate.visible) {
       lastEngine = 'gate_blocked';
-      lastTopK = const [];
-      // Don't clear the cached cloud analysis — the UI still shows the
-      // last good analysis as "best-known" while the user re-aims.
+      if (gate.tooDark && !_flash.isOn) {
+        unawaited(_flash.autoTurnOn());
+      }
+      debugPrint(
+        '[VisionGate] Frame blocked (${gate.reason}): '
+        'brightness=${gate.brightness.toStringAsFixed(1)}, '
+        'stdDev=${gate.stdDev.toStringAsFixed(1)}',
+      );
       return null;
     }
 
-    // ============================================================
-    // 1. MOONDREAM3 CLOUD — multi-pass analyzeScene (smarter than caption).
-    // ============================================================
-    if (cloudEnabled) {
-      final analysis = await _md.analyzeScene(jpegBytes, lang: lang);
-      if (analysis != null && analysis.toMergedSummary().isNotEmpty) {
-        lastEngine = 'moondream_cloud';
-        lastTopK = const [];
-        lastCloudAnalysis = analysis.toMergedSummary();
-        lastCloudReasoning = analysis.reasoning;
+    if (_flash.autoManaged && gate.brightness > 90) {
+      unawaited(_flash.releaseAuto());
+    }
 
-        // For the INSTANT spoken label (live-speak), use the short caption
-        // Pass 1 result — it's already available and is fast.
-        final cap = analysis.caption.trim();
-        return isAr ? 'موندريم يرى: $cap' : 'Moondream sees: $cap';
-      }
-
-      // Fallback to single-shot caption if multi-pass failed at Pass 1.
-      final single = await _md.caption(jpegBytes, length: 'short');
-      if (single != null && single.caption.trim().isNotEmpty) {
+    // ---- 1. PRIMARY: Moondream3 cloud ----
+    if (_md.isCloudConfigured) {
+      final cloud = await _tryCloud(jpegBytes, lang: lang);
+      if (cloud != null) {
         lastEngine = 'moondream_cloud';
-        lastCloudAnalysis = single.caption.trim();
-        final cc = single.caption.trim();
-        return isAr ? 'موندريم يرى: $cc' : 'Moondream sees: $cc';
+        return cloud;
       }
     }
 
-    // ============================================================
-    // 2. LOCAL MOONDREAM — offline VLM fallback, with smarter prompt.
-    // ============================================================
-    if (moondreamAvailable) {
-      // Smarter local prompt: ask for specifics (colors, state, labels)
-      // rather than "Describe this image in one short sentence." which
-      // produces generic unhelpful captions.
-      final localPrompt = isAr
-          ? 'صف بدقة: ما هو لون المادة؟ هل هي صلبة أم سائلة أم غازية؟ '
-              'هل ترى أي ملصقات أو نصوص على العبوة؟ كن مختصراً ودقيقاً.'
-          : 'Describe precisely: what color is the substance? Is it solid, '
-              'liquid, or gas? Are there any labels or printed text on the '
-              'container? Be brief and specific.';
-      final caption = await _md.localCaption(
+    // When "Cloud-only models (except YOLO)" is active, do NOT run local GGUF,
+    // local ONNX classifier, or local ML Kit.
+    if (cloudOnly) {
+      lastEngine = 'idle';
+      return null;
+    }
+
+    // ---- 2. OFFLINE FALLBACK #1: on-device Moondream (llama.cpp GGUF) ----
+    if (moondreamModelPath != null) {
+      final local = await _md.localCaption(
         jpegBytes,
         ggufPath: moondreamModelPath,
-        prompt: localPrompt,
+        prompt: lang.startsWith('ar')
+            ? 'صف هذه الصورة العلمية بجملة قصيرة.'
+            : 'Describe this image in one short factual sentence.',
       );
-      if (caption != null && caption.trim().isNotEmpty) {
+      if (local != null) {
         lastEngine = 'moondream_local';
-        lastTopK = const [];
-        lastCloudAnalysis = caption.trim();
-        return caption.trim();
+        return local;
       }
     }
 
-    // ============================================================
-    // 3. ONNX — specialized quantized classifier (<100 ms, offline).
-    // ============================================================
-    final onnx = await _onnx.classify(jpegBytes, k: 3);
-    lastTopK = onnx ?? const [];
-    if (onnx != null && onnx.isNotEmpty) {
-      lastEngine = 'onnx';
-      final best = onnx.first;
-      final alt = onnx.length > 1
-          ? isAr
-              ? ' أو ربما ${onnx[1].label} '
-              : ' or maybe ${onnx[1].label}'
-          : '';
-      final pct = ((best.confidence * 100).round()).clamp(0, 100);
-      lastCloudAnalysis = '$best.label (${pct}%)';
-      return isAr
-          ? '$best.label (${pct}%)$alt'
-          : '$best.label (${pct}%)$alt';
+    // ---- 3. OFFLINE FALLBACK #2: specialized ONNX classifier ----
+    if (_onnx.isReady) {
+      final preds = await _onnx.classify(jpegBytes, k: 3);
+      if (preds != null && preds.isNotEmpty) {
+        lastTopK = preds;
+        lastEngine = 'onnx';
+        final best = preds.first;
+        final pct = (best.confidence * 100).toStringAsFixed(0);
+        return lang.startsWith('ar')
+            ? 'النموذج المحلي: ${best.label} ($pct%)'
+            : '${best.label} ($pct%)';
+      }
     }
 
-    // ============================================================
-    // 4. ML KIT — labeling + OCR (always available on device).
-    // ============================================================
-    final mlkitDesc = await _mlkit.describe(jpegBytes, isAr: isAr);
-    if (mlkitDesc != null && mlkitDesc.trim().isNotEmpty) {
+    // ---- 4. OFFLINE FALLBACK #3: ML Kit labeling + OCR ----
+    final ml = await _mlkit.describe(jpegBytes, lang: lang);
+    if (ml != null) {
       lastEngine = 'mlkit';
-      lastCloudAnalysis = mlkitDesc;
-      return mlkitDesc;
+      return ml;
     }
 
     lastEngine = 'idle';
     return null;
   }
 
-  /// Tell the flashlight to turn on (called by RecognitionState when the gate
-  /// reports too-dark). Returns true if the torch was successfully lit.
-  Future<bool> requestAutoFlashlight() async {
-    return await _flash.setTorch(true);
+  Future<String?> _tryCloud(Uint8List jpegBytes, {required String lang}) async {
+    final analysis = await _md.analyzeScene(jpegBytes, lang: lang);
+    if (analysis == null || analysis.caption.trim().isEmpty) return null;
+
+    lastCloudAnalysis = analysis.toMergedSummary();
+    final cap = analysis.caption.trim();
+    return lang.startsWith('ar') ? 'موندريم يرى: $cap' : 'Moondream sees: $cap';
   }
 
-  /// Tell the flashlight to turn off (when scene brightens again).
-  Future<bool> releaseAutoFlashlight() async {
-    return await _flash.setTorch(false);
+  Future<void> dispose() async {
+    _onnx.dispose();
+    await _mlkit.dispose();
   }
 }

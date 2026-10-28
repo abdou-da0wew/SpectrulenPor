@@ -67,6 +67,22 @@ class MoondreamService {
   http.Client? _client;
   http.Client get _http => _clientOverride ?? (_client ??= http.Client());
 
+  DateTime? _lastRequestAt;
+
+  /// Enforces Moondream's 2 req/s free-tier rate limit (~520ms spacing) on
+  /// live HTTP traffic while keeping injected test clients instant.
+  Future<void> _throttle() async {
+    if (_clientOverride != null) return;
+    final last = _lastRequestAt;
+    if (last != null) {
+      final elapsed = DateTime.now().difference(last).inMilliseconds;
+      if (elapsed < 520) {
+        await Future<void>.delayed(Duration(milliseconds: 520 - elapsed));
+      }
+    }
+    _lastRequestAt = DateTime.now();
+  }
+
   // ---------------------------------------------------------------------------
   // IMAGE ENCODING
   // ---------------------------------------------------------------------------
@@ -87,6 +103,7 @@ class MoondreamService {
   }) async {
     if (!isCloudConfigured) return null;
     try {
+      await _throttle();
       final res = await _http
           .post(
             Uri.parse('$baseUrl/caption'),
@@ -160,6 +177,7 @@ class MoondreamService {
   }) async {
     if (!isCloudConfigured) return null;
     try {
+      await _throttle();
       final res = await _http
           .post(
             Uri.parse('$baseUrl/query'),
@@ -234,6 +252,7 @@ class MoondreamService {
   ) async {
     if (!isCloudConfigured) return const [];
     try {
+      await _throttle();
       final res = await _http
           .post(
             Uri.parse('$baseUrl/detect'),
@@ -471,6 +490,7 @@ class MoondreamService {
     String url, {
     required Map<String, dynamic> body,
   }) async* {
+    await _throttle();
     final request = http.Request('POST', Uri.parse(url))
       ..headers.addAll(_headers)
       ..body = jsonEncode(body);
@@ -629,29 +649,43 @@ class MoondreamAnalysis {
     return b.toString().trim();
   }
 
-  /// True if the hazard answer mentions any actual hazard keyword.
+  /// True if the hazard answer mentions an actual (non-negated) hazard.
   bool get hasHazard => hazardAnswer.isNotEmpty && _hazardMatch(hazardAnswer);
 
   static bool _hazardMatch(String s) {
-    final l = s.toLowerCase();
+    final l = s.trim().toLowerCase();
+    if (l.isEmpty) return false;
+    // Filter out negated / benign VQA replies ("No, I do not see any hazard
+    // pictograms...", "None visible", "لا توجد أي رموز خطر", etc.).
+    final negated = RegExp(
+      r'^(no\b|none\b|nothing\b|n/a\b|nil\b|i do not see|i don.t see|there (are|is) no\b|not visible|no hazard|no visible|لا يوجد|لا توجد|لا أرى|لا يظهر|غير موجود)',
+    );
+    if (negated.hasMatch(l)) return false;
+    if (l.contains('no hazard') ||
+        l.contains('no visible hazard') ||
+        l.contains('no warning') ||
+        l.contains('without any hazard') ||
+        l.contains('لا توجد مخاطر') ||
+        l.contains('لا توجد رموز خطر') ||
+        l.contains('لا يوجد خطر')) {
+      return false;
+    }
     return l.contains('corrosive') ||
         l.contains('flammable') ||
         l.contains('toxic') ||
         l.contains('explosive') ||
         l.contains('oxidiz') ||
-        l.contains('hazard') ||
-        l.contains('warning') ||
+        l.contains('biohazard') ||
+        l.contains('radioactive') ||
         l.contains('danger') ||
         l.contains('تآكل') ||
         l.contains('اشتعال') ||
         l.contains('سامة') ||
         l.contains('انفجار') ||
-        l.contains('خطر') ||
-        l.contains('تحذير');
+        l.contains('مؤكسد') ||
+        l.contains('خطير');
   }
 }
-
-// MoondreamStructuredAnalysis class — append to moondream_service.dart
 
 /// Result of [MoondreamService.analyzeSelected] — the structured JSON-style
 /// analysis that gets handed to the LLM "scientific context writer".
@@ -683,19 +717,14 @@ class MoondreamStructuredAnalysis {
     final b = StringBuffer();
     if (caption.isNotEmpty) b.writeln('Scene: $caption');
     if (whatItIs.isNotEmpty) b.writeln('What it is: $whatItIs');
+    if (howItsUsed.isNotEmpty) b.writeln('How it is used: $howItsUsed');
     if (whatsAround.isNotEmpty) b.writeln('Around it: $whatsAround');
+    if (visibleText.isNotEmpty) b.writeln('Visible text: $visibleText');
     if (hazards.isNotEmpty) b.writeln('Hazards: $hazards');
     if (stateOfMatter.isNotEmpty) b.writeln('State of matter: $stateOfMatter');
     return b.toString().trim();
   }
 
-  bool get hasHazard {
-    final l = hazards.toLowerCase();
-    return l.contains('corrosive') || l.contains('flammable') ||
-        l.contains('toxic') || l.contains('explosive') ||
-        l.contains('oxidiz') || l.contains('hazard') ||
-        l.contains('تآكل') || l.contains('اشتعال') ||
-        l.contains('سامة') || l.contains('انفجار') || l.contains('خطر');
-  }
+  bool get hasHazard => MoondreamAnalysis._hazardMatch(hazards);
 }
 

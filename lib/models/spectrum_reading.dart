@@ -63,21 +63,56 @@ MatterState matterStateFromText(String text) {
 }
 
 /// Hazard keyword detector — bilingual. Triggers the red banner + warning TTS.
+/// Strips negated benign phrases ("non-toxic", "non-flammable", "no hazard",
+/// "غير سام", etc.) first so safe compounds never trigger false alarms.
 bool textSignalsHazard(String text) {
+  final negatedPatterns = RegExp(
+    r'\b(non[-\s]?(toxic|flammable|corrosive|explosive|caustic|volatile|radioactive|hazardous|dangerous)|'
+    r'not\s+(toxic|flammable|corrosive|explosive|caustic|volatile|hazardous|dangerous|poisonous)|'
+    r'no\s+(known\s+|visible\s+|significant\s+)?(hazard|hazards|danger|warning|warnings|toxicity)|'
+    r'without\s+hazard)\b|'
+    r'(غير\s*(سام|سامة|حارق|حارقة|قابل للاشتعال|متفجر|خطر|خطير|كاوٍ|كاوية)|لا\s*(يوجد|توجد)\s*(أي\s*)?(خطر|مخاطر|تحذير))',
+    caseSensitive: false,
+  );
+  final cleaned = text.replaceAll(negatedPatterns, ' ');
   const en = [
-    'hazard', 'dangerous', 'toxic', 'poison', 'corrosive', 'flammable',
-    'explosive', 'caustic', 'volatile', 'radioactive', 'warn',
+    'hazard',
+    'dangerous',
+    'danger',
+    'toxic',
+    'poison',
+    'corrosive',
+    'flammable',
+    'explosive',
+    'caustic',
+    'volatile',
+    'radioactive',
+    'biohazard',
+    'carcinogen',
+    'warn',
   ];
   const arWords = [
-    'خطير', 'سام', 'سامة', 'سموم', 'حارق', 'اشتعال', 'انفجار',
-    'كاوية', 'كاوٍ', 'إشعاع', 'اشعاع', 'تحذير', 'خطر',
+    'خطير',
+    'سام',
+    'سامة',
+    'سموم',
+    'حارق',
+    'اشتعال',
+    'متفجر',
+    'انفجار',
+    'كاوية',
+    'كاوٍ',
+    'إشعاع',
+    'اشعاع',
+    'تحذير',
+    'خطر',
   ];
-  final lower = text.toLowerCase();
+  final lower = cleaned.toLowerCase();
   for (final w in en) {
     if (lower.contains(w)) return true;
   }
   for (final w in arWords) {
-    if (text.contains(w)) return true;
+    if (cleaned.contains(w)) return true;
   }
   return false;
 }

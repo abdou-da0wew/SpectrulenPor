@@ -9,21 +9,51 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:image/image.dart' as img;
 import 'package:smart_glass_app/config/app_secrets.dart';
 import 'package:smart_glass_app/services/moondream_service.dart';
 import 'package:smart_glass_app/services/openrouter_service.dart';
 import 'package:smart_glass_app/services/openrouter_tts_service.dart';
 import 'package:smart_glass_app/services/tts_sink.dart';
 
+Uint8List _loadOrSynthesizeTestJpeg() {
+  for (final candidate in ['scripts/test_image.jpg', '../../scripts/test_image.jpg']) {
+    final f = File(candidate);
+    if (f.existsSync()) {
+      return Uint8List.fromList(f.readAsBytesSync());
+    }
+  }
+  // Synthesize a 160x160 white canvas with a centered red circle.
+  final canvas = img.Image(width: 160, height: 160);
+  img.fill(canvas, color: img.ColorRgb8(255, 255, 255));
+  img.fillCircle(
+    canvas,
+    x: 80,
+    y: 80,
+    radius: 40,
+    color: img.ColorRgb8(220, 40, 40),
+  );
+  return Uint8List.fromList(img.encodeJpg(canvas, quality: 90));
+}
+
+Future<Map<String, String>> _loadCliSecrets() async {
+  final file = File('assets/config/secrets.json');
+  if (file.existsSync()) {
+    try {
+      final map = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+      return map.map((k, v) => MapEntry(k, (v ?? '').toString().trim()))
+        ..removeWhere((_, v) => v.isEmpty);
+    } catch (_) {}
+  }
+  return AppSecrets.load();
+}
+
 Future<void> main() async {
   final report = <String, dynamic>{};
-  final img = File('scripts/test_image.jpg').existsSync()
-      ? File('scripts/test_image.jpg')
-      : File('../../scripts/test_image.jpg');
-  final jpeg = Uint8List.fromList(img.readAsBytesSync());
+  final jpeg = _loadOrSynthesizeTestJpeg();
 
   // ------------------------------------------------------------------ 1
-  final secrets = await AppSecrets.load();
+  final secrets = await _loadCliSecrets();
   final md = MoondreamService()
     ..apiKey = secrets['moondream'] ?? MoondreamService.defaultApiKey;
   stdout.writeln('── Moondream cloud ────────────────────────────────');
@@ -64,7 +94,10 @@ Future<void> main() async {
   await for (final c in md.streamQuery(jpeg, question: 'Describe in 5 words')) {
     streamed.add(c.text);
   }
-  report['moondream_stream'] = {'ok': streamed.isNotEmpty, 'text': streamed.join()};
+  report['moondream_stream'] = {
+    'ok': streamed.isNotEmpty,
+    'text': streamed.join(),
+  };
   stdout.writeln('streamQuery: ${streamed.join()}');
   stdout.writeln('(cloud tier took ${sw.elapsedMilliseconds} ms total)');
 
@@ -93,13 +126,15 @@ Future<void> main() async {
   };
   stdout.writeln('model used: ${or.lastModelUsed} '
       '(chain index ${or.lastChainIndex}, reasoning tokens ${or.lastReasoningTokens})');
-  stdout.writeln('reply: ${chainText.substring(0, chainText.length.clamp(0, 220))}…');
+  stdout.writeln(
+      'reply: ${chainText.substring(0, chainText.length.clamp(0, 220))}…');
 
   // ------------------------------------------------------------------ 3
   stdout.writeln('── fish-audio TTS ─────────────────────────────────');
   final tts = OpenRouterTtsService.instance;
   await tts.init();
-  tts.configure(apiKey: secrets['openrouter_tts'] ?? '');
+  tts.configure(
+      apiKey: secrets['openrouter_tts'] ?? OpenRouterTtsService.defaultApiKey);
   tts.sink = _FileSink('build/tts_smoke.mp3');
   await tts.speakMarkdown('## Warning!\nThis is **SpectruLenPor** speaking '
       'through the streamed fish-audio pipeline.');

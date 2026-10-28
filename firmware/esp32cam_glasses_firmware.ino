@@ -63,11 +63,12 @@ const char*    DEVICE_NAME        = "SpectruLenPor-ESP32";
 BLEServer*         pServer = nullptr;
 BLECharacteristic* pTxChar = nullptr;
 BLECharacteristic* pRxChar = nullptr;
-volatile bool      clientConnected = false;
-volatile bool      streaming       = false;
-volatile bool      flashOn         = false;
-uint32_t           lastFrameMs     = 0;
-uint32_t           lastTelemetryMs = 0;
+volatile bool      clientConnected      = false;
+volatile bool      streaming            = false;
+volatile bool      singleFrameRequested = false;
+volatile bool      flashOn              = false;
+uint32_t           lastFrameMs          = 0;
+uint32_t           lastTelemetryMs      = 0;
 
 // Forward declaration
 void sendOneFrame();
@@ -123,7 +124,10 @@ class RxCallbacks : public BLECharacteristicCallbacks {
     switch (cmd) {
       case 0x01: streaming = true;  Serial.println("[CMD] stream ON");  break;
       case 0x00: streaming = false; Serial.println("[CMD] stream OFF"); break;
-      case 0x02: sendOneFrame();    Serial.println("[CMD] single frame"); break;
+      case 0x02:
+        singleFrameRequested = true;
+        Serial.println("[CMD] single frame queued");
+        break;
       case 0x03:
         flashOn = true;
         digitalWrite(FLASH_LED_PIN, HIGH);   // light the sample
@@ -221,6 +225,13 @@ void loop() {
   if (clientConnected && now - lastTelemetryMs >= 200) {
     lastTelemetryMs = now;
     sendTelemetry();
+  }
+
+  // Single-frame on-demand request (queued from BLE callback on Core 0)
+  if (clientConnected && singleFrameRequested) {
+    singleFrameRequested = false;
+    lastFrameMs = now;
+    sendOneFrame();
   }
 
   // Camera frames at STREAM_INTERVAL_MS
