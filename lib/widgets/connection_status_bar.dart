@@ -109,6 +109,10 @@ class ConnectionStatusBar extends StatelessWidget {
         return Icons.bluetooth;
       case BluetoothStatus.connected:
         return Icons.bluetooth_connected;
+      case BluetoothStatus.permissionDenied:
+        return Icons.bluetooth_disabled;
+      case BluetoothStatus.adapterOff:
+        return Icons.bluetooth_disabled;
       case BluetoothStatus.error:
         return Icons.error_outline;
     }
@@ -121,6 +125,10 @@ class ConnectionStatusBar extends StatelessWidget {
         BluetoothStatus.scanning => AppLocalizations.of(context).scanning,
         BluetoothStatus.connecting => AppLocalizations.of(context).connecting,
         BluetoothStatus.connected => AppLocalizations.of(context).connected,
+        BluetoothStatus.permissionDenied =>
+          AppLocalizations.of(context).btPermissionsRequired,
+        BluetoothStatus.adapterOff =>
+          AppLocalizations.of(context).turnOnBluetooth,
         BluetoothStatus.error => AppLocalizations.of(context).btError,
       };
 }

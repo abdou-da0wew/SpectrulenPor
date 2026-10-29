@@ -218,7 +218,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get modelInkling => 'liquid/inkling-small:free — fallback 1';
 
   @override
-  String get modelNemotron => 'nvidia/nemotron-3-nano-30b-a3b:free — fallback 2';
+  String get modelNemotron =>
+      'nvidia/nemotron-3-nano-30b-a3b:free — fallback 2';
 
   @override
   String get reasoningTokensLabel => 'Capture reasoning tokens';
@@ -231,6 +232,27 @@ class AppLocalizationsEn extends AppLocalizations {
   String latencyFirstToken(int ms) {
     return 'first audio token: $ms ms';
   }
+
+  @override
+  String get live => 'Live';
+
+  @override
+  String get scanningGlasses => 'Scanning glasses…';
+
+  @override
+  String get negotiatingStream => 'Negotiating stream…';
+
+  @override
+  String get waitingFirstFrame => 'Waiting for first frame…';
+
+  @override
+  String get btPermissionsRequired => 'Bluetooth permissions required';
+
+  @override
+  String get turnOnBluetooth => 'Turn on Bluetooth';
+
+  @override
+  String get btConnectionError => 'Bluetooth connection error';
 
   @override
   String get aboutBody =>

@@ -166,10 +166,10 @@ class _BoundingBoxOverlayState extends State<BoundingBoxOverlay>
     final rawW = b.w * proj.renderedW;
     final rawH = b.h * proj.renderedH;
 
-    final left = rawLeft.clamp(0.0, math.max(0.0, viewW - 28.0));
-    final top = rawTop.clamp(0.0, math.max(0.0, viewH - 28.0));
-    final boxW = rawW.clamp(28.0, math.max(28.0, viewW - left));
-    final boxH = rawH.clamp(28.0, math.max(28.0, viewH - top));
+    final double left = rawLeft.clamp(0.0, math.max(0.0, viewW - 28.0)).toDouble();
+    final double top = rawTop.clamp(0.0, math.max(0.0, viewH - 28.0)).toDouble();
+    final double boxW = rawW.clamp(28.0, math.max(28.0, viewW - left)).toDouble();
+    final double boxH = rawH.clamp(28.0, math.max(28.0, viewH - top)).toDouble();
     final pct = (b.confidence * 100).round().clamp(0, 100);
 
     // Place badge just above the box when space allows, otherwise inside top-left.

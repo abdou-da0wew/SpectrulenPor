@@ -24,7 +24,7 @@ class _DiagnosticsDbScreenState extends State<DiagnosticsDbScreen>
 
   bool _loading = true;
   String? _levelFilter;
-  Map<String, int> _stats = const {};
+  Map<String, dynamic> _stats = const {};
   List<Map<String, dynamic>> _logs = const [];
   List<Map<String, dynamic>> _crashes = const [];
   List<Map<String, dynamic>> _traces = const [];

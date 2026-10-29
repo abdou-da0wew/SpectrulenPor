@@ -10,12 +10,14 @@ class FrameData {
   final int width;
   final int height;
   final DateTime capturedAt;
+  final int sequence;
 
   FrameData({
     required this.jpegBytes,
     required this.width,
     required this.height,
     required this.capturedAt,
+    this.sequence = 0,
   });
 
   /// JPEG byte size in KB (for throttling / debug display).

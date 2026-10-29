@@ -32,6 +32,15 @@ class BoundingBox {
   Map<String, dynamic> toJson() => {'x': x, 'y': y, 'w': w, 'h': h,
     'label': label, 'confidence': confidence};
 
+  factory BoundingBox.fromJson(Map<String, dynamic> json) => BoundingBox(
+        x: (json['x'] as num?)?.toDouble() ?? 0.0,
+        y: (json['y'] as num?)?.toDouble() ?? 0.0,
+        w: (json['w'] as num?)?.toDouble() ?? 0.0,
+        h: (json['h'] as num?)?.toDouble() ?? 0.0,
+        label: (json['label'] as String?) ?? 'object',
+        confidence: (json['confidence'] as num?)?.toDouble() ?? 0.0,
+      );
+
   @override
   String toString() => 'BoundingBox($label @ ($x,$y)-($w,$h) conf=$confidence)';
 }

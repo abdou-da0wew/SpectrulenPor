@@ -125,6 +125,7 @@ class InternalDatabaseService {
   bool get isInitialized => _initialized;
   bool get usesNativeSqlite => _useNativeSqlite;
   String get databasePath => _dbPath;
+  String get engineName => _useNativeSqlite ? 'android_sqlite_wal' : 'file_json';
 
   String _nextId(String prefix) {
     _seqCounter = (_seqCounter + 1) & 0x7FFFFFFF;
@@ -601,6 +602,11 @@ class InternalDatabaseService {
     unawaited(_prune('response_cache', 600, 'created_at'));
   }
 
+  Future<void> putCached(String namespace, String query, Object? payload,
+      {Duration ttl = const Duration(hours: 24)}) async {
+    await putCache(namespace, query, payload, ttl: ttl);
+  }
+
   Future<int> evictExpiredCache() async {
     final now = DateTime.now().millisecondsSinceEpoch;
     return _delete(
@@ -621,6 +627,11 @@ class InternalDatabaseService {
       );
     }
     return _delete('response_cache');
+  }
+
+  Future<int> pruneCache({required bool clearAll}) async {
+    if (clearAll) return clearAllCache();
+    return evictExpiredCache();
   }
 
   Future<List<Map<String, dynamic>>> listCacheEntries({int limit = 100}) async {
@@ -694,6 +705,9 @@ class InternalDatabaseService {
     );
   }
 
+  Future<List<Map<String, dynamic>>> getLogs({String? level, int limit = 50}) async =>
+      listLogs(level: level, limit: limit);
+
   // ===========================================================================
   // 5. CRASHES, UNHANDLED EXCEPTIONS & HANG REPORTS
   // ===========================================================================
@@ -702,7 +716,7 @@ class InternalDatabaseService {
     required String kind,
     required String summary,
     StackTrace? stackTrace,
-    Map<String, dynamic>? appState,
+    Map<String, dynamic>? context,
     bool fatal = false,
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -713,11 +727,14 @@ class InternalDatabaseService {
       'summary': summary,
       'stack_trace': stackTrace?.toString(),
       'breadcrumbs_json': jsonEncode(_breadcrumbs.toList(growable: false)),
-      'app_state_json': appState == null ? null : jsonEncode(appState),
+      'app_state_json': context == null ? null : jsonEncode(context),
       'fatal': fatal ? 1 : 0,
     });
     unawaited(_prune('crash_hang_reports', 200, 'ts'));
   }
+
+  Future<List<Map<String, dynamic>>> getCrashHangReports({int limit = 100}) async =>
+      listCrashesAndHangs(limit: limit);
 
   Future<List<Map<String, dynamic>>> listCrashesAndHangs({int limit = 100}) {
     return _query(
@@ -753,6 +770,9 @@ class InternalDatabaseService {
     });
     unawaited(_prune('telemetry_events', 800, 'ts'));
   }
+
+  Future<List<Map<String, dynamic>>> getRecentTelemetry({int limit = 150}) async =>
+      listTelemetry(limit: limit);
 
   Future<List<Map<String, dynamic>>> listTelemetry({int limit = 150}) {
     return _query(
@@ -829,6 +849,9 @@ class InternalDatabaseService {
     });
     unawaited(_prune('pipeline_traces', 800, 'started_at'));
   }
+
+  Future<List<Map<String, dynamic>>> getRecentTraces({int limit = 150}) async =>
+      listTraces(limit: limit);
 
   Future<List<Map<String, dynamic>>> listTraces({int limit = 150}) {
     return _query(
@@ -909,6 +932,9 @@ class InternalDatabaseService {
     unawaited(_prune('user_activity', 600, 'ts'));
   }
 
+  Future<List<Map<String, dynamic>>> getRecentActivities({int limit = 150}) async =>
+      listActivities(limit: limit);
+
   Future<List<Map<String, dynamic>>> listActivities({int limit = 150}) {
     return _query(
       'user_activity',
@@ -927,16 +953,20 @@ class InternalDatabaseService {
     if (!_initialized) await init();
     if (_useNativeSqlite) {
       final stats = await _channel.invokeMapMethod<String, dynamic>('stats');
-      if (stats != null) return stats;
+      if (stats != null) {
+        final counts = stats['counts'];
+        if (counts is Map) {
+          return {...stats, for (final e in counts.entries) e.key: e.value};
+        }
+        return stats;
+      }
     }
     final sizeBytes = await _fileStore.sizeBytes(_fallbackFile);
     return {
+      for (final t in allTables) t: _memTables[t]!.length,
       'backend': kIsWeb ? 'memory_json' : 'file_json',
       'path': _dbPath,
       'sizeBytes': sizeBytes,
-      'counts': {
-        for (final t in allTables) t: _memTables[t]!.length,
-      },
     };
   }
 
@@ -956,6 +986,24 @@ class InternalDatabaseService {
       'recentTelemetry': telemetry,
       'recentActivity': activities,
     });
+  }
+
+  Future<Map<String, dynamic>> exportDiagnosticsDump() async {
+    final stats = await getStats();
+    final logs = await listLogs(limit: 50);
+    final crashes = await listCrashesAndHangs(limit: 30);
+    final traces = await listTraces(limit: 50);
+    final telemetry = await listTelemetry(limit: 40);
+    final activities = await listActivities(limit: 50);
+    return {
+      'exportedAt': DateTime.now().toIso8601String(),
+      'stats': stats,
+      'recentCrashesAndHangs': crashes,
+      'recentLogs': logs,
+      'recentTraces': traces,
+      'recentTelemetry': telemetry,
+      'recentActivity': activities,
+    };
   }
 
   // ===========================================================================
@@ -1119,7 +1167,7 @@ class HangWatchdog {
             kind: 'ui_hang',
             summary:
                 'Main isolate event-loop stall detected (${delta.inMilliseconds} ms)',
-            appState: {'stallMs': delta.inMilliseconds},
+            context: {'stallMs': delta.inMilliseconds},
             fatal: false,
           ),
         );
