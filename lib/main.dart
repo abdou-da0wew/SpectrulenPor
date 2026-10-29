@@ -44,7 +44,7 @@ void main() async {
     unawaited(InternalDatabaseService.instance.recordCrashOrHang(
       kind: 'flutter_error',
       summary: details.exceptionAsString(),
-      stackTrace: details.stack?.toString(),
+      stackTrace: details.stack,
       context: {'library': details.library ?? 'flutter'},
     ));
   };
@@ -52,7 +52,7 @@ void main() async {
     unawaited(InternalDatabaseService.instance.recordCrashOrHang(
       kind: 'uncaught_async',
       summary: error.toString(),
-      stackTrace: stack.toString(),
+      stackTrace: stack,
     ));
     return true;
   };

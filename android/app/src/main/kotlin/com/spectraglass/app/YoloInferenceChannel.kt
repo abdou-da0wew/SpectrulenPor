@@ -186,7 +186,7 @@ object YoloInferenceChannel {
 
         // Inspect embedded ONNX metadata & shapes.
         try {
-            val meta = session.metadata.customMetadataMap
+            val meta = session.metadata.customMetadata
             meta["end2end"]?.let { isEnd2End = it.equals("true", ignoreCase = true) }
             meta["names"]?.let { namesStr ->
                 val parsed = parsePythonDictLabels(namesStr)

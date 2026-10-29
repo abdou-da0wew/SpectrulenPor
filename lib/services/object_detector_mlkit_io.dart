@@ -2,7 +2,7 @@ import 'dart:typed_data';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:google_mlkit_object_detection/google_mlkit_object_detection.dart';
+import 'package:google_mlkit_object_detection/google_mlkit_object_detection.dart' as ml;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/bounding_box.dart';
@@ -16,7 +16,7 @@ import 'object_detector_mlkit.dart';
 /// 0..1 coordinates using the known source image dimensions (from
 /// PhoneCameraService.frameStream's FrameData width/height).
 class _MlKitObjectDetectorImpl implements ObjectDetector {
-  ObjectDetector? _detector;
+  _MlKitObjectDetectorWrapper? _detector;
   bool _ready = false;
 
   @override
@@ -28,8 +28,8 @@ class _MlKitObjectDetectorImpl implements ObjectDetector {
   @override
   Future<void> init() async {
     if (_ready) return;
-    final options = ObjectDetectorOptions(
-      mode: DetectionMode.stream,             // optimized for video frames
+    final options = ml.ObjectDetectorOptions(
+      mode: ml.DetectionMode.stream,             // optimized for video frames
       classifyObjects: true,                  // we want labels
       multipleObjects: true,                 // all visible objects
     );
@@ -43,8 +43,8 @@ class _MlKitObjectDetectorImpl implements ObjectDetector {
     if (!_ready) return const [];
     try {
       final tmp = await _writeTempJpg(jpegBytes);
-      final inputImage = InputImage.fromFile(tmp);
-      final objects = await (_detector as _MlKitObjectDetectorWrapper)
+      final inputImage = ml.InputImage.fromFile(tmp);
+      final objects = await _detector!
           .processImage(inputImage);
       await tmp.delete();
       return objects.map(_toBoundingBox).toList(growable: false);
@@ -72,11 +72,11 @@ class _MlKitObjectDetectorImpl implements ObjectDetector {
   /// NOTE: ML Kit returns PIXEL coordinates. Caller normalizes via
   /// FrameData.width/height. We stash the pixels here; the overlay
   /// widget divides by source image size at paint time.
-  BoundingBox _toBoundingBox(DetectedObject o) {
+  BoundingBox _toBoundingBox(ml.DetectedObject o) {
     final rect = o.boundingBox;
     final label = o.labels.isEmpty
         ? 'object'
-        : o.labels.reduce((a, b) => a.confidence > b.confidence ? a : b).label;
+        : o.labels.reduce((a, b) => a.confidence > b.confidence ? a : b).text;
     final conf = o.labels.isEmpty ? 0.5 : o.labels.first.confidence;
     // Return PIXEL coordinates for now — overlay will normalize.
     return BoundingBox(
@@ -91,12 +91,12 @@ class _MlKitObjectDetectorImpl implements ObjectDetector {
 }
 
 class _MlKitObjectDetectorWrapper {
-  final ObjectDetectorOptions options;
-  late final ObjectDetector _native;
+  final ml.ObjectDetectorOptions options;
+  late final ml.ObjectDetector _native;
   _MlKitObjectDetectorWrapper(this.options) {
-    _native = ObjectDetector(options: options);
+    _native = ml.ObjectDetector(options: options);
   }
-  Future<List<DetectedObject>> processImage(InputImage img) =>
+  Future<List<ml.DetectedObject>> processImage(ml.InputImage img) =>
       _native.processImage(img);
 }
 

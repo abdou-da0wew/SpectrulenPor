@@ -110,7 +110,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _verifyYoloModel() async {
     setState(() => _verifyingYolo = true);
-    final ok = await YoloDetector.instance.ensureModel();
+    final ok = (await YoloDetector.instance.ensureModel()).ready;
     if (!mounted) return;
     setState(() => _verifyingYolo = false);
     final st = YoloDetector.instance.status;

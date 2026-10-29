@@ -216,8 +216,7 @@ class AppLocalizationsAr extends AppLocalizations {
   String get modelInkling => 'liquid/inkling-small:free — بديل ١';
 
   @override
-  String get modelNemotron =>
-      'nvidia/nemotron-3-nano-30b-a3b:free — بديل ٢';
+  String get modelNemotron => 'nvidia/nemotron-3-nano-30b-a3b:free — بديل ٢';
 
   @override
   String get reasoningTokensLabel => 'التقاط رموز الاستدلال';
@@ -230,6 +229,27 @@ class AppLocalizationsAr extends AppLocalizations {
   String latencyFirstToken(int ms) {
     return 'أول رمز صوتي: $ms مللي ثانية';
   }
+
+  @override
+  String get live => 'مباشر';
+
+  @override
+  String get scanningGlasses => 'جارٍ مسح النظارة…';
+
+  @override
+  String get negotiatingStream => 'جارٍ التفاوض على البث…';
+
+  @override
+  String get waitingFirstFrame => 'بانتظار الإطار الأول…';
+
+  @override
+  String get btPermissionsRequired => 'أذونات البلوتوث مطلوبة';
+
+  @override
+  String get turnOnBluetooth => 'شغل البلوتوث';
+
+  @override
+  String get btConnectionError => 'خطأ في اتصال البلوتوث';
 
   @override
   String get aboutBody =>

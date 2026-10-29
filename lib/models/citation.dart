@@ -9,6 +9,7 @@ class Citation {
   final String url; // empty for offline bundled docs
   final String snippet; // short extract
   final CitationType type;
+  final String? thumbnailUrl; // optional inline thumbnail (from docs search hits)
 
   const Citation({
     required this.index,
@@ -16,6 +17,7 @@ class Citation {
     required this.url,
     required this.snippet,
     required this.type,
+    this.thumbnailUrl,
   });
 
   Map<String, dynamic> toJson() => {
@@ -24,6 +26,7 @@ class Citation {
         'url': url,
         'snippet': snippet,
         'type': type.name,
+        if (thumbnailUrl != null) 'thumbnailUrl': thumbnailUrl,
       };
 
   factory Citation.fromWiki(int i, WikiSource w) => Citation(
@@ -40,6 +43,7 @@ class Citation {
     String snippet, {
     String url = '',
     CitationType type = CitationType.bundledDoc,
+    String? thumbnailUrl,
   }) =>
       Citation(
         index: i,
@@ -47,6 +51,7 @@ class Citation {
         url: url,
         snippet: snippet,
         type: type,
+        thumbnailUrl: thumbnailUrl,
       );
 }
 

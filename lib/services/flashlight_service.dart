@@ -28,6 +28,10 @@ class FlashlightService {
   bool _on = false;
   bool get isOn => _on;
 
+  /// Whether the torch is currently held on by the auto low-light gate.
+  bool _autoManaged = false;
+  bool get autoManaged => _autoManaged;
+
   Future<bool> setTorch(bool on) async {
     if (_on == on) return true;
 
@@ -82,5 +86,18 @@ class FlashlightService {
     } catch (_) {
       return const [];
     }
+  }
+
+  /// Engage the torch automatically when the vision gate reports too-dark.
+  Future<void> autoTurnOn() async {
+    if (_on) { _autoManaged = true; return; }
+    _autoManaged = await setTorch(true);
+  }
+
+  /// Release an auto-held torch (turn it off unless manually switched on).
+  Future<void> releaseAuto() async {
+    if (!_autoManaged) return;
+    _autoManaged = false;
+    if (_on) await setTorch(false);
   }
 }

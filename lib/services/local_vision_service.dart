@@ -38,10 +38,10 @@ class LocalVisionService {
   static Future<VisionGateResult> _alwaysVisibleGate(Uint8List _) async =>
       const VisionGateResult(
         visible: true,
-        tooDark: false,
         blocked: false,
         brightness: 120,
-        stdDev: 40,
+        variance: 40,
+        blurScore: 100,
         reason: 'ok',
       );
 
@@ -106,7 +106,7 @@ class LocalVisionService {
       debugPrint(
         '[VisionGate] Frame blocked (${gate.reason}): '
         'brightness=${gate.brightness.toStringAsFixed(1)}, '
-        'stdDev=${gate.stdDev.toStringAsFixed(1)}',
+        'variance=${gate.variance.toStringAsFixed(1)}',
       );
       return null;
     }
@@ -161,7 +161,7 @@ class LocalVisionService {
     }
 
     // ---- 4. OFFLINE FALLBACK #3: ML Kit labeling + OCR ----
-    final ml = await _mlkit.describe(jpegBytes, lang: lang);
+    final ml = await _mlkit.describe(jpegBytes, isAr: lang.startsWith('ar'));
     if (ml != null) {
       lastEngine = 'mlkit';
       return ml;
@@ -182,6 +182,6 @@ class LocalVisionService {
 
   Future<void> dispose() async {
     _onnx.dispose();
-    await _mlkit.dispose();
+    _mlkit.dispose();
   }
 }

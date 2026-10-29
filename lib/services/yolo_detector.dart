@@ -18,6 +18,10 @@ class YoloModelStatus {
   final String inputShape;
   final String outputShape;
   final int labelCount;
+  final String? error; // e.g. provisioning failure message, null when ready
+
+  String get source => modelSource;
+  int get sizeBytes => modelSizeBytes;
 
   const YoloModelStatus({
     required this.ready,
@@ -29,6 +33,7 @@ class YoloModelStatus {
     required this.inputShape,
     required this.outputShape,
     required this.labelCount,
+    this.error,
   });
 
   factory YoloModelStatus.fromMap(Map<dynamic, dynamic> m) {
@@ -42,6 +47,7 @@ class YoloModelStatus {
       inputShape: (m['inputShape'] as String?) ?? '[1, 3, 640, 640]',
       outputShape: (m['outputShape'] as String?) ?? '[1, 300, 6]',
       labelCount: (m['labelCount'] as num?)?.toInt() ?? 80,
+      error: m['error'] as String?,
     );
   }
 }
@@ -78,6 +84,8 @@ class YoloDetector {
     labelCount: 80,
   );
   YoloModelStatus get status => _status;
+
+  int get lastInferenceMs => _status.lastInferenceMs;
 
   List<String>? _labels;
   List<String> get labels => _labels ?? const [];

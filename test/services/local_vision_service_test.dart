@@ -134,10 +134,10 @@ void main() {
       moondream: md,
       gateCheck: (_) async => const VisionGateResult(
         visible: false,
-        tooDark: true,
         blocked: false,
         brightness: 4,
-        stdDev: 12,
+        variance: 12,
+        blurScore: 100,
         reason: 'too-dark',
       ),
     );

@@ -491,13 +491,13 @@ abstract class AppLocalizations {
   /// No description provided for @modelInkling.
   ///
   /// In en, this message translates to:
-  /// **'thinkingmachines/inkling-small:free — fallback 1'**
+  /// **'liquid/inkling-small:free — fallback 1'**
   String get modelInkling;
 
   /// No description provided for @modelNemotron.
   ///
   /// In en, this message translates to:
-  /// **'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free — fallback 2'**
+  /// **'nvidia/nemotron-3-nano-30b-a3b:free — fallback 2'**
   String get modelNemotron;
 
   /// No description provided for @reasoningTokensLabel.
@@ -515,13 +515,55 @@ abstract class AppLocalizations {
   /// No description provided for @latencyFirstToken.
   ///
   /// In en, this message translates to:
-  /// **'⏱ first audio token: {ms} ms'**
+  /// **'first audio token: {ms} ms'**
   String latencyFirstToken(int ms);
+
+  /// No description provided for @live.
+  ///
+  /// In en, this message translates to:
+  /// **'Live'**
+  String get live;
+
+  /// No description provided for @scanningGlasses.
+  ///
+  /// In en, this message translates to:
+  /// **'Scanning glasses…'**
+  String get scanningGlasses;
+
+  /// No description provided for @negotiatingStream.
+  ///
+  /// In en, this message translates to:
+  /// **'Negotiating stream…'**
+  String get negotiatingStream;
+
+  /// No description provided for @waitingFirstFrame.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for first frame…'**
+  String get waitingFirstFrame;
+
+  /// No description provided for @btPermissionsRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Bluetooth permissions required'**
+  String get btPermissionsRequired;
+
+  /// No description provided for @turnOnBluetooth.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on Bluetooth'**
+  String get turnOnBluetooth;
+
+  /// No description provided for @btConnectionError.
+  ///
+  /// In en, this message translates to:
+  /// **'Bluetooth connection error'**
+  String get btConnectionError;
 
   /// No description provided for @aboutBody.
   ///
   /// In en, this message translates to:
-  /// **'SpectruLenPor — YOLO26-Nano on-device object detection + Moondream3 cloud vision + OpenRouter gemma→inkling→nemotron reasoning chain + streamed fish-audio TTS + Wikipedia + PubChem + DuckDuckGo citations + Google AI Overviews-style inline [n] citations + fact-checking + auto-updating structured context + chat with mic. (See Version card in Settings for the current build + git SHA.)\n\nPipeline: phone camera / ESP32-CAM → YOLO26-Nano bounding boxes → user taps box → dual capture (clean + boxes) → Moondream analyzeSelected → LLM scientific context with citations + fact-checking → auto-narrate → chat session with auto-updating context.\n\nMalak Adel Sayed Hassan (student) · Abdoul-Rahman Ayman Mohamed (developer) · Grade 1 secondary, Class 3/1 · Ashmounin Secondary School · Budget: 2,500–6,000 EGP.'**
+  /// **'SpectruLenPor v5.5 — Local YOLO26-Nano ONNX object detection (bundled + auto-download) + Cloud-only policy toggle (keeping YOLO local) + Moondream3 Cloud VLM + OpenRouter gemma→inkling→nemotron reasoning chain + streamed fish-audio/s2.1-pro-free:free TTS + 3-mode scientific RAG (Strict / Detailed / Semantic across 119 Periodic Table elements, 110 chemical compounds/materials, GHS lab safety, PubChem, Wikipedia & Web Search) + Google-Search-style inline [n] citations + claim fact-checking + auto-updating structured ConversationContext + 9-table SQLite WAL Internal Database (saved chats, TTL response cache, logs, hangs/crashes, traces & telemetry).\n\nPipeline: phone camera / ESP32-CAM → local YOLO26-Nano interactive boxes → tap box to lock target marker → press Capture & Analyze for dual JPEG capture (clean + marked) → Moondream3 analyzeSelected → grounded LLM context + fact-checking → persistent chat session with auto-updating context.\n\nMalak Adel Sayed Hassan (student) · Abdoul-Rahman Ayman Mohamed (developer) · Grade 1 secondary, Class 3/1 · Ashmounin Secondary School · Budget: 2,500–6,000 EGP.'**
   String get aboutBody;
 }
 
