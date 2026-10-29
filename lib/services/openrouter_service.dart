@@ -15,9 +15,9 @@ import 'internal_db_service.dart';
 /// OpenRouter text + reasoning presentation tier.
 ///
 /// Fallback chain:
-///   1. `google/gemma-4-26b-a4b-it:free`
-///   2. `liquid/inkling-small:free`
-///   3. `nvidia/nemotron-3-nano-30b-a3b:free`
+///   1. `nvidia/nemotron-3.5-super-vl:free`   (native image / vision / video)
+///   2. `google/gemma-4-26b-a4b-it:free`
+///   3. `liquid/inkling-small:free`
 class OpenRouterService {
   OpenRouterService({
     String? apiKey,
@@ -33,9 +33,9 @@ class OpenRouterService {
       : 'https://openrouter.ai/api/v1/chat/completions';
 
   static const List<String> modelChain = <String>[
+    'nvidia/nemotron-3.5-super-vl:free',
     'google/gemma-4-26b-a4b-it:free',
     'liquid/inkling-small:free',
-    'nvidia/nemotron-3-nano-30b-a3b:free',
   ];
 
   String apiKey;

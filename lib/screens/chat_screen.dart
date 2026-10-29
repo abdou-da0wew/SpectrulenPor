@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
 import '../models/captured_frames.dart';
@@ -73,7 +74,7 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
     final locale = state.isArabic ? 'ar-EG' : 'en-US';
-    await state.mic.startListen(
+    final started = await state.mic.startListen(
       localeId: locale,
       onResult: (text, isFinal) {
         if (!mounted || text.isEmpty) return;
@@ -88,6 +89,24 @@ class _ChatScreenState extends State<ChatScreen> {
       },
     );
     if (mounted) setState(() {});
+    if (started) return;
+
+    final isAr = state.isArabic;
+    final reason = state.mic.lastError ?? '';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(isAr
+            ? 'تعذّر تشغيل المايك: $reason'
+            : 'Mic unavailable: $reason'),
+        duration: const Duration(seconds: 4),
+      ),
+    );
+    if (state.mic.permissionStatus == PermissionStatus.permanentlyDenied) {
+      await openAppSettings();
+    } else if (state.mic.permissionStatus == PermissionStatus.denied) {
+      await state.mic.ensurePermission();
+      await state.mic.init();
+    }
   }
 
   Future<void> _speakMessage(RecognitionState state, String content) async {

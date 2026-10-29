@@ -155,68 +155,158 @@ class _EncodeArgs {
   });
 }
 
-/// Runs OFF the UI thread: YUV420 (or other) -> RGB -> rotate -> JPEG.
+/// Fixed-point BT.601 YUV weights (×1024, rounding pre-added) — integer math
+/// is ~2x faster than doubles in the hot per-pixel loop.
+const int _kvR = 1 << 10; // Y coeff for R is 1.000
+const int _kvG0 = 376; // -0.344136 * 1024, negated below
+const int _kvG1 = 731; // -0.714136 * 1024, negated below
+const int _kvU = 1814; // 1.772 * 1024
+const int _kvV = 1435; // 1.402 * 1024
+
+/// NV21 chroma stride. The camera plugin's [Plane] doesn't expose
+/// [ImagePlane.pixelStride], but Camera2 YUV_420_888 is NV21-interleaved
+/// (VU pairs) on virtually every Android device, so chroma samples sit 2
+/// bytes apart and each plane's buffer starts at its first U/V byte.
+const int _kChromaStride = 2;
+
+/// Runs OFF the UI thread: YUV420 -> RGB -> rotate -> JPEG.
+///
+/// * Chroma must be indexed with each plane's own [pixelStride]: Android's
+///   YUV_420_888 almost always interleaves U/V with pixelStride = 2. Treating
+///   the plane as dense (stride 1) scrambles chroma and renders the frame
+///   grayscale/hue-noisy.
+/// * Rotation is folded into the destination write so one pass produces the
+///   final portrait frame (no second `copyRotate` pass).
+/// * A flat RGB byte buffer + [img.Image.fromBytes] avoids per-pixel
+///   [img.Image] object overhead.
 Uint8List? _encodeIsolate(_EncodeArgs a) {
   try {
-    img.Image rgb;
+    final int w = a.width;
+    final int h = a.height;
+    final bool swapped = (a.quarterTurns % 2) == 1;
+    final int outW = swapped ? h : w;
+    final int outH = swapped ? w : h;
+    final int quarter = a.quarterTurns % 4;
 
+    Uint8List rgbBuf;
     switch (a.formatGroup) {
       case 'yuv420':
       case 'yuv420kp':
-        final y = a.planes[0];
-        final u = a.planes[1];
-        final v = a.planes[2];
-        final yRow = a.bytesPerRow[0];
-        final uRow = a.bytesPerRow[1];
-        final vRow = a.bytesPerRow[2];
+        {
+          final y = a.planes[0];
+          final u = a.planes[1];
+          final v = a.planes[2];
+          final yRow = a.bytesPerRow[0];
+          final uRow = a.bytesPerRow[1];
+          final vRow = a.bytesPerRow[2];
+          final yLen = y.length;
+          final uLen = u.length;
+          final vLen = v.length;
 
-        rgb = img.Image(width: a.width, height: a.height);
-        for (var py = 0; py < a.height; py++) {
-          for (var px = 0; px < a.width; px++) {
-            final yi = py * yRow + px;
-            final ui = (py >> 1) * uRow + (px >> 1);
-            final vi = (py >> 1) * vRow + (px >> 1);
+          rgbBuf = Uint8List(outW * outH * 3);
+          for (var py = 0; py < h; py++) {
+            final yRowBase = py * yRow;
+            final chromaRow = (py >> 1) * uRow;
+            final chromaRowV = (py >> 1) * vRow;
+            for (var px = 0; px < w; px++) {
+              var yi = yRowBase + px;
+              if (yi >= yLen) yi = yLen - 1;
+              var ui = chromaRow + (px >> 1) * _kChromaStride;
+              if (ui >= uLen) ui = uLen - 1;
+              var vi = chromaRowV + (px >> 1) * _kChromaStride;
+              if (vi >= vLen) vi = vLen - 1;
 
-            final Y = y[yi].toDouble();
-            final U = u[ui].toDouble() - 128.0;
-            final V = v[vi].toDouble() - 128.0;
+              final int Y = y[yi];
+              final int U = u[ui] - 128;
+              final int V = v[vi] - 128;
 
-            final r = (Y + 1.402 * V).round().clamp(0, 255);
-            final g =
-                (Y - 0.344136 * U - 0.714136 * V).round().clamp(0, 255);
-            final b = (Y + 1.772 * U).round().clamp(0, 255);
-            rgb.setPixelRgb(px, py, r, g, b);
+              final int yy = Y << 10;
+              int r = (yy + _kvV * V + 512) >> 10;
+              int g =
+                  (yy - _kvG0 * U - _kvG1 * V + 512) >> 10;
+              int b = (yy + _kvU * U + 512) >> 10;
+              if (r < 0) r = 0;
+              if (r > 255) r = 255;
+              if (g < 0) g = 0;
+              if (g > 255) g = 255;
+              if (b < 0) b = 0;
+              if (b > 255) b = 255;
+
+              int dx;
+              int dy;
+              switch (quarter) {
+                case 1:
+                  dx = h - 1 - py;
+                  dy = px;
+                  break;
+                case 2:
+                  dx = w - 1 - px;
+                  dy = h - 1 - py;
+                  break;
+                case 3:
+                  dx = py;
+                  dy = w - 1 - px;
+                  break;
+                default:
+                  dx = px;
+                  dy = py;
+              }
+              final int dIndex = (dy * outW + dx) * 3;
+              rgbBuf[dIndex] = r;
+              rgbBuf[dIndex + 1] = g;
+              rgbBuf[dIndex + 2] = b;
+            }
           }
         }
         break;
 
       case 'bgra8888':
-        rgb = img.Image.fromBytes(
-          width: a.width,
-          height: a.height,
-          bytes: a.planes[0].buffer,
-          numChannels: 4,
+        return Uint8List.fromList(
+          img.encodeJpg(
+            _maybeRotate(
+              img.Image.fromBytes(
+                width: w,
+                height: h,
+                bytes: a.planes[0].buffer,
+                numChannels: 4,
+                order: img.ChannelOrder.bgra,
+              ),
+              quarter,
+            ),
+            quality: 82,
+          ),
         );
-        break;
 
       default:
         // Unknown format — decode luma as grayscale; classifier + OCR still
         // work acceptably until the format is mapped.
-        rgb = img.Image.fromBytes(
-          width: a.width,
-          height: a.height,
+        final gray = img.Image.fromBytes(
+          width: w,
+          height: h,
           bytes: a.planes[0].buffer,
           numChannels: 1,
         );
+        return Uint8List.fromList(
+            img.encodeJpg(_maybeRotate(gray, quarter), quality: 82));
     }
 
-    if (a.quarterTurns % 4 != 0) {
-      rgb = img.copyRotate(rgb, angle: 90 * (a.quarterTurns % 4));
-    }
-
+    final rgb = img.Image.fromBytes(
+      width: outW,
+      height: outH,
+      bytes: rgbBuf.buffer,
+      numChannels: 3,
+      order: img.ChannelOrder.rgb,
+    );
     return Uint8List.fromList(img.encodeJpg(rgb, quality: 82));
   } catch (e) {
     debugPrint('[PhoneCamera] isolate encode failed: $e');
     return null;
   }
+}
+
+/// Rotates an already-converted frame for paths that could not fold
+/// rotation into the pixel loop (BGRA / grayscale branches).
+img.Image _maybeRotate(img.Image image, int quarter) {
+  if (quarter == 0) return image;
+  return img.copyRotate(image, angle: 90 * quarter);
 }

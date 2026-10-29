@@ -176,8 +176,11 @@ object YoloInferenceChannel {
 
         val env = ortEnv ?: OrtEnvironment.getEnvironment().also { ortEnv = it }
         val opts = OrtSession.SessionOptions().apply {
-            setIntraOpNumThreads(2)
+            setIntraOpNumThreads(4)
             setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+            try { addXnnpack() } catch (_: Throwable) {
+                /* XNNPACK EP unavailable on this build — fall back to CPU */
+            }
         }
 
         ortSession?.close()
