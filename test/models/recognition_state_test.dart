@@ -225,8 +225,20 @@ void main() {
     expect(state.matterState, MatterState.solid);
     expect(state.hazardActive, isTrue);
 
-    // Verify session was persisted into InternalDatabaseService and can be resumed
+    // Verify session was persisted into InternalDatabaseService and can be
+    // resumed. saveChatSession is fire-and-forget (frame files + upsert run
+    // as real async IO), so poll briefly instead of racing it.
     final savedId = state.chatSession!.sessionId;
+    var persisted = false;
+    for (var i = 0; i < 50 && !persisted; i++) {
+      persisted = await InternalDatabaseService.instance
+              .loadChatSession(savedId) !=
+          null;
+      if (!persisted) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+    }
+    expect(persisted, isTrue);
     final state2 = await buildState(openRouter: or);
     addTearDown(state2.dispose);
     final resumed = await state2.resumeSavedChatSession(savedId);

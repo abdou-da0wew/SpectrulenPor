@@ -114,7 +114,7 @@ class OpenRouterTtsService {
       unawaited(InternalDatabaseService.instance.logWarn(
         'OpenRouterTts',
         'Cloud TTS request failed; native fallback should engage',
-        {'error': e.toString()},
+        metadata: {'error': e.toString()},
       ));
       return false;
     }

@@ -103,7 +103,16 @@ class SpectruLenPorApp extends StatelessWidget {
         ),
         Provider<PhoneCameraService>.value(value: PhoneCameraService.instance),
         Provider<LocalVisionService>.value(value: LocalVisionService.instance),
-        Provider<MoondreamService>.value(value: MoondreamService.instance),
+        Provider<MoondreamService>.value(
+          // Apply the moondream secret the same way as the LLM/TTS keys
+          // (prefs → injected secrets → keep whatever main() already set);
+          // before v5.5.1 this widget accepted secrets['moondream'] and
+          // silently dropped it — only main()'s pre-runApp path applied it.
+          value: MoondreamService.instance
+            ..apiKey = prefs.getString('moondream_api_key') ??
+                _secrets['moondream'] ??
+                MoondreamService.instance.apiKey,
+        ),
         Provider<OpenRouterService>(
           create: (_) => OpenRouterService(
             apiKey: prefs.getString('openrouter_llm_key') ??

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/services.dart';
 import 'package:smart_glass_app/main.dart';
 import 'package:smart_glass_app/models/bounding_box.dart';
 import 'package:smart_glass_app/services/docs_search_service.dart';
@@ -72,10 +73,23 @@ void main() {
   testWidgets(
       'HomeScreen enforces strict Capture button gating & navigates to History and Diagnostics',
       (tester) async {
+    // Unmocked platform channels never complete (not even as
+    // MissingPluginException) inside the widget-test binding's FakeAsync
+    // zone, and real file IO only progresses under tester.runAsync. Mock
+    // the two channels the DB service touches and prime the singletons
+    // inside runAsync so History/Diagnostics render with data.
+    final messenger = TestDefaultBinaryMessengerBinding.instance
+        .defaultBinaryMessenger;
+    const dbChannel = MethodChannel('com.spectraglass/db');
+    messenger.setMockMethodCallHandler(dbChannel, (call) async => null);
+    const ppChannel = MethodChannel('plugins.flutter.io/path_provider');
+    messenger.setMockMethodCallHandler(ppChannel, (call) async => '/tmp');
     SharedPreferences.setMockInitialValues(const {});
     final prefs = await SharedPreferences.getInstance();
-    await InternalDatabaseService.instance.init();
-    await DocsSearchService.instance.init();
+    await tester.runAsync(() async {
+      await InternalDatabaseService.instance.init();
+      await DocsSearchService.instance.init();
+    });
     appLocale.value = const Locale('en');
 
     await tester.pumpWidget(SpectruLenPorApp(prefs: prefs, secrets: const {}));
@@ -89,17 +103,23 @@ void main() {
 
     // Open History & Scientific Docs screen
     await tester.tap(find.byTooltip('History & Scientific Docs'));
-    await tester.pumpAndSettle();
+    await tester.pumpAndSettle(const Duration(milliseconds: 100),
+        EnginePhase.sendSemanticsUpdate,
+        const Duration(seconds: 2));
     expect(find.text('History & Scientific Docs'), findsOneWidget);
     expect(find.text('Saved Chats'), findsOneWidget);
     expect(find.text('Knowledge Docs'), findsOneWidget);
 
     // Navigate back to Home -> open Settings -> verify Cloud-only toggle & Search Mode
     await tester.pageBack();
-    await tester.pumpAndSettle();
+    await tester.pumpAndSettle(const Duration(milliseconds: 100),
+        EnginePhase.sendSemanticsUpdate,
+        const Duration(seconds: 2));
 
     await tester.tap(find.byTooltip('Settings'));
-    await tester.pumpAndSettle();
+    await tester.pumpAndSettle(const Duration(milliseconds: 100),
+        EnginePhase.sendSemanticsUpdate,
+        const Duration(seconds: 2));
     expect(
       find.text('Cloud-only models (except YOLO26-Nano)'),
       findsOneWidget,
@@ -114,9 +134,13 @@ void main() {
       250,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.pumpAndSettle();
+    await tester.pumpAndSettle(const Duration(milliseconds: 100),
+        EnginePhase.sendSemanticsUpdate,
+        const Duration(seconds: 2));
     await tester.tap(find.text('Database, Cache, Logs, Hangs & Traces'));
-    await tester.pumpAndSettle();
+    await tester.pumpAndSettle(const Duration(milliseconds: 100),
+        EnginePhase.sendSemanticsUpdate,
+        const Duration(seconds: 2));
     expect(find.text('Internal DB & Diagnostics'), findsOneWidget);
     expect(find.text('Table Row Counts (9 Tables)'), findsOneWidget);
   });

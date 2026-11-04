@@ -15,7 +15,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 200));
 
     expect(find.text('SpectruLenPor'), findsOneWidget);
-    expect(find.text('Phone Camera'), findsWidgets);
-    expect(find.text('Smart Glasses'), findsOneWidget);
+    expect(find.text('Phone camera'), findsWidgets);
+    expect(find.text('Glasses'), findsOneWidget);
   });
 }

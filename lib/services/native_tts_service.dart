@@ -23,7 +23,7 @@ class NativeTtsService {
   /// 1.0 = the OS's natural default rate (NOT slowed or sped up), full
   /// volume, neutral pitch. All three are applied at init so the fallback
   /// voice always sounds reasonable — never rushed, never whispering.
-  static const double _rate = 1.0; // 0.5..2.0, 1.0 = platform normal
+  static double _rate = 1.0; // 0.5..2.0, 1.0 = platform normal (mutable via setRate)
   static const double _pitch = 1.0; // neutral tone
   static const double _volume = 1.0; // full audible volume
 
@@ -53,7 +53,7 @@ class NativeTtsService {
   }
 
   Future<void> setRate(double r) async {
-    _rate = r.clamp(0.5, 2.0);
+    _rate = r.clamp(0.5, 2.0).toDouble();
     try {
       await _tts?.setSpeechRate(_rate);
     } catch (_) {}
