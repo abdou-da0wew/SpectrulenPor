@@ -129,6 +129,33 @@ void main() {
       expect(await db.getCached('pubchem', 'Gold'), isNull);
     });
 
+    test('evictExpiredCache drops ONLY expired rows (cache-wipe regression)',
+        () async {
+      // Regression: the native where clause used a TEXT bound against the
+      // INTEGER expires_at column, which matched every row and wiped the
+      // whole cache on each launch. Fresh rows must survive eviction.
+      final db = InternalDatabaseService.forTest();
+      await db.init();
+
+      await db.putCached(
+        'wikipedia',
+        'FreshEntry',
+        const {'ok': true},
+        ttl: const Duration(hours: 2),
+      );
+      await db.putCached(
+        'wikipedia',
+        'StaleEntry',
+        const {'ok': false},
+        ttl: const Duration(milliseconds: -10),
+      );
+
+      final evicted = await db.evictExpiredCache();
+      expect(evicted, 1);
+      expect(await db.getCached('wikipedia', 'FreshEntry'), isNotNull);
+      expect(await db.getCached('wikipedia', 'StaleEntry'), isNull);
+    });
+
     test('logs, crash/hang reports, telemetry, traces, user_data & export work',
         () async {
       final db = InternalDatabaseService.forTest();

@@ -127,7 +127,7 @@ class WikipediaService {
         },
       );
       final res = await _client.get(uri, headers: {
-        'User-Agent': 'SpectruLenPor/5.4 (https://spectraglass.app)',
+        'User-Agent': 'SpectruLenPor/5.5.1 (https://spectraglass.app)',
       }).timeout(const Duration(seconds: 8));
       if (res.statusCode != 200) return const [];
       final json = jsonDecode(res.body) as Map<String, dynamic>;
@@ -163,7 +163,7 @@ class WikipediaService {
         'https://$host.wikipedia.org/api/rest_v1/page/summary/${Uri.encodeComponent(t.replaceAll(' ', '_'))}',
       );
       final res = await _client.get(uri, headers: {
-        'User-Agent': 'SpectruLenPor/5.4 (https://spectraglass.app)',
+        'User-Agent': 'SpectruLenPor/5.5.1 (https://spectraglass.app)',
       }).timeout(const Duration(seconds: 8));
       if (res.statusCode != 200) return null;
       final json = jsonDecode(res.body) as Map<String, dynamic>;

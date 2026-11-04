@@ -63,6 +63,14 @@
       "summary": "Strong oxidizer; promotes fire by releasing oxygen.",
       "examples": ["KMnO4", "H2O2 (conc.)", "Nitrates"],
       "handling": "Store away from flammables; never mix with reducing agents or organics."
+    },
+    {
+      "id": "GHS04",
+      "name": "Gases Under Pressure",
+      "symbol": "gas cylinder",
+      "summary": "Compressed, liquefied or dissolved gas; the cylinder can rupture or explode when heated, and escaping gas can cause cold burns or displacement of breathable air.",
+      "examples": ["O2 / N2 compressed cylinders", "LPG / butane cartridges", "CO2 cartridges", "Acetylene"],
+      "handling": "Keep away from heat and direct sunlight; store cylinders upright and secured; never heat above 50 C or incinerate; open valves slowly."
     }
   ],
   "generalPPE": [

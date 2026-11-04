@@ -45,6 +45,39 @@ void main() {
     expect(received.first.jpegBytes.last, 0xD9);
   });
 
+  test('reassembles JPEG when SOI and EOI straddle BLE chunk boundaries',
+      () async {
+    final svc = BluetoothCameraService();
+    addTearDown(svc.dispose);
+
+    final received = <FrameData>[];
+    final sub = svc.frameStream.listen(received.add);
+    addTearDown(sub.cancel);
+
+    final jpeg = BytesBuilder()
+      ..add([0xFF, 0xD8, 0xFF, 0xE0])
+      ..add(List<int>.filled(600, 0x11))
+      ..add([0xFF, 0xD9]);
+    final full = jpeg.toBytes(); // 606 bytes
+
+    // Split so both SOI (FF|D8) and EOI (FF|D9) straddle notifications.
+    svc.debugFeedNotification(full.sublist(0, 1)); // [FF] — carried
+    svc.debugFeedNotification(full.sublist(1, 2)); // [D8] — SOI completes
+    svc.debugFeedNotification(full.sublist(2, 302)); // header + body
+    svc.debugFeedNotification(full.sublist(302, 604)); // body
+    svc.debugFeedNotification(full.sublist(604, 605)); // [FF] — carried
+    svc.debugFeedNotification(full.sublist(605)); // [D9] — EOI completes
+
+    await Future<void>.delayed(Duration.zero);
+    expect(received, hasLength(1));
+    expect(received.first.jpegBytes.length, full.length);
+    expect(received.first.jpegBytes.first, 0xFF);
+    expect(received.first.jpegBytes[1], 0xD8);
+    expect(received.first.jpegBytes[received.first.jpegBytes.length - 2],
+        0xFF);
+    expect(received.first.jpegBytes.last, 0xD9);
+  });
+
   test('parses interleaved UV/IR telemetry notifications cleanly', () async {
     final svc = BluetoothCameraService();
     addTearDown(svc.dispose);

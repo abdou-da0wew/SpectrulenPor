@@ -77,3 +77,33 @@ flutter:
     - assets/version.json
     - assets/docs/
     - assets/fonts/
+  # Register the bundled TTFs so google_fonts resolves them offline
+  # (family names must match the GoogleFonts.* getters used in the app).
+  # Without this block the fonts shipped in assets/fonts/ were dead weight.
+  fonts:
+    - family: Rubik
+      fonts:
+        - asset: assets/fonts/Rubik-Regular.ttf
+        - asset: assets/fonts/Rubik-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Rubik-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Rubik-Bold.ttf
+          weight: 700
+    - family: SpaceMono
+      fonts:
+        - asset: assets/fonts/SpaceMono-Regular.ttf
+        - asset: assets/fonts/SpaceMono-Italic.ttf
+          style: italic
+        - asset: assets/fonts/SpaceMono-Bold.ttf
+          weight: 700
+    - family: Zain
+      fonts:
+        - asset: assets/fonts/Zain-Regular.ttf
+        - asset: assets/fonts/Zain-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Zain-ExtraBold.ttf
+          weight: 800
+    - family: Jaro
+      fonts:
+        - asset: assets/fonts/Jaro-Regular.ttf

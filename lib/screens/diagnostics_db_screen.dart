@@ -333,7 +333,8 @@ class _DiagnosticsDbScreenState extends State<DiagnosticsDbScreen>
                     final tag = (l['tag'] ?? '').toString();
                     final msg = (l['message'] ?? '').toString();
                     final stack = (l['stack_trace'] ?? '').toString();
-                    final ts = (l['created_at'] as num?)?.toInt() ?? 0;
+                    // app_logs uses `ts` (NOT created_at) — see AppDatabaseChannel schema.
+                    final ts = (l['ts'] as num?)?.toInt() ?? 0;
                     final color = switch (lvl) {
                       'ERROR' => palette.AppColors.danger,
                       'WARN' => palette.AppColors.warning,
@@ -415,7 +416,8 @@ class _DiagnosticsDbScreenState extends State<DiagnosticsDbScreen>
         final kind = (c['kind'] ?? 'crash').toString().toUpperCase();
         final summary = (c['summary'] ?? '').toString();
         final stack = (c['stack_trace'] ?? '').toString();
-        final ts = (c['created_at'] as num?)?.toInt() ?? 0;
+        // crash_hang_reports uses `ts` (NOT created_at).
+        final ts = (c['ts'] as num?)?.toInt() ?? 0;
         return Card(
           child: ExpansionTile(
             leading: Icon(
@@ -518,12 +520,15 @@ class _DiagnosticsDbScreenState extends State<DiagnosticsDbScreen>
                   : palette.AppColors.dustyLavender,
             ),
             title: Text(
-              'UV ${ev['uv_mw_cm2'] ?? '-'} mW/cm² · IR ${ev['ir_mw_cm2'] ?? '-'} mW/cm² · ${ev['ambient_lux'] ?? '-'} lx',
+              // telemetry_events columns: uv_pct / ir_pct (0..100), uv_raw / ir_raw.
+              'UV ${ev['uv_pct'] ?? '-'}% · IR ${ev['ir_pct'] ?? '-'}%'
+              ' (raw ${ev['uv_raw'] ?? '-'}/${ev['ir_raw'] ?? '-'})',
               style: const TextStyle(fontSize: 12.5),
             ),
             subtitle: Text(
               fmt.format(DateTime.fromMillisecondsSinceEpoch(
-                  (ev['created_at'] as num?)?.toInt() ?? 0)),
+                  // telemetry_events uses `ts` (NOT created_at).
+                  (ev['ts'] as num?)?.toInt() ?? 0)),
               style: const TextStyle(fontSize: 11),
             ),
           ),

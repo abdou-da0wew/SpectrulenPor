@@ -28,6 +28,9 @@ class BluetoothCameraService {
   /// Safety cap for BLE JPEG reassembly if an EOI packet is dropped.
   static const int maxFrameBytes = 512 * 1024;
 
+  /// Auto-reconnect policy: exponential backoff 1,2,4,8,16,16 s, then give up.
+  static const int maxReconnectAttempts = 6;
+
   // Command bytes (mirrored in firmware)
   static const int cmdStreamOn = 0x01;
   static const int cmdStreamOff = 0x00;
@@ -51,8 +54,22 @@ class BluetoothCameraService {
   BluetoothCharacteristic? _txChar;
   BluetoothCharacteristic? _rxChar;
 
+  StreamSubscription<BluetoothConnectionState>? _connSub;
+  StreamSubscription<List<int>>? _notifySub;
+  Timer? _reconnectTimer;
+  bool _userDisconnect = false;
+  bool _reconnectPending = false;
+  int _reconnectAttempts = 0;
+
+  // --- JPEG reassembly state (O(chunk) per notification) ---
   final BytesBuilder _jpegBuf = BytesBuilder();
   bool _capturingJpeg = false;
+
+  /// Last byte of the byte stream seen so far while reassembling, used to
+  /// detect SOI/EOI markers that straddle two BLE notifications
+  /// (`…FF` | `D8…` / `…FF` | `D9…`). `-1` when not applicable.
+  int _lastByte = -1;
+
   final StringBuffer _textBuf = StringBuffer();
 
   String? _deviceName;
@@ -73,6 +90,8 @@ class BluetoothCameraService {
   Future<void> scanAndConnect({
     Duration scanTimeout = const Duration(seconds: 10),
   }) async {
+    _userDisconnect = false;
+    _reconnectAttempts = 0;
     _statusCtl.add(BluetoothStatus.scanning);
 
     if (await FlutterBluePlus.adapterState.first != BluetoothAdapterState.on) {
@@ -112,102 +131,187 @@ class BluetoothCameraService {
     _device = device;
     _statusCtl.add(BluetoothStatus.connecting);
 
+    await _connSub?.cancel();
+    _connSub = device.connectionState.listen((state) {
+      if (state == BluetoothConnectionState.disconnected) {
+        _resetFrame();
+        _statusCtl.add(BluetoothStatus.disconnected);
+        // Auto-reconnect unless the user intentionally disconnected.
+        if (!_userDisconnect) _scheduleReconnect();
+      }
+    });
+
     try {
-      device.connectionState.listen((state) {
-        if (state == BluetoothConnectionState.disconnected) {
-          _jpegBuf.clear();
-          _capturingJpeg = false;
-          _statusCtl.add(BluetoothStatus.disconnected);
-        }
-      });
-
-      await device.connect(timeout: const Duration(seconds: 15));
-      await device.requestMtu(517);
-
-      final services = await device.discoverServices();
-      final svc = services.firstWhere(
-        (s) => s.uuid.toString().toLowerCase().contains('ffe0'),
-        orElse: () => throw 'SpectruLenPor service not found on this device.',
-      );
-      _txChar = svc.characteristics.firstWhere(
-        (c) => c.uuid.toString().toLowerCase().contains('ffe1'),
-        orElse: () => throw 'TX characteristic not found.',
-      );
-      _rxChar = svc.characteristics.firstWhere(
-        (c) => c.uuid.toString().toLowerCase().contains('ffe2'),
-        orElse: () => throw 'RX characteristic not found.',
-      );
-
-      await _txChar!.setNotifyValue(true);
-      _txChar!.lastValueStream.listen(_onNotification);
-
-      await _rxChar!.write([cmdStreamOn], withoutResponse: false);
-      _statusCtl.add(BluetoothStatus.connected);
-    } catch (e) {
+      await _establishSession(device);
+      _reconnectAttempts = 0;
+      _reconnectPending = false;
+    } catch (_) {
       _statusCtl.add(BluetoothStatus.error);
       rethrow;
     }
+  }
+
+  /// Connects, discovers the ffe0/ffe1/ffe2 service, subscribes to frame
+  /// notifications and turns the stream on. Used by both first connect and
+  /// every auto-reconnect attempt.
+  Future<void> _establishSession(BluetoothDevice device) async {
+    await device.connect(timeout: const Duration(seconds: 15));
+    await device.requestMtu(517);
+
+    final services = await device.discoverServices();
+    final svc = services.firstWhere(
+      (s) => s.uuid.toString().toLowerCase().contains('ffe0'),
+      orElse: () => throw 'SpectruLenPor service not found on this device.',
+    );
+    _txChar = svc.characteristics.firstWhere(
+      (c) => c.uuid.toString().toLowerCase().contains('ffe1'),
+      orElse: () => throw 'TX characteristic not found.',
+    );
+    _rxChar = svc.characteristics.firstWhere(
+      (c) => c.uuid.toString().toLowerCase().contains('ffe2'),
+      orElse: () => throw 'RX characteristic not found.',
+    );
+
+    await _txChar!.setNotifyValue(true);
+    await _notifySub?.cancel();
+    _notifySub = _txChar!.lastValueStream.listen(_onNotification);
+
+    await _rxChar!.write([cmdStreamOn], withoutResponse: false);
+    _statusCtl.add(BluetoothStatus.connected);
+  }
+
+  void _scheduleReconnect() {
+    if (_reconnectPending || _userDisconnect || _device == null) return;
+    if (_reconnectAttempts >= maxReconnectAttempts) {
+      debugPrint('[BLE] gave up auto-reconnect after '
+          '$_reconnectAttempts attempts.');
+      _statusCtl.add(BluetoothStatus.error);
+      return;
+    }
+    _reconnectPending = true;
+    _reconnectAttempts++;
+    // 1, 2, 4, 8, 16, 16 s backoff steps.
+    final step = (_reconnectAttempts - 1).clamp(0, 4);
+    final delay = Duration(seconds: 1 << step);
+    debugPrint('[BLE] auto-reconnect attempt $_reconnectAttempts/'
+        '$maxReconnectAttempts in ${delay.inSeconds}s…');
+    _reconnectTimer = Timer(delay, () async {
+      _reconnectPending = false;
+      final device = _device;
+      if (device == null || _userDisconnect) return;
+      try {
+        _statusCtl.add(BluetoothStatus.connecting);
+        await _establishSession(device);
+        _reconnectAttempts = 0;
+        debugPrint('[BLE] auto-reconnected to ${_deviceName ?? 'glasses'}.');
+      } catch (e) {
+        debugPrint('[BLE] reconnect attempt failed: $e');
+        _statusCtl.add(BluetoothStatus.error);
+        _scheduleReconnect(); // escalate backoff, try again
+      }
+    });
   }
 
   /// Exposed for unit testing of BLE packet reassembly.
   @visibleForTesting
   void debugFeedNotification(List<int> chunk) => _onNotification(chunk);
 
+  void _resetFrame() {
+    _jpegBuf.clear();
+    _capturingJpeg = false;
+    _lastByte = -1;
+  }
+
   void _onNotification(List<int> chunk) {
     if (chunk.isEmpty) return;
     final bytes = Uint8List.fromList(chunk);
 
-    // --- Telemetry text packets: start with '$', end with '\n' ---
-    if (!_capturingJpeg && bytes[0] == 0x24 /* '$' */) {
-      _textBuf.write(asciiDecode(bytes));
-      final s = _textBuf.toString();
-      if (s.contains('\n')) {
-        for (final line in s.split('\n')) {
-          final reading = SpectrumReading.tryParse(line.trim());
-          if (reading != null) {
-            _sensorCtl.add(reading);
+    int pos = 0;
+    while (pos < bytes.length) {
+      if (!_capturingJpeg) {
+        // --- Telemetry text packets: start with '$', end with '\n' ---
+        if (bytes[pos] == 0x24 /* '$' */) {
+          _lastByte = -1; // frame-stream carry cannot survive a text packet
+          _textBuf.write(asciiDecode(bytes.sublist(pos)));
+          final s = _textBuf.toString();
+          if (s.contains('\n')) {
+            for (final line in s.split('\n')) {
+              final reading = SpectrumReading.tryParse(line.trim());
+              if (reading != null) {
+                _sensorCtl.add(reading);
+              }
+            }
+            _textBuf.clear();
+          }
+          return;
+        }
+
+        // --- Scan for SOI (FFD8), honoring a 0xFF carried from the
+        //     previous notification (marker split across chunks). ---
+        int soi = -1;
+        if (_lastByte == 0xFF && bytes[pos] == 0xD8) {
+          soi = pos - 1; // virtual: the FF lives at the end of the previous chunk
+          _jpegBuf.add([0xFF]);
+        } else {
+          for (int i = pos; i < bytes.length - 1; i++) {
+            if (bytes[i] == 0xFF && bytes[i + 1] == 0xD8) {
+              soi = i;
+              break;
+            }
           }
         }
-        _textBuf.clear();
+        if (soi < 0) {
+          _lastByte = bytes.last;
+          return;
+        }
+        _lastByte = -1;
+        _capturingJpeg = true;
+        pos = (soi == pos - 1) ? pos : soi;
+        if (soi == pos) {
+          // SOI fully inside this chunk: seed the buffer with FF D8.
+          _jpegBuf.add([0xFF, 0xD8]);
+          pos = soi + 2;
+        }
+        continue;
       }
-      return;
-    }
 
-    // --- JPEG reassembly ---
-    if (!_capturingJpeg) {
-      for (int i = 0; i < bytes.length - 1; i++) {
-        if (bytes[i] == 0xFF && bytes[i + 1] == 0xD8) {
-          _jpegBuf.clear();
-          _jpegBuf.add(bytes.sublist(i));
-          _capturingJpeg = true;
-          break;
+      // --- Capturing: append this chunk (O(chunk), no whole-buffer rescan)
+      //     and look for EOI, including one straddling the previous chunk. ---
+      int frameEndInChunk = -1; // inclusive index of the D9 byte
+      if (_lastByte == 0xFF && bytes[pos] == 0xD9) {
+        frameEndInChunk = pos; // FF already in buffer
+      } else {
+        for (int i = pos; i < bytes.length - 1; i++) {
+          if (bytes[i] == 0xFF && bytes[i + 1] == 0xD9) {
+            frameEndInChunk = i + 1;
+            break;
+          }
         }
       }
-    } else {
-      if (_jpegBuf.length + bytes.length > maxFrameBytes) {
-        debugPrint('[BLE] frame exceeded max size — resetting buffer.');
-        _jpegBuf.clear();
-        _capturingJpeg = false;
+
+      if (frameEndInChunk < 0) {
+        _jpegBuf.add(bytes.sublist(pos));
+        _lastByte = bytes.last;
+        if (_jpegBuf.length > maxFrameBytes) {
+          debugPrint('[BLE] frame exceeded max size — resetting buffer.');
+          _resetFrame();
+          return;
+        }
         return;
       }
-      _jpegBuf.add(bytes);
-    }
 
-    if (_capturingJpeg) {
-      final built = _jpegBuf.toBytes();
-      for (int j = 2; j < built.length - 1; j++) {
-        if (built[j] == 0xFF && built[j + 1] == 0xD9) {
-          _frameCtl.add(FrameData(
-            jpegBytes: Uint8List.fromList(built.sublist(0, j + 2)),
-            width: 320, // ESP32-CAM firmware streams QVGA (320x240)
-            height: 240,
-            capturedAt: DateTime.now(),
-          ));
-          _jpegBuf.clear();
-          _capturingJpeg = false;
-          break;
-        }
-      }
+      _jpegBuf.add(bytes.sublist(pos, frameEndInChunk + 1));
+      final jpeg = _jpegBuf.toBytes();
+      _resetFrame();
+      _frameCtl.add(FrameData(
+        jpegBytes: Uint8List.fromList(jpeg),
+        width: 320, // ESP32-CAM firmware streams QVGA (320x240)
+        height: 240,
+        capturedAt: DateTime.now(),
+      ));
+      // Continue with the remainder (may contain the next frame's SOI
+      // or trailing padding, which is dropped).
+      pos = frameEndInChunk + 1;
     }
   }
 
@@ -244,6 +348,12 @@ class BluetoothCameraService {
       _sendCmd(on ? cmdFlashOn : cmdFlashOff);
 
   Future<void> disconnect() async {
+    _userDisconnect = true; // suppress auto-reconnect
+    _reconnectTimer?.cancel();
+    _reconnectPending = false;
+    _reconnectAttempts = 0;
+    await _connSub?.cancel();
+    _connSub = null;
     await pauseStream();
     await setFlashlight(false);
     await _device?.disconnect();
@@ -251,12 +361,14 @@ class BluetoothCameraService {
     _deviceName = null;
     _txChar = null;
     _rxChar = null;
-    _jpegBuf.clear();
-    _capturingJpeg = false;
+    _resetFrame();
     _statusCtl.add(BluetoothStatus.disconnected);
   }
 
   void dispose() {
+    _reconnectTimer?.cancel();
+    _connSub?.cancel();
+    _notifySub?.cancel();
     _statusCtl.close();
     _frameCtl.close();
     _sensorCtl.close();

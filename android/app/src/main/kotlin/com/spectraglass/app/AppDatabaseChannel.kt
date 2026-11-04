@@ -108,7 +108,14 @@ object AppDatabaseChannel {
                     "query" -> {
                         val table = validateTable(call.argument<String>("table"))
                         val where = call.argument<String>("where")
-                        val whereArgs = call.argument<List<String>>("whereArgs")?.toTypedArray()
+                        // Read args as List<Any?> (defensive): a Dart int sneaking
+                        // into a List<String> cast would throw ArrayStoreException.
+                        // NOTE: android.database.sqlite binds whereArgs as TEXT —
+                        // wrap numeric comparisons in CAST(? AS INTEGER) on the
+                        // Dart side (see InternalDatabaseService.evictExpiredCache).
+                        val whereArgs = call.argument<List<Any?>>("whereArgs")
+                            ?.map { it?.toString() }
+                            ?.toTypedArray()
                         val orderBy = call.argument<String>("orderBy")
                         val limit = call.argument<Int>("limit")?.toString()
                         val rows = ArrayList<Map<String, Any?>>()
@@ -131,7 +138,9 @@ object AppDatabaseChannel {
                     "delete" -> {
                         val table = validateTable(call.argument<String>("table"))
                         val where = call.argument<String>("where")
-                        val whereArgs = call.argument<List<String>>("whereArgs")?.toTypedArray()
+                        val whereArgs = call.argument<List<Any?>>("whereArgs")
+                            ?.map { it?.toString() }
+                            ?.toTypedArray()
                         val deleted = db.delete(table, where, whereArgs)
                         postSuccess(result, deleted)
                     }

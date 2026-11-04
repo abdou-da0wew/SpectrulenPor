@@ -126,7 +126,9 @@ class OpenRouterService {
         'model': model,
         'stream': true,
         'temperature': 0.3,
-        'max_tokens': 420,
+        // 640 gives the initial report room for the hazard line + the
+        // "## Explore" section without clipping (420 truncated Arabic reports).
+        'max_tokens': 640,
         'reasoning': {'exclude': true},
         'messages': [
           {'role': 'system', 'content': systemPrompt},
@@ -413,6 +415,10 @@ class OpenRouterService {
         'model': model,
         'messages': messages,
         'stream': true,
+        // Sampling bounds were missing on the chat path — an unbounded
+        // generation could run forever (and burn free-tier quota).
+        'temperature': 0.35,
+        'max_tokens': 1600,
         'reasoning': {'exclude': false},
       });
     yield* _consumeSse(request, model, timeoutSeconds: 25);
@@ -435,9 +441,19 @@ class OpenRouterService {
         throw HttpExceptionWithBody(streamed.statusCode, body);
       }
 
+      // The .timeout() above only covers the HTTP send; a stream that
+      // stalls mid-response (proxy drop, model hang) used to hang the
+      // await-forever below and block the fallback chain. This per-event
+      // gap timeout throws if NO data arrives for 3x the connect window.
       final lines = streamed.stream
           .transform(utf8.decoder)
-          .transform(const LineSplitter());
+          .transform(const LineSplitter())
+          .timeout(
+            Duration(seconds: timeoutSeconds * 3),
+            onTimeout: (sink) => sink.addError(
+              TimeoutException('OpenRouter stream stalled ($model)'),
+            ),
+          );
 
       await for (final raw in lines) {
         if (!raw.startsWith('data:')) continue;

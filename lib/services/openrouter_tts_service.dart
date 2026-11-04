@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import 'internal_db_service.dart';
 import 'tts_sink.dart';
 
 /// Streamed TTS from OpenRouter — model `fish-audio/s2.1-pro-free:free`.
@@ -108,6 +109,13 @@ class OpenRouterTtsService {
     } catch (e) {
       debugPrint('[OpenRouterTts] error: $e — caller should fall back to '
           'native TTS.');
+      // Surface the failure in Diagnostics instead of dying silently
+      // (audit fix: cloudOnly + missing/failed TTS used to be invisible).
+      unawaited(InternalDatabaseService.instance.logWarn(
+        'OpenRouterTts',
+        'Cloud TTS request failed; native fallback should engage',
+        {'error': e.toString()},
+      ));
       return false;
     }
   }

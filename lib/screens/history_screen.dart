@@ -560,7 +560,8 @@ class _HistoryScreenState extends State<HistoryScreen>
         final a = _activities[i];
         final action = (a['action'] ?? '').toString();
         final target = (a['target'] ?? '').toString();
-        final ts = (a['created_at'] as num?)?.toInt() ?? 0;
+        // user_activity uses `ts` (NOT created_at).
+        final ts = (a['ts'] as num?)?.toInt() ?? 0;
         final dt = DateTime.fromMillisecondsSinceEpoch(ts);
         return ListTile(
           leading: Icon(
