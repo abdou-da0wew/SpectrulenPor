@@ -79,9 +79,9 @@ class RecognitionState extends ChangeNotifier {
   // ----------------------------- Settings -----------------------------
   bool _liveSpeak = true;
   bool _deepReasonEnabled = true;
-  bool _useOpenRouterTts = false;
+  bool _useOpenRouterTts = true; // Fish Audio cloud TTS is the preferred narrator
   bool _captureReasoningTokens = true;
-  int _fps = 1;
+  int _fps = 2;
   int _upstreamStartModel = 0;
   String _localeCode = 'en';
   DocsSearchMode _searchMode = DocsSearchMode.semantic;
@@ -165,9 +165,9 @@ class RecognitionState extends ChangeNotifier {
     _cloudOnly = prefs.getBool('cloud_only') ?? false;
     _liveSpeak = prefs.getBool('live_speak') ?? true;
     _deepReasonEnabled = prefs.getBool('deep_reason') ?? true;
-    _useOpenRouterTts = prefs.getBool('use_or_tts') ?? false;
+    _useOpenRouterTts = prefs.getBool('use_or_tts') ?? true;
     _captureReasoningTokens = prefs.getBool('capture_reasoning') ?? true;
-    _fps = (prefs.getInt('fps') ?? 1).clamp(1, 4);
+    _fps = (prefs.getInt('fps') ?? 2).clamp(1, 4);
     _upstreamStartModel = (prefs.getInt('upstream_start_model') ?? 0)
         .clamp(0, OpenRouterService.modelChain.length - 1);
     _localeCode = prefs.getString('locale') ?? 'en';
@@ -475,16 +475,64 @@ class RecognitionState extends ChangeNotifier {
         return;
       }
 
-      if (_autoFlashOn && !gate.tooDark && _flashOn) {
+      // Auto-torch OFF with hysteresis: engage below ~38 luma, release only
+      // when frames are CLEARLY bright again (>= kAutoTorchOffBrightness).
+      // The wide gap between the two thresholds prevents on/off flicker when
+      // the scene sits right at the darkness boundary.
+      if (_autoFlashOn && _flashOn && gate.brightness >= kAutoTorchOffBrightness) {
         await phoneCamera.setTorch(false);
         _autoFlashOn = false;
         _flashOn = false;
         notifyListeners();
       }
 
+      // ---- Instant bounding-box invalidation ----------------------------
+      // 1. Scene change: compare the 8x8 luma block signature of gated
+      //    frames. A large jump (fast pan, 180° swing, source switch) drops
+      //    ALL stale boxes instantly so the overlay never shows markers from
+      //    an older camera position.
+      final sig = gate.signature;
+      final prevSig = _lastFrameSignature;
+      _lastFrameSignature = sig;
+      if (sig != null && prevSig != null && sig.length == prevSig.length) {
+        var diffSum = 0;
+        for (var i = 0; i < sig.length; i++) {
+          diffSum += (sig[i] - prevSig[i]).abs();
+        }
+        final meanDiff = diffSum / sig.length;
+        if (meanDiff > kSceneChangeDiff &&
+            (_currentBoxes.isNotEmpty || _selectedBox != null)) {
+          _currentBoxes = const [];
+          _selectedBox = null;
+          _hasUnanalyzedSelection = false;
+          _lastLabel = null;
+          notifyListeners();
+        }
+      }
+
+      // 2. Staleness: if the detector has not returned anything recently
+      //    (inference stall, disconnected glasses), never keep ghost boxes.
+      final now = DateTime.now();
+      if (_currentBoxes.isNotEmpty &&
+          _lastDetectionAt != null &&
+          now.difference(_lastDetectionAt!).inMilliseconds > kBoxStaleAfterMs) {
+        _currentBoxes = const [];
+        _hasUnanalyzedSelection = false;
+        notifyListeners();
+      }
+
       if (!gate.visible) {
         _visionSource = VisionSource.idle;
-        notifyListeners();
+        // Lens covered / flat blank view / unreadable frame — boxes from the
+        // previous scene are meaningless; drop them immediately.
+        if (gate.blocked || gate.tooBlank || gate.reason == 'decode_failed') {
+          if (_currentBoxes.isNotEmpty || _selectedBox != null) {
+            _currentBoxes = const [];
+            _selectedBox = null;
+            _hasUnanalyzedSelection = false;
+            notifyListeners();
+          }
+        }
         return;
       }
 
@@ -709,18 +757,57 @@ class RecognitionState extends ChangeNotifier {
 
   // ----------------------------- YOLO + Selection + Dual Capture -----------------------------
 
+  /// Scene-change sensitivity: mean 8x8-block luma delta above which live
+  /// overlay boxes are invalidated instantly (fast pan / rotation / swing).
+  static const double kSceneChangeDiff = 15.0;
+
+  /// Auto-torch release threshold (hysteresis upper bound). Torch engages
+  /// below [VisionGateResult.kMinBrightness] (~38) and releases once frames
+  /// are clearly bright again.
+  static const double kAutoTorchOffBrightness = 70.0;
+
+  /// Boxes older than this are dropped even without a scene change.
+  static const int kBoxStaleAfterMs = 2500;
+
+  List<int>? _lastFrameSignature;
+  DateTime? _lastDetectionAt;
+  bool _yoloInFlight = false;
+  FrameData? _yoloPendingFrame;
+
+  /// Runs YOLO26-Nano with **latest-frame pipelining**: while one inference
+  /// is in flight, any newly arriving frame supersedes queued ones (newest
+  /// wins), so detection always reflects the live camera view. The boxes
+  /// currently on screen stay until the newest result replaces them — the
+  /// overlay never lags behind fast camera movements with stale markers.
   Future<void> _runYoloDetection(FrameData frame) async {
     if (!_yolo.isReady) return;
-    final boxes = await _yolo.detect(frame.jpegBytes);
-    _currentBoxes = boxes;
-    if (boxes.isNotEmpty && _lastLabel == null) {
-      final top = boxes.first;
-      final pct = (top.confidence * 100).round().clamp(0, 100);
-      _lastLabel = isArabic
-          ? 'تم رصد: ${top.label} ($pct%)'
-          : 'Detected: ${top.label} ($pct%)';
+    if (_yoloInFlight) {
+      _yoloPendingFrame = frame;
+      return;
     }
-    notifyListeners();
+    _yoloInFlight = true;
+    try {
+      var target = frame;
+      while (true) {
+        final boxes = await _yolo.detect(target.jpegBytes);
+        _currentBoxes = boxes;
+        _lastDetectionAt = DateTime.now();
+        if (boxes.isNotEmpty && _lastLabel == null) {
+          final top = boxes.first;
+          final pct = (top.confidence * 100).round().clamp(0, 100);
+          _lastLabel = isArabic
+              ? 'تم رصد: ${top.label} ($pct%)'
+              : 'Detected: ${top.label} ($pct%)';
+        }
+        notifyListeners();
+        final next = _yoloPendingFrame;
+        _yoloPendingFrame = null;
+        if (next == null) break;
+        target = next;
+      }
+    } finally {
+      _yoloInFlight = false;
+    }
   }
 
   /// User tapped a bounding box on the preview overlay — marks it as selected.
@@ -785,6 +872,7 @@ class RecognitionState extends ChangeNotifier {
             cleanJpeg,
             withBoxesJpeg,
             selectedLabel: box.label,
+            selectedBox: box,
             lang: _localeCode,
           ),
           traceId: traceId,
@@ -895,12 +983,16 @@ class RecognitionState extends ChangeNotifier {
       notifyListeners();
 
       if (_liveSpeak && annotated.body.trim().isNotEmpty) {
-        final preferCloudTts =
-            _useOpenRouterTts || (_cloudOnly && openRouterTts.isConfigured);
-        if (preferCloudTts) {
-          unawaited(openRouterTts.speakMarkdown(annotated.body));
-        } else if (!_cloudOnly) {
-          unawaited(nativeTts.speak(_cleanForSpeech(annotated.body)));
+        final cleanSpeech = _cleanForSpeech(annotated.body);
+        // Fish Audio (OpenRouter cloud TTS) is the preferred narrator whenever
+        // its key is configured; native Android TTS is the automatic fallback
+        // when the cloud stream fails or is unavailable.
+        if (openRouterTts.isConfigured && (_useOpenRouterTts || _cloudOnly)) {
+          unawaited(openRouterTts.speakMarkdown(annotated.body).then((spoken) {
+            if (!spoken) unawaited(nativeTts.speak(cleanSpeech));
+          }));
+        } else {
+          unawaited(nativeTts.speak(cleanSpeech));
         }
       }
       return true;
@@ -979,6 +1071,7 @@ class RecognitionState extends ChangeNotifier {
       newFrames.cleanJpeg,
       newFrames.withBoxesJpeg,
       selectedLabel: newBox.label,
+      selectedBox: newBox,
       lang: _localeCode,
     );
     if (newAnalysis != null) {
@@ -1024,7 +1117,11 @@ class _PaintBoxesArgs {
   const _PaintBoxesArgs(this.jpeg, this.boxes, this.selected);
 }
 
-/// Paints the "with-boxes" JPEG variant:
+/// Paints the "with-boxes" JPEG variant with **privacy-first composition**:
+///   * EVERYTHING outside the selected object's bounding box (plus a 15%
+///     safety margin so a slightly-off box never bleeds the object into the
+///     blurred zone) is heavily blurred before upload — only the selected
+///     object is revealed to the cloud VLM.
 ///   * Unselected boxes get a subtle dusty-lavender outline for scene context.
 ///   * The user-selected box gets a prominent dusty-mauve double border, bold
 ///     corner target brackets, a center target crosshair reticle, and a crisp
@@ -1039,6 +1136,47 @@ Uint8List _paintBoxesIsolate(_PaintBoxesArgs args) {
 
     final allBoxes =
         args.boxes.isEmpty ? <BoundingBox>[args.selected] : args.boxes;
+
+    // ---- Privacy pass: blur the whole frame, then reveal only the target ----
+    final sel = args.selected;
+    final marginX = ((sel.w * w) * 0.15).round().clamp(6, w);
+    final marginY = ((sel.h * h) * 0.15).round().clamp(6, h);
+    final px1 = ((sel.x * w).round() - marginX).clamp(0, w - 1);
+    final py1 = ((sel.y * h).round() - marginY).clamp(0, h - 1);
+    final px2 = (((sel.x + sel.w) * w).round() + marginX).clamp(px1 + 1, w);
+    final py2 = (((sel.y + sel.h) * h).round() + marginY).clamp(py1 + 1, h);
+    final cropW = px2 - px1;
+    final cropH = py2 - py1;
+
+    // Strong, cheap blur: downscale to a tiny image (average interpolation)
+    // then upscale back with cubic smoothing — heavy gaussian-like blur with
+    // zero external dependencies. Nothing outside the target survives it.
+    final blurW = (w / 22).round().clamp(12, 96);
+    final blurH = (h * blurW / w).round().clamp(8, 96);
+    final tiny = img.copyResize(
+      decoded,
+      width: blurW,
+      height: blurH,
+      interpolation: img.Interpolation.average,
+    );
+    final blurred = img.copyResize(
+      tiny,
+      width: w,
+      height: h,
+      interpolation: img.Interpolation.cubic,
+    );
+
+    // Composite the sharp target region (with safety margin) back on top.
+    final sharpCrop = img.copyCrop(
+      decoded,
+      x: px1,
+      y: py1,
+      width: cropW,
+      height: cropH,
+    );
+    img.compositeImage(blurred, sharpCrop, dstX: px1, dstY: py1);
+
+    final canvas = blurred;
 
     final lavender = img.ColorRgba8(0x82, 0x53, 0x76, 0xCC);
     final mauve = img.ColorRgba8(0xA6, 0x7E, 0x98, 0xFF);
@@ -1057,7 +1195,7 @@ Uint8List _paintBoxesIsolate(_PaintBoxesArgs args) {
 
       if (!isSel) {
         img.drawRect(
-          decoded,
+          canvas,
           x1: x1,
           y1: y1,
           x2: x2,
@@ -1070,7 +1208,7 @@ Uint8List _paintBoxesIsolate(_PaintBoxesArgs args) {
 
       // Outer + inner frame for selected object
       img.drawRect(
-        decoded,
+        canvas,
         x1: x1,
         y1: y1,
         x2: x2,
@@ -1081,7 +1219,7 @@ Uint8List _paintBoxesIsolate(_PaintBoxesArgs args) {
       final inset = 4;
       if (x2 - x1 > inset * 2 && y2 - y1 > inset * 2) {
         img.drawRect(
-          decoded,
+          canvas,
           x1: x1 + inset,
           y1: y1 + inset,
           x2: x2 - inset,
@@ -1094,22 +1232,22 @@ Uint8List _paintBoxesIsolate(_PaintBoxesArgs args) {
       // Corner target brackets
       final minSide = (x2 - x1) < (y2 - y1) ? (x2 - x1) : (y2 - y1);
       final bracket = (minSide * 0.22).round().clamp(8, 42);
-      img.drawLine(decoded, x1: x1, y1: y1, x2: x1 + bracket, y2: y1, color: white, thickness: 4);
-      img.drawLine(decoded, x1: x1, y1: y1, x2: x1, y2: y1 + bracket, color: white, thickness: 4);
-      img.drawLine(decoded, x1: x2, y1: y1, x2: x2 - bracket, y2: y1, color: white, thickness: 4);
-      img.drawLine(decoded, x1: x2, y1: y1, x2: x2, y2: y1 + bracket, color: white, thickness: 4);
-      img.drawLine(decoded, x1: x1, y1: y2, x2: x1 + bracket, y2: y2, color: white, thickness: 4);
-      img.drawLine(decoded, x1: x1, y1: y2, x2: x1, y2: y2 - bracket, color: white, thickness: 4);
-      img.drawLine(decoded, x1: x2, y1: y2, x2: x2 - bracket, y2: y2, color: white, thickness: 4);
-      img.drawLine(decoded, x1: x2, y1: y2, x2: x2, y2: y2 - bracket, color: white, thickness: 4);
+      img.drawLine(canvas, x1: x1, y1: y1, x2: x1 + bracket, y2: y1, color: white, thickness: 4);
+      img.drawLine(canvas, x1: x1, y1: y1, x2: x1, y2: y1 + bracket, color: white, thickness: 4);
+      img.drawLine(canvas, x1: x2, y1: y1, x2: x2 - bracket, y2: y1, color: white, thickness: 4);
+      img.drawLine(canvas, x1: x2, y1: y1, x2: x2, y2: y1 + bracket, color: white, thickness: 4);
+      img.drawLine(canvas, x1: x1, y1: y2, x2: x1 + bracket, y2: y2, color: white, thickness: 4);
+      img.drawLine(canvas, x1: x1, y1: y2, x2: x1, y2: y2 - bracket, color: white, thickness: 4);
+      img.drawLine(canvas, x1: x2, y1: y2, x2: x2 - bracket, y2: y2, color: white, thickness: 4);
+      img.drawLine(canvas, x1: x2, y1: y2, x2: x2, y2: y2 - bracket, color: white, thickness: 4);
 
       // Center target marker reticle
       final cx = ((x1 + x2) ~/ 2).clamp(0, w - 1);
       final cy = ((y1 + y2) ~/ 2).clamp(0, h - 1);
       final rad = (minSide * 0.08).round().clamp(6, 18);
-      img.drawCircle(decoded, x: cx, y: cy, radius: rad, color: mauve);
+      img.drawCircle(canvas, x: cx, y: cy, radius: rad, color: mauve);
       img.drawLine(
-        decoded,
+        canvas,
         x1: (cx - rad - 6).clamp(0, w - 1),
         y1: cy,
         x2: (cx + rad + 6).clamp(0, w - 1),
@@ -1118,7 +1256,7 @@ Uint8List _paintBoxesIsolate(_PaintBoxesArgs args) {
         thickness: 2,
       );
       img.drawLine(
-        decoded,
+        canvas,
         x1: cx,
         y1: (cy - rad - 6).clamp(0, h - 1),
         x2: cx,
@@ -1137,7 +1275,7 @@ Uint8List _paintBoxesIsolate(_PaintBoxesArgs args) {
           ? (y1 - bannerH)
           : y1.clamp(0, (h - bannerH).clamp(0, h));
       img.fillRect(
-        decoded,
+        canvas,
         x1: bx1,
         y1: by1,
         x2: (bx1 + bannerW).clamp(0, w),
@@ -1145,7 +1283,7 @@ Uint8List _paintBoxesIsolate(_PaintBoxesArgs args) {
         color: mauve,
       );
       img.drawString(
-        decoded,
+        canvas,
         tagText,
         font: img.arial14,
         x: bx1 + 6,

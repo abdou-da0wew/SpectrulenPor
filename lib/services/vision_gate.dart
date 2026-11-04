@@ -18,6 +18,12 @@ class VisionGateResult {
   final bool blocked;            // lens is covered (dark + uniform)
   final String reason;           // 'ok' | 'too_dark' | 'blank' | 'blurred' | 'blocked' | 'decode_failed'
 
+  /// Compact 8x8 block-mean luma signature (64 values, 0..255).
+  /// Downstream state compares consecutive signatures to detect large scene
+  /// changes (fast pans / 180° swings) and instantly invalidate stale
+  /// bounding boxes. Null on decode failure.
+  final List<int>? signature;
+
   const VisionGateResult({
     required this.visible,
     required this.brightness,
@@ -25,6 +31,7 @@ class VisionGateResult {
     required this.blurScore,
     required this.blocked,
     required this.reason,
+    this.signature,
   });
 
   bool get tooDark => brightness < kMinBrightness;
@@ -155,6 +162,20 @@ class VisionGate {
 
     final visible = !tooDark && !tooBlank && !tooBlurred && !blocked;
 
+    // 8x8 block-mean signature (cheap — the 64x64 luma plane is already here).
+    final sig = List<int>.filled(64, 0);
+    for (int by = 0; by < 8; by++) {
+      for (int bx = 0; bx < 8; bx++) {
+        double blockSum = 0;
+        for (int y = by * 8; y < (by + 1) * 8; y++) {
+          for (int x = bx * 8; x < (bx + 1) * 8; x++) {
+            blockSum += lum[y * w + x];
+          }
+        }
+        sig[by * 8 + bx] = (blockSum / 64).round().clamp(0, 255);
+      }
+    }
+
     return VisionGateResult(
       visible: visible,
       brightness: mean,
@@ -162,6 +183,7 @@ class VisionGate {
       blurScore: lapVar,
       blocked: blocked,
       reason: reason,
+      signature: sig,
     );
   }
 }

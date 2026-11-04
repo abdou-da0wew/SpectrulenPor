@@ -64,10 +64,10 @@ void main() {
 
     expect(state.liveSpeak, isTrue);
     expect(state.deepReasonEnabled, isTrue);
-    expect(state.useOpenRouterTts, isFalse);
+    expect(state.useOpenRouterTts, isTrue); // Fish Audio is the default narrator
     expect(state.cloudOnly, isFalse);
     expect(state.searchMode, DocsSearchMode.semantic);
-    expect(state.fps, 1);
+    expect(state.fps, 2);
     expect(state.localeCode, 'en');
     expect(state.isArabic, isFalse);
     expect(state.source, CameraSource.phone);

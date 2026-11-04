@@ -18,6 +18,9 @@ class YoloModelStatus {
   final String inputShape;
   final String outputShape;
   final int labelCount;
+  final String executionProvider; // cpu | nnapi_fp16 | xnnpack (startup-benchmark winner)
+  final int epBenchmarkMs; // avg warmup inference time of the winning EP
+  final int inputSize; // actual model input resolution (640 by default)
   final String? error; // e.g. provisioning failure message, null when ready
 
   String get source => modelSource;
@@ -33,6 +36,9 @@ class YoloModelStatus {
     required this.inputShape,
     required this.outputShape,
     required this.labelCount,
+    this.executionProvider = 'cpu',
+    this.epBenchmarkMs = 0,
+    this.inputSize = 640,
     this.error,
   });
 
@@ -47,6 +53,9 @@ class YoloModelStatus {
       inputShape: (m['inputShape'] as String?) ?? '[1, 3, 640, 640]',
       outputShape: (m['outputShape'] as String?) ?? '[1, 300, 6]',
       labelCount: (m['labelCount'] as num?)?.toInt() ?? 80,
+      executionProvider: (m['executionProvider'] as String?) ?? 'cpu',
+      epBenchmarkMs: (m['epBenchmarkMs'] as num?)?.toInt() ?? 0,
+      inputSize: (m['inputSize'] as num?)?.toInt() ?? 640,
       error: m['error'] as String?,
     );
   }
@@ -128,7 +137,9 @@ class YoloDetector {
         debugPrint(
           '[YoloDetector] ready (${_status.modelSource}) — '
           '${(_status.modelSizeBytes / 1024).round()} KB, '
-          '${_labels?.length ?? _status.labelCount} classes in ${sw.elapsedMilliseconds}ms',
+          '${_labels?.length ?? _status.labelCount} classes, '
+          'ep=${_status.executionProvider} (${_status.epBenchmarkMs}ms), '
+          'imgsz=${_status.inputSize} in ${sw.elapsedMilliseconds}ms',
         );
         unawaited(InternalDatabaseService.instance.logInfo(
           'YoloDetector',
@@ -137,6 +148,9 @@ class YoloDetector {
             'sizeBytes': _status.modelSizeBytes,
             'end2end': _status.end2end,
             'outputShape': _status.outputShape,
+            'executionProvider': _status.executionProvider,
+            'epBenchmarkMs': _status.epBenchmarkMs,
+            'inputSize': _status.inputSize,
             'initMs': sw.elapsedMilliseconds,
           },
         ));
@@ -170,6 +184,11 @@ class YoloDetector {
 
   /// Run detection on a JPEG. Boxes are normalized 0..1 in original-image
   /// coordinates; `BoundingBoxOverlay` maps them via `BoxFit.cover` geometry.
+  ///
+  /// Latest-frame pipelining: callers (RecognitionState) guard against queueing
+  /// — while one inference is in flight, newer frames supersede older ones and
+  /// the currently shown boxes stay on screen, so the overlay never lags
+  /// behind the live camera view.
   Future<List<BoundingBox>> detect(Uint8List jpegBytes) async {
     if (!_ready || jpegBytes.isEmpty) return const [];
     final startedAt = DateTime.now().millisecondsSinceEpoch;

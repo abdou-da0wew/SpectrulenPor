@@ -3,6 +3,8 @@ package com.spectraglass.app
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
+import ai.onnxruntime.TensorInfo
+import java.util.EnumSet
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -50,7 +52,7 @@ import kotlin.math.roundToInt
 object YoloInferenceChannel {
     private const val TAG = "YoloChannel"
     private const val CHANNEL = "com.spectraglass/yolo"
-    private const val INPUT_SIZE = 640
+    private const val DEFAULT_INPUT_SIZE = 640
     private const val DEFAULT_CONF_THRESHOLD = 0.25f
     private const val IOU_THRESHOLD = 0.45f
     private const val MIN_VALID_MODEL_BYTES = 1_000_000L
@@ -73,6 +75,13 @@ object YoloInferenceChannel {
     @Volatile private var inputShapeStr: String = "[1, 3, 640, 640]"
     @Volatile private var outputShapeStr: String = "[1, 300, 6]"
     @Volatile private var dynamicLabels: List<String> = emptyList()
+
+    /** Actual square input resolution of the loaded model (parsed from ONNX graph). */
+    @Volatile private var inputSize: Int = DEFAULT_INPUT_SIZE
+
+    /** Which execution provider won the startup benchmark: cpu | nnapi_fp16 | xnnpack. */
+    @Volatile private var executionProvider: String = "cpu"
+    @Volatile private var epBenchmarkMs: Long = 0L
 
     /** Standard 80 COCO class names matching Ultralytics YOLO26n metadata. */
     private val COCO_LABELS = listOf(
@@ -159,7 +168,10 @@ object YoloInferenceChannel {
         "lastInferenceMs" to lastInferenceMs,
         "inputShape" to inputShapeStr,
         "outputShape" to outputShapeStr,
-        "labelCount" to activeLabels().size
+        "labelCount" to activeLabels().size,
+        "executionProvider" to executionProvider,
+        "epBenchmarkMs" to epBenchmarkMs,
+        "inputSize" to inputSize
     )
 
     @Synchronized
@@ -175,16 +187,73 @@ object YoloInferenceChannel {
         modelSizeBytes = modelFile.length()
 
         val env = ortEnv ?: OrtEnvironment.getEnvironment().also { ortEnv = it }
-        val opts = OrtSession.SessionOptions().apply {
-            setIntraOpNumThreads(4)
-            setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+
+        // ---- Execution-provider auto-selection (speed) ----
+        // Benchmarks CPU vs NNAPI(+FP16, NPU/GPU) vs XNNPACK with the real model
+        // on this exact device and keeps the fastest working session. Any EP that
+        // fails to build or infer is silently skipped; CPU is always the baseline.
+        var bestSession: OrtSession? = null
+        var bestEp = "cpu"
+        var bestMs = Long.MAX_VALUE
+
+        try {
+            val cpuOpts = OrtSession.SessionOptions().apply {
+                setIntraOpNumThreads(4)
+                setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+            }
+            val s = env.createSession(modelFile.absolutePath, cpuOpts)
+            val ms = warmupInferenceMs(env, s)
+            if (ms != null) {
+                bestSession = s; bestEp = "cpu"; bestMs = ms
+            } else {
+                s.close()
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "CPU session benchmark failed: ${t.message}")
         }
 
-        ortSession?.close()
-        val session = env.createSession(modelFile.absolutePath, opts)
-        ortSession = session
+        try {
+            val nnapiOpts = OrtSession.SessionOptions().apply {
+                addNnapi(EnumSet.of(OrtSession.SessionOptions.NNAPIFlags.USE_FP16))
+                setIntraOpNumThreads(4) // CPU partition fallback inside the NNAPI graph
+                setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+            }
+            val s = env.createSession(modelFile.absolutePath, nnapiOpts)
+            val ms = warmupInferenceMs(env, s)
+            if (ms != null && ms < bestMs) {
+                bestSession?.close(); bestSession = s; bestEp = "nnapi_fp16"; bestMs = ms
+            } else {
+                s.close()
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "NNAPI session benchmark failed: ${t.message}")
+        }
 
-        // Inspect embedded ONNX metadata & shapes.
+        try {
+            val xnnOpts = OrtSession.SessionOptions().apply {
+                addXnnpack(mapOf("intra_op_num_threads" to "4"))
+                setIntraOpNumThreads(4)
+                setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+            }
+            val s = env.createSession(modelFile.absolutePath, xnnOpts)
+            val ms = warmupInferenceMs(env, s)
+            if (ms != null && ms < bestMs) {
+                bestSession?.close(); bestSession = s; bestEp = "xnnpack"; bestMs = ms
+            } else {
+                s.close()
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "XNNPACK session benchmark failed: ${t.message}")
+        }
+
+        val session = bestSession
+            ?: throw IllegalStateException("No ONNX Runtime execution provider could open the model")
+        ortSession?.close()
+        ortSession = session
+        executionProvider = bestEp
+        epBenchmarkMs = if (bestMs == Long.MAX_VALUE) 0L else bestMs
+
+        // Inspect embedded ONNX metadata, shapes & parameterized input size.
         try {
             val meta = session.metadata.customMetadata
             meta["end2end"]?.let { isEnd2End = it.equals("true", ignoreCase = true) }
@@ -194,7 +263,14 @@ object YoloInferenceChannel {
                     dynamicLabels = parsed
                 }
             }
-            session.inputInfo.values.firstOrNull()?.info?.let { inputShapeStr = it.toString() }
+            session.inputInfo.values.firstOrNull()?.info?.let { info ->
+                inputShapeStr = info.toString()
+                (info as? TensorInfo)?.shape?.let { shape ->
+                    if (shape.size >= 4 && shape[2] > 0 && shape[3] > 0) {
+                        inputSize = shape[2].toInt().coerceIn(64, 1536)
+                    }
+                }
+            }
             session.outputInfo.values.firstOrNull()?.info?.let { outputShapeStr = it.toString() }
         } catch (t: Throwable) {
             Log.w(TAG, "Metadata inspection warning: ${t.message}")
@@ -203,8 +279,41 @@ object YoloInferenceChannel {
         Log.i(
             TAG,
             "YOLO26-Nano ready ($modelSource): ${modelSizeBytes / 1024} KB, " +
-                "end2end=$isEnd2End, labels=${activeLabels().size}, out=$outputShapeStr"
+                "end2end=$isEnd2End, labels=${activeLabels().size}, out=$outputShapeStr, " +
+                "ep=$executionProvider (${epBenchmarkMs}ms), imgsz=$inputSize"
         )
+    }
+
+    /**
+     * Runs two zero-filled warmup inferences (first run includes EP graph
+     * compilation/partitioning) and returns the average per-inference time,
+     * or null if the session cannot run this model on the given EP.
+     */
+    private fun warmupInferenceMs(env: OrtEnvironment, session: OrtSession): Long? = try {
+        val inputName = session.inputNames.iterator().next()
+        val sz = readModelInputSize(session)
+        val shape = longArrayOf(1, 3, sz.toLong(), sz.toLong())
+        val zeros = FloatArray(3 * sz * sz) // ~4.9 MB at 640x640, freed below
+        val t0 = System.nanoTime()
+        OnnxTensor.createTensor(env, FloatBuffer.wrap(zeros), shape).use { tensor ->
+            session.run(mapOf(inputName to tensor)).use { }
+            session.run(mapOf(inputName to tensor)).use { }
+        }
+        (System.nanoTime() - t0) / 2_000_000L
+    } catch (t: Throwable) {
+        Log.w(TAG, "Warmup inference failed: ${t.message}")
+        null
+    }
+
+    /** Reads the fixed square input resolution from the session's graph info. */
+    private fun readModelInputSize(session: OrtSession): Int = try {
+        val info = session.inputInfo.values.firstOrNull()?.info as? TensorInfo
+        val shape = info?.shape
+        if (shape != null && shape.size >= 4 && shape[2] > 0 && shape[3] > 0) {
+            shape[2].toInt().coerceIn(64, 1536)
+        } else DEFAULT_INPUT_SIZE
+    } catch (_: Throwable) {
+        DEFAULT_INPUT_SIZE
     }
 
     /**
@@ -306,7 +415,7 @@ object YoloInferenceChannel {
                 connectTimeout = 15_000
                 readTimeout = 45_000
                 instanceFollowRedirects = true
-                setRequestProperty("User-Agent", "SpectruLenPor/5.4")
+                setRequestProperty("User-Agent", "SpectruLenPor/5.5")
             }
             val code = conn.responseCode
             if (code !in 200..299) {
@@ -428,26 +537,27 @@ object YoloInferenceChannel {
             return emptyList()
         }
 
-        // 2. Letterbox resize to 640x640 (aspect ratio preserved, gray 114 padding)
-        val scale = min(INPUT_SIZE.toFloat() / origW, INPUT_SIZE.toFloat() / origH)
+        // 2. Letterbox resize to model input size (aspect ratio preserved, gray 114 padding)
+        val inputSize = this.inputSize
+        val scale = min(inputSize.toFloat() / origW, inputSize.toFloat() / origH)
         val newW = (origW * scale).roundToInt().coerceAtLeast(1)
         val newH = (origH * scale).roundToInt().coerceAtLeast(1)
-        val padX = (INPUT_SIZE - newW) / 2f
-        val padY = (INPUT_SIZE - newH) / 2f
+        val padX = (inputSize - newW) / 2f
+        val padY = (inputSize - newH) / 2f
 
         val resized = Bitmap.createScaledBitmap(orig, newW, newH, true)
         if (resized !== orig) orig.recycle()
 
-        val letterboxed = Bitmap.createBitmap(INPUT_SIZE, INPUT_SIZE, Bitmap.Config.ARGB_8888)
+        val letterboxed = Bitmap.createBitmap(inputSize, inputSize, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(letterboxed)
         canvas.drawColor(Color.rgb(114, 114, 114))
         canvas.drawBitmap(resized, padX, padY, Paint(Paint.FILTER_BITMAP_FLAG))
         resized.recycle()
 
         // 3. Bulk pixel extraction -> NCHW float32 RGB normalized [0..1]
-        val planeSize = INPUT_SIZE * INPUT_SIZE
+        val planeSize = inputSize * inputSize
         val pixels = IntArray(planeSize)
-        letterboxed.getPixels(pixels, 0, INPUT_SIZE, 0, 0, INPUT_SIZE, INPUT_SIZE)
+        letterboxed.getPixels(pixels, 0, inputSize, 0, 0, inputSize, inputSize)
         letterboxed.recycle()
 
         val floatData = FloatArray(3 * planeSize)
@@ -460,7 +570,7 @@ object YoloInferenceChannel {
         }
 
         val inputName = session.inputNames.iterator().next()
-        val shape = longArrayOf(1, 3, INPUT_SIZE.toLong(), INPUT_SIZE.toLong())
+        val shape = longArrayOf(1, 3, inputSize.toLong(), inputSize.toLong())
         val raw = ArrayList<Detection>()
 
         OnnxTensor.createTensor(env, FloatBuffer.wrap(floatData), shape).use { inputTensor ->
@@ -480,7 +590,7 @@ object YoloInferenceChannel {
                         }
                     }
                     val normalizedCoords = maxCoord in 0.0001f..1.05f
-                    val coordScale = if (normalizedCoords) INPUT_SIZE.toFloat() else 1f
+                    val coordScale = if (normalizedCoords) inputSize.toFloat() else 1f
 
                     for (row in batch) {
                         val score = row[4]

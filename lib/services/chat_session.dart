@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 
+import '../models/bounding_box.dart';
 import '../models/captured_frames.dart';
 import '../models/chat_message.dart';
 import '../models/citation.dart';
@@ -303,12 +304,14 @@ class ChatSession extends ChangeNotifier {
     Uint8List cleanJpeg,
     Uint8List withBoxesJpeg, {
     required String selectedLabel,
+    BoundingBox? selectedBox,
     String lang = 'en',
   }) async {
     final analysis = await MoondreamService.instance.analyzeSelected(
       cleanJpeg,
       withBoxesJpeg,
       selectedLabel: selectedLabel,
+      selectedBox: selectedBox,
       lang: lang,
     );
     if (analysis == null) return null;

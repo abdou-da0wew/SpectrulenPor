@@ -58,10 +58,14 @@ class OpenRouterTtsService {
       };
 
   /// Send markdown to TTS and STREAM the audio while it downloads.
-  Future<void> speakMarkdown(String markdown) async {
-    if (!isConfigured) return;
+  ///
+  /// Returns `true` when playback was actually started successfully and
+  /// `false` when TTS is unconfigured, the text was empty, or the cloud
+  /// request failed — callers use the result to fall back to native TTS.
+  Future<bool> speakMarkdown(String markdown) async {
+    if (!isConfigured) return false;
     final cleaned = stripMarkdownForTest(markdown);
-    if (cleaned.isEmpty) return;
+    if (cleaned.isEmpty) return false;
 
     await stop();
 
@@ -80,8 +84,9 @@ class OpenRouterTtsService {
           }),
         );
         final bytes = res.data;
-        if (bytes == null || bytes.isEmpty) return;
+        if (bytes == null || bytes.isEmpty) return false;
         await sink.playBytes(Uint8List.fromList(bytes));
+        return true;
       } else {
         final response = await _dio.post<ResponseBody>(
           '$baseUrl/audio/speech',
@@ -96,12 +101,14 @@ class OpenRouterTtsService {
           }),
         );
         final body = response.data;
-        if (body == null) return;
+        if (body == null) return false;
         await sink.playStreamed(body.stream.cast<List<int>>());
+        return true;
       }
     } catch (e) {
-      debugPrint('[OpenRouterTts] error: $e — native TTS remains the '
-          'offline fallback.');
+      debugPrint('[OpenRouterTts] error: $e — caller should fall back to '
+          'native TTS.');
+      return false;
     }
   }
 
