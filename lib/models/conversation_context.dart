@@ -433,7 +433,9 @@ class AnchorContext {
         if (excerpt.trim().isNotEmpty)
           '- ملخص السياق العلمي الأولي:\n$excerpt',
         '',
-        'أجب بدقة علمية بالاعتماد على المشهد الملتقط والمصادر المرفقة [n]. لا تخترع مراجع.',
+        'الهدف المحدد أعلاه هو موضوع كل ردودك — لا تصف المشهد المحيط ولا الطاولة.',
+        'أجب بدقة علمية بالاعتماد على التحليل المرفق والمصادر [n] فقط. التخمين ممنوع؛ '
+            'إن لم تتوفر معلومة قل "غير محدد من المصادر المتاحة". لا تخترع مراجع.',
       ].join('\n');
     }
     return [
@@ -444,7 +446,11 @@ class AnchorContext {
       if (excerpt.trim().isNotEmpty)
         '- Initial grounded scientific report (excerpt):\n$excerpt',
       '',
-      'Answer with scientific rigor grounded in the captured object and inline [n] sources. Never invent citations.',
+      'The target above is the EXCLUSIVE subject of your replies — never describe '
+          'the surrounding scene or the table.',
+      'Answer with scientific rigor grounded ONLY in the attached analysis and inline '
+          '[n] sources. Guessing is prohibited: if a detail is not covered, say "not '
+          'determined from the available sources". Never invent citations.',
     ].join('\n');
   }
 }

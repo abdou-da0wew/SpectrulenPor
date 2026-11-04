@@ -79,8 +79,11 @@ class FactCheckerService {
       if (trimmed.startsWith('#')) continue;             // header
       if (trimmed.startsWith('-') || trimmed.startsWith('*')) continue;
       if (trimmed.startsWith('[')) continue;             // pure link
-      // Split by sentence boundary
-      final sentences = trimmed.split(RegExp(r'(?<=[.!?])\s+'));
+      // Split by sentence boundary — including Arabic terminators
+      // (؟ question mark, ہ/۔ full stop, … ellipsis) so Arabic claims are
+      // segmented as reliably as English ones.
+      final sentences =
+          trimmed.split(RegExp(r'(?<=[.!?؟۔…])\s+'));
       for (final s in sentences) {
         final clean = s.trim();
         if (clean.length < 12) continue;

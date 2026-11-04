@@ -3,9 +3,12 @@ import 'dart:convert';
 import 'dart:developer';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:flutter/foundation.dart' show compute, debugPrint, kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:image/image.dart' as img;
+
+import '../models/bounding_box.dart';
 
 /// Moondream3 Cloud API — THE primary vision source for SpectruLenPor.
 ///
@@ -344,35 +347,48 @@ class MoondreamService {
     );
   }
 
-// Moondream additions: analyzeSelected method + MoondreamStructuredAnalysis class
-// These will be APPENDED to moondream_service.dart.
-
 // ---------------------------------------------------------------------------
 // v4.0 STRUCTURED ANALYSIS — anchored on user-selected bounding box
 // ---------------------------------------------------------------------------
 
-  /// Two-pass structured analysis with TWO images (clean + boxes-painted).
+  /// STRICT target-locked analysis with TWO+ images (clean + privacy-blurred
+  /// marked frame).
   ///
-  /// Pass 1: caption the CLEAN image (unobstructed view → color/texture clarity).
-  /// Pass 2: VQA the BOXES image with reasoning + a chemistry-aware prompt
-  ///         anchored on the user-selected object. The boxes visible in the
-  ///         image tell the model which region the user is interested in.
+  /// Pass 0: tight CROP of the selected object from the clean frame (isolate).
+  ///         The model physically cannot see the table/background — only the
+  ///         target region (+15% safety margin) is uploaded for captioning.
+  /// Pass 1: caption the tight target crop (object-only context).
+  /// Pass 2: STRICT structured VQA on the privacy-blurred, reticle-marked
+  ///         frame — labeled WHAT / STATE / TEXT / HAZARD lines, target-only.
+  /// Pass 3: dedicated hazard-pictogram check on the tight crop.
   ///
-  /// Returns a [MoondreamStructuredAnalysis] with what_it_is / how_its_used /
-  /// whats_around / visible_text / hazards / state_of_matter fields.
+  /// The old "what's around it" pass was REMOVED by policy: the assistant
+  /// describes ONLY the selected object, never the scene around it.
   Future<MoondreamStructuredAnalysis?> analyzeSelected(
     Uint8List cleanJpeg,
     Uint8List withBoxesJpeg, {
     String selectedLabel = 'the selected object',
+    BoundingBox? selectedBox,
     String lang = 'en',
   }) async {
     if (!isCloudConfigured) return null;
 
-    // Pass 1 — fast caption of the clean (no-boxes) image.
-    final clean = await caption(cleanJpeg, length: 'normal');
+    // Pass 0 — tight target crop from the clean frame (falls back to the
+    // full clean frame if cropping ever fails).
+    Uint8List targetJpeg = cleanJpeg;
+    if (selectedBox != null) {
+      targetJpeg = await compute(
+        _cropObjectIsolate,
+        _CropArgs(cleanJpeg, selectedBox),
+      );
+    }
+
+    // Pass 1 — fast caption of the tight target crop.
+    final clean = await caption(targetJpeg, length: 'normal');
     if (clean == null || clean.caption.trim().isEmpty) return null;
 
-    // Pass 2 — VQA the boxes image with reasoning + rich prompt.
+    // Pass 2 — STRICT structured VQA on the boxes-painted (blurred-outside)
+    // image with reasoning.
     final isAr = lang.startsWith('ar');
     final prompt = isAr
         ? buildArabicAnalysisPrompt(selectedLabel)
@@ -394,49 +410,98 @@ class MoondreamService {
       );
     }
 
-    // Pass 3 — separate hazard pictogram check.
-    final hazardQ = isAr
-        ? 'هل ترى أي رموز خطر بالقرب من $selectedLabel؟ (تآكل، اشتعال، سمية، انفجار). صف بدقة.'
-        : 'Do you see any hazard pictograms near $selectedLabel? (corrosive, flammable, toxic, explosive). Describe precisely.';
-    final hazard = await query(withBoxesJpeg, question: hazardQ, reasoning: false);
+    // Parse the strict labeled-lines answer.
+    final what = _parseLabeledLine(vqa.answer, 'WHAT');
+    final state = _parseLabeledLine(vqa.answer, 'STATE');
+    final text = _parseLabeledLine(vqa.answer, 'TEXT');
+    final hzLine = _parseLabeledLine(vqa.answer, 'HAZARD');
 
-    // Pass 4 — separate "what's around" query for spatial context.
-    final aroundQ = isAr
-        ? 'صف الأشياء المحيطة بـ$selectedLabel في المشهد. ما الأشياء المرئية على الطاولة؟'
-        : 'Describe the objects surrounding $selectedLabel in the scene. What else is visible on the table or surface?';
-    final around = await query(withBoxesJpeg, question: aroundQ, reasoning: false);
+    // Pass 3 — separate hazard pictogram check on the tight target crop.
+    final hazardQ = isAr
+        ? 'انظر فقط إلى الهدف داخل الصورة. هل ترى أي رموز خطر عليه أو بالقرب منه مباشرة؟ '
+            '(تآكل، اشتعال، سمية، انفجار، مؤكسد). إن لم ترَ شيئاً قل: NONE. لا تخمن.'
+        : 'Look ONLY at the target object in this image. Do you see any hazard '
+            'pictograms ON it or directly attached to it? (corrosive, flammable, toxic, '
+            'explosive, oxidizer). If none are visible reply exactly: NONE. Do not guess.';
+    final hazard = await query(targetJpeg, question: hazardQ, reasoning: false);
+    final hazardAnswer = hazard?.answer ?? '';
+
+    String mergeHazard(String a, String b) {
+      String clean(String s) {
+        final t = s.trim();
+        if (t.isEmpty) return '';
+        final negated = RegExp(
+          r'^(none?\b|nothing\b|n/a\b|nil\b|i do not see|i don.t see|there (are|is) no\b|not visible|no hazard|لا يوجد|لا توجد|لا أرى|لا يظهر|غير موجود)',
+          caseSensitive: false,
+        );
+        if (negated.hasMatch(t)) return '';
+        if (t.toUpperCase() == 'NONE') return '';
+        return t;
+      }
+
+      return [clean(a), clean(b)].where((s) => s.isNotEmpty).join('; ');
+    }
 
     return MoondreamStructuredAnalysis(
       caption: clean.caption,
-      whatItIs: vqa.answer,
+      whatItIs: what.isNotEmpty ? what : vqa.answer,
       howItsUsed: '',
-      whatsAround: around?.answer ?? '',
-      visibleText: '',
-      hazards: hazard?.answer ?? '',
-      stateOfMatter: '',
+      whatsAround: '', // policy: surroundings are never analyzed nor reported
+      visibleText: text == 'NONE' ? '' : text,
+      hazards: mergeHazard(hzLine, hazardAnswer),
+      stateOfMatter: state.toLowerCase() == 'unclear' ? '' : state.toLowerCase(),
       reasoning: vqa.reasoning,
       requestId: clean.requestId,
     );
   }
 
+  /// Extracts a single labeled line (e.g. `WHAT: a glass beaker`) from a
+  /// structured VQA answer; case-insensitive, tolerant of markdown bullets.
+  static String _parseLabeledLine(String answer, String key) {
+    final m = RegExp(
+      '^\\s*(?:[-*]\\s*)?$key\\s*[:：]\\s*(.+?)\\s*',
+      multiLine: true,
+      caseSensitive: false,
+    ).firstMatch(answer);
+    return m?.group(1)?.trim() ?? '';
+  }
+
   String buildArabicAnalysisPrompt(String selectedLabel) {
     return [
-      'الصورة المعروضة تحتوي على صناديق حدودية. الصندوق المحدد هو "$selectedLabel".',
-      'قم بتحليل $selectedLabel بدقة عالية: ما هو؟ ما المكونات الكيميائية أو الفيزيائية فيه؟',
-      'كيف يتشكل؟ ما هي حالته (صلب/سائل/غاز)؟ ما لونه وملمسه؟',
-      'ما هي الأشياء المحيطة به؟ هل ترى أي ملصقات أو نصوص أو رموز خطر؟',
-      'أعطني إجابة مفصلة وعلمية. لا تخمن — قل ما تراه فعلياً.',
-    ].join(' ');
+      'تحليل صارم لهدف مقفول. الصورة تعرض هدفًا داخل شعر رأسي/أقواس تحديد مميزة.'
+          ' كل ما خارج منطقة الهدف ضُبِّب عمدًا — تجاهله تمامًا.',
+      'الهدف: "$selectedLabel".',
+      'أجب بالضبط في هذه الأسطر المُعنونة (سطر لكل واحدة، بحد أقصى 25 كلمة للسطر):',
+      'WHAT: ما هو الهدف — نوعه ومادته ومحتوياته إن كان وعاءً.',
+      'STATE: صلب | سائل | غاز | مسحوق | غير واضح',
+      'TEXT: انسخ حرفيًا أي نص أو ملصق مطبوع على الهدف، أو اكتب NONE.',
+      'HAZARD: أي رموز أو أدلة خطر على الهدف نفسه، أو اكتب NONE.',
+      'قواعد صارمة:',
+      '1) صِف الهدف داخل الشعار فقط. لا تذكر أبدًا الطاولة أو الخلفية أو الأشياء المُبَهَّمة.',
+      '2) لا تخمّن أبدًا ولا تخترع: إن لم تكن التفصيلة واضحة تمامًا اكتب UNCLEAR (أو NONE لـ TEXT/HAZARD).',
+      '3) لا تسمِّ مادة كيميائية بعينها إلا إن كانت مطبوعة بوضوح أو مؤكدة تمامًا.',
+    ].join('\n');
   }
 
   String buildEnglishAnalysisPrompt(String selectedLabel) {
     return [
-      'The image shown contains bounding boxes. The selected box is "$selectedLabel".',
-      'Analyze $selectedLabel in detail: what is it? What are its chemical or physical components?',
-      'How is it formed? What is its state of matter (solid/liquid/gas)? Color and texture?',
-      'What objects are around it? Are there any visible labels, printed text, or hazard symbols?',
-      'Provide a detailed scientific answer. Do not guess — describe only what you actually see.',
-    ].join(' ');
+      'STRICT TARGET-LOCKED ANALYSIS. The image shows ONE target inside the '
+          'highlighted reticle/corner brackets. Everything outside the target area '
+          'is intentionally blurred — it MUST be ignored completely.',
+      'TARGET: "$selectedLabel".',
+      'Answer in EXACTLY these labeled lines (one line each, max 25 words per line):',
+      'WHAT: what the target object is — its type, material, and contents if a container.',
+      'STATE: solid | liquid | gas | powder | unclear',
+      'TEXT: transcribe EXACTLY any printed text/labels on the target, or NONE.',
+      'HAZARD: any hazard pictograms/clues ON the target itself, or NONE.',
+      'HARD RULES:',
+      '1) Describe ONLY the target inside the reticle. NEVER mention the table, '
+          'background, hands, lighting, or the blurred surroundings.',
+      '2) NEVER guess and NEVER invent: if a detail is not clearly visible, write '
+          'UNCLEAR (or NONE for TEXT/HAZARD).',
+      '3) Do not name a specific chemical substance unless it is clearly printed, '
+          'labeled, or unmistakable.',
+    ].join('\n');
   }
 
   // ---------------------------------------------------------------------------
@@ -728,3 +793,44 @@ class MoondreamStructuredAnalysis {
   bool get hasHazard => MoondreamAnalysis._hazardMatch(hazards);
 }
 
+
+// ---------------------------------------------------------------------------
+// TARGET CROP ISOLATE (privacy: only the object region reaches the cloud)
+// ---------------------------------------------------------------------------
+
+class _CropArgs {
+  final Uint8List jpeg;
+  final BoundingBox box;
+  const _CropArgs(this.jpeg, this.box);
+}
+
+/// Crops the selected object's region (+15% safety margin on every side so a
+/// slightly-off YOLO box never clips the object) from a JPEG. Runs in a
+/// background isolate; falls back to the original frame on any failure.
+Uint8List _cropObjectIsolate(_CropArgs args) {
+  try {
+    final decoded = img.decodeImage(args.jpeg);
+    if (decoded == null) return args.jpeg;
+    final w = decoded.width;
+    final h = decoded.height;
+    if (w < 8 || h < 8) return args.jpeg;
+
+    final mx = ((args.box.w * w) * 0.15).round().clamp(4, w);
+    final my = ((args.box.h * h) * 0.15).round().clamp(4, h);
+    final x1 = ((args.box.x * w).round() - mx).clamp(0, w - 1);
+    final y1 = ((args.box.y * h).round() - my).clamp(0, h - 1);
+    final x2 = (((args.box.x + args.box.w) * w).round() + mx).clamp(x1 + 1, w);
+    final y2 = (((args.box.y + args.box.h) * h).round() + my).clamp(y1 + 1, h);
+
+    final crop = img.copyCrop(
+      decoded,
+      x: x1,
+      y: y1,
+      width: x2 - x1,
+      height: y2 - y1,
+    );
+    return Uint8List.fromList(img.encodeJpg(crop, quality: 88));
+  } catch (_) {
+    return args.jpeg;
+  }
+}

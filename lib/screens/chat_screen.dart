@@ -13,6 +13,7 @@ import '../models/citation.dart';
 import '../models/conversation_context.dart';
 import '../models/recognition_state.dart';
 import '../services/docs_search_service.dart';
+import '../services/openrouter_tts_service.dart';
 import '../utils/app_theme.dart' as palette;
 import '../utils/app_typography.dart';
 import 'history_screen.dart';
@@ -110,12 +111,22 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _speakMessage(RecognitionState state, String content) async {
-    final preferCloud = state.useOpenRouterTts ||
-        (state.cloudOnly && state.openRouterTts.isConfigured);
+    final cloudConfigured = state.openRouterTts.isConfigured;
+    final preferCloud = cloudConfigured &&
+        (state.useOpenRouterTts || state.cloudOnly);
     if (preferCloud) {
-      await state.openRouterTts.speakMarkdown(content);
-    } else if (!state.cloudOnly) {
-      await state.nativeTts.speak(content);
+      // Fish Audio first; native Android TTS is the automatic fallback when
+      // the cloud stream fails — the user always hears the answer.
+      final spoken = await state.openRouterTts.speakMarkdown(content);
+      if (!spoken) {
+        await state.nativeTts.speak(
+          OpenRouterTtsService.stripMarkdownForTest(content),
+        );
+      }
+    } else {
+      await state.nativeTts.speak(
+        OpenRouterTtsService.stripMarkdownForTest(content),
+      );
     }
   }
 
@@ -931,8 +942,10 @@ class _MessageBubble extends StatelessWidget {
   }
 }
 
-/// Interactive Google-AI-Overviews-style `[n]` citation pills. Tapping any pill
-/// opens a bottom sheet showing the full reference snippet & source URL.
+/// Interactive Google-AI-Overviews-style `[n]` citation pills: a compact
+/// stadium chip with a brand-colored favicon avatar (per source type), the
+/// source display name (domain for web results), and a mono `[n]` badge.
+/// Tapping any pill opens a bottom sheet with the full snippet & source URL.
 class _CitationChipsStrip extends StatelessWidget {
   final List<Citation> citations;
   const _CitationChipsStrip({required this.citations});
@@ -944,20 +957,9 @@ class _CitationChipsStrip extends StatelessWidget {
       runSpacing: 6,
       children: [
         for (final c in citations)
-          ActionChip(
-            visualDensity: VisualDensity.compact,
-            avatar: Icon(
-              _iconForType(c.type),
-              size: 13,
-              color: palette.AppColors.dustyLavender,
-            ),
-            label: Text(
-              '[${c.index}] ${c.title}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
-            ),
-            onPressed: () => _showCitationSheet(context, c),
+          _GoogleStyleChip(
+            citation: c,
+            onTap: () => _showCitationSheet(context, c),
           ),
       ],
     );
@@ -971,6 +973,38 @@ class _CitationChipsStrip extends StatelessWidget {
         CitationType.factCheck => Icons.verified_rounded,
         CitationType.moondream => Icons.visibility_rounded,
       };
+
+  static Color _brandColor(CitationType type) => switch (type) {
+        CitationType.wikipedia => const Color(0xFF2B8CBE),
+        CitationType.bundledDoc => palette.AppColors.dustyMauve,
+        CitationType.pubchem => const Color(0xFF2E7D32),
+        CitationType.web => const Color(0xFF6A51A3),
+        CitationType.factCheck => palette.AppColors.success,
+        CitationType.moondream => palette.AppColors.dustyLavender,
+      };
+
+  /// Google-style short source label: canonical product names for known
+  /// providers, the site domain for generic web results.
+  static String _sourceName(Citation c) {
+    switch (c.type) {
+      case CitationType.wikipedia:
+        return 'Wikipedia';
+      case CitationType.pubchem:
+        return 'PubChem';
+      case CitationType.bundledDoc:
+        return 'Lab Docs';
+      case CitationType.factCheck:
+        return 'Fact Check';
+      case CitationType.moondream:
+        return 'Vision AI';
+      case CitationType.web:
+        final uri = Uri.tryParse(c.url);
+        if (uri != null && uri.host.isNotEmpty) {
+          return uri.host.replaceFirst(RegExp(r'^www\.'), '');
+        }
+        return 'Web';
+    }
+  }
 
   static void _showCitationSheet(BuildContext context, Citation c) {
     showModalBottomSheet<void>(
@@ -1032,6 +1066,71 @@ class _CitationChipsStrip extends StatelessWidget {
                 ),
               ),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Compact Google-AI-Overviews-style source chip: white stadium pill with a
+/// brand-colored circular favicon avatar, the short source name, and a
+/// space-mono `[n]` badge.
+class _GoogleStyleChip extends StatelessWidget {
+  final Citation citation;
+  final VoidCallback onTap;
+  const _GoogleStyleChip({required this.citation, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _CitationChipsStrip._brandColor(citation.type);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(4, 3, 8, 3),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: palette.AppColors.silver.withOpacity(0.7)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 18,
+              height: 18,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              alignment: Alignment.center,
+              child: Icon(
+                _CitationChipsStrip._iconForType(citation.type),
+                size: 11,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(width: 5),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 132),
+              child: Text(
+                _CitationChipsStrip._sourceName(citation),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                  color: palette.AppColors.inkDark,
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              '[${citation.index}]',
+              style: GoogleFonts.spaceMono(
+                fontSize: 9.5,
+                fontWeight: FontWeight.bold,
+                color: palette.AppColors.dustyMauve,
+              ),
+            ),
           ],
         ),
       ),
@@ -1103,14 +1202,31 @@ class _SourceRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Favicon-style brand avatar (Google AI Overviews look).
+          Container(
+            width: 20,
+            height: 20,
+            decoration: BoxDecoration(
+              color: _CitationChipsStrip._brandColor(c.type),
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: Icon(
+              _CitationChipsStrip._iconForType(c.type),
+              size: 12,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(width: 6),
           Text(
-            '[${c.index}] ',
+            '[${c.index}]',
             style: GoogleFonts.spaceMono(
-              fontSize: 11,
+              fontSize: 10.5,
               fontWeight: FontWeight.bold,
               color: palette.AppColors.dustyMauve,
             ),
           ),
+          const SizedBox(width: 4),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1241,7 +1357,6 @@ class _FactCheckBadge extends StatelessWidget {
   final int verified;
   final int unverified;
   const _FactCheckBadge({required this.verified, required this.unverified});
-
   @override
   Widget build(BuildContext context) {
     if (verified == 0 && unverified == 0) return const SizedBox.shrink();

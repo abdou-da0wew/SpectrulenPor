@@ -18,8 +18,14 @@ class NativeTtsService {
   bool get isReady => _ready;
 
   String _language = 'en-US';
-  double _rate = 1.0; // 0.5..2.0, 1.0 normal
-  final double _pitch = 1.0;
+
+  /// Platform-normal narration tuned for clear scientific spoken content:
+  /// 1.0 = the OS's natural default rate (NOT slowed or sped up), full
+  /// volume, neutral pitch. All three are applied at init so the fallback
+  /// voice always sounds reasonable — never rushed, never whispering.
+  static const double _rate = 1.0; // 0.5..2.0, 1.0 = platform normal
+  static const double _pitch = 1.0; // neutral tone
+  static const double _volume = 1.0; // full audible volume
 
   Future<void> init() async {
     try {
@@ -27,6 +33,7 @@ class NativeTtsService {
       await _tts!.setLanguage(_language);
       await _tts!.setSpeechRate(_rate);
       await _tts!.setPitch(_pitch);
+      await _tts!.setVolume(_volume);
       await _tts!.awaitSpeakCompletion(true);
       _ready = true;
     } on MissingPluginException {
