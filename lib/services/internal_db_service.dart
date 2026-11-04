@@ -609,9 +609,16 @@ class InternalDatabaseService {
 
   Future<int> evictExpiredCache() async {
     final now = DateTime.now().millisecondsSinceEpoch;
+    // whereArgs are bound as TEXT by android.database.sqlite (the native
+    // channel passes them through as List<String>). Comparing the INTEGER
+    // `expires_at` column against a TEXT literal matches EVERY row (in
+    // SQLite's type ordering all integers sort before all text), which
+    // silently wiped the whole cache on every launch. CAST the argument to
+    // INTEGER so the comparison is numeric on native SQLite; the in-memory
+    // / file-store fallback uses memPredicate below instead.
     return _delete(
       'response_cache',
-      where: 'expires_at <= ?',
+      where: 'expires_at <= CAST(? AS INTEGER)',
       whereArgs: [now.toString()],
       memPredicate: (r) => ((r['expires_at'] as num?)?.toInt() ?? 0) <= now,
     );

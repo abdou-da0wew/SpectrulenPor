@@ -1,7 +1,23 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+// Release keystore is resolved from android/key.properties (gitignored).
+// Generate it with:
+//   keytool -genkey -v -keystore ~/spectrulenpor-release.keystore \
+//           -alias spectrulenpor -keyalg RSA -keysize 2048 -validity 10000
+// and a key.properties containing storeFile/storePassword/keyAlias/keyPassword.
+// When the file is absent (CI/dev), release falls back to the debug keystore
+// so `flutter build apk` never hard-fails — do NOT ship that build publicly.
+val keystoreProperties = Properties().apply {
+    val f = rootProject.file("key.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+val hasReleaseKeystore = keystoreProperties["storeFile"] != null
 
 android {
     namespace = "com.spectraglass.app"
@@ -11,6 +27,17 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+                storeFile = file(keystoreProperties["storeFile"] as String)
+                storePassword = keystoreProperties["storePassword"] as String
+            }
+        }
     }
 
     defaultConfig {
@@ -23,7 +50,14 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
+            // R8/minify stays OFF: ONNX Runtime + Flutter jni bindings need a
+            // curated keep-rule set; enable together with a proguard-rules.pro
+            // covering com.microsoft.onnxruntime once validated on-device.
             isMinifyEnabled = false
             isShrinkResources = false
         }

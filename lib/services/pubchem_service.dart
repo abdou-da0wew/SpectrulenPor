@@ -151,7 +151,7 @@ class PubChemService {
         '$_pugBase/compound/name/${Uri.encodeComponent(q)}/property/$properties/JSON',
       );
       final res = await _client.get(uri, headers: {
-        'User-Agent': 'SpectruLenPor/5.4 (https://spectraglass.app)',
+        'User-Agent': 'SpectruLenPor/5.5.1 (https://spectraglass.app)',
       }).timeout(const Duration(seconds: 10));
       if (res.statusCode != 200) return null;
       final json = jsonDecode(res.body) as Map<String, dynamic>;
@@ -190,7 +190,7 @@ class PubChemService {
         '$_autoBase/autocomplete/${Uri.encodeComponent(q)}/JSON',
       );
       final res = await _client.get(uri, headers: {
-        'User-Agent': 'SpectruLenPor/5.4 (https://spectraglass.app)',
+        'User-Agent': 'SpectruLenPor/5.5.1 (https://spectraglass.app)',
       }).timeout(const Duration(seconds: 5));
       if (res.statusCode != 200) return const [];
       final json = jsonDecode(res.body) as Map<String, dynamic>;

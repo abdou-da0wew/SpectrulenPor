@@ -577,7 +577,10 @@ class RecognitionState extends ChangeNotifier {
 
         if (_liveSpeak) {
           if (_cloudOnly && openRouterTts.isConfigured) {
-            await openRouterTts.speakMarkdown(desc);
+            // A cloud TTS failure must never leave the user in silence —
+            // fall back to native TTS instead of surfacing as a no-op.
+            final spoken = await openRouterTts.speakMarkdown(desc);
+            if (!spoken) await nativeTts.speak(desc);
           } else {
             await nativeTts.speak(desc);
           }
@@ -660,7 +663,11 @@ class RecognitionState extends ChangeNotifier {
       final preferCloudTts =
           _useOpenRouterTts || (_cloudOnly && openRouterTts.isConfigured);
       if (_liveSpeak && preferCloudTts) {
-        await openRouterTts.speakMarkdown(_deepReasoningMarkdown);
+        final spoken =
+            await openRouterTts.speakMarkdown(_deepReasoningMarkdown);
+        if (!spoken) {
+          await nativeTts.speak(_cleanForSpeech(_deepReasoningMarkdown));
+        }
       }
     } catch (e) {
       _upstreamStatus = UpstreamStatus.error;
@@ -716,7 +723,9 @@ class RecognitionState extends ChangeNotifier {
           ? 'تحذير! تم اكتشاف مادة خطرة. تراجع بحذر.'
           : 'Warning! Hazardous material detected. Step back carefully.';
       if (_cloudOnly && openRouterTts.isConfigured) {
-        unawaited(openRouterTts.speakMarkdown(msg));
+        unawaited(openRouterTts.speakMarkdown(msg).then((spoken) {
+          if (!spoken) unawaited(nativeTts.speak(msg));
+        }));
       } else {
         unawaited(nativeTts.speak(msg));
       }

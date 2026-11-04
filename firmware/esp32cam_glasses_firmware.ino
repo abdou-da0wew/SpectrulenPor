@@ -15,6 +15,12 @@
  *  Hardware (AI-Thinker ESP32-CAM):
  *    * OV2640 camera (built-in pin map below)
  *    * UV sensor  (GUVA-S12SD or similar, analog out) -> GPIO12 (ADC2)
+ *        !! STRAPPING-PIN WARNING: GPIO12 (MTDI) is sampled at boot —
+ *        if it is HIGH at power-on the flash voltage switches to 1.8 V
+ *        and the ESP32 fails to boot with 3.3 V flash. Make sure the UV
+ *        divider cannot pull GPIO12 high at reset (add a ~10 kOhm
+ *        pull-DOWN, or prefer an ADC1 pin such as GPIO32/33 when
+ *        rewiring: ADC2 is also unusable while Wi-Fi is active).
  *    * IR sensor  (photodiode / thermopile, analog)   -> GPIO13 (ADC2)
  *    * Onboard flash LED (white, bright!)             -> GPIO4
  *

@@ -104,7 +104,7 @@ class WebSearchService {
         'skip_disambig': '1',
       });
       final res = await _client.get(uri, headers: {
-        'User-Agent': 'SpectruLenPor/5.4 (https://spectraglass.app)',
+        'User-Agent': 'SpectruLenPor/5.5.1 (https://spectraglass.app)',
       }).timeout(const Duration(seconds: 8));
       if (res.statusCode != 200) return const [];
       final json = jsonDecode(res.body) as Map<String, dynamic>;
