@@ -8,7 +8,7 @@ description: >-
   auto-updating structured scientific context, streamed fish-audio TTS, and a
   9-table SQLite WAL internal database.
 publish_to: 'none'
-version: 5.5.0+15
+version: 5.5.1+16
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
