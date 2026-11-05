@@ -19,7 +19,7 @@ Local-first object detection · grounded chemistry answers · inline citations
 
 | | | | | | |
 |---|---|---|---|---|---|
-| [![ci](https://github.com/abdou-da0wew/SpectrulenPor/actions/workflows/ci.yml/badge.svg)](https://github.com/abdou-da0wew/SpectrulenPor/actions/workflows/ci.yml) | ![tests](https://img.shields.io/badge/tests-93%20passing-success?style=flat) | ![analyze](https://img.shields.io/badge/flutter_analyze-0%20errors%20·%200%20warnings-success?style=flat) | ![stars](https://img.shields.io/github/stars/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) | ![last-commit](https://img.shields.io/github/last-commit/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) | ![commit-activity](https://img.shields.io/github/commit-activity/m/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) |
+| [![ci](https://github.com/abdou-da0wew/SpectrulenPor/actions/workflows/ci.yml/badge.svg)](https://github.com/abdou-da0wew/SpectrulenPor/actions/workflows/ci.yml) | ![tests](https://img.shields.io/badge/tests-93%20passing-success?style=flat) | ![analyze](https://img.shields.io/badge/flutter_analyze-0%20issues-success?style=flat) | ![stars](https://img.shields.io/github/stars/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) | ![last-commit](https://img.shields.io/github/last-commit/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) | ![commit-activity](https://img.shields.io/github/commit-activity/m/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) |
 
 | | | | |
 |---|---|---|---|
@@ -101,7 +101,7 @@ Measured in this repository (Flutter **3.47.9 stable**, 2026-11-05). On-device f
 | Metric | Value | Status |
 |---|---|---|
 | Unit + widget test suite | **93 passing, 0 failing** | Measured — `flutter test` |
-| `flutter analyze` | **0 errors · 0 warnings** · 78 info-level lints | Measured |
+| `flutter analyze` | **0 issues** ("No issues found") — warnings fixed, 69 stale lints auto-fixed, deprecated APIs migrated | Measured |
 | `flutter build web --release` | Compiles clean (~84 s cold compile) | Measured |
 | Bundled model size | `yolo26n.onnx` **5.04 MB** (FP32, `[1,3,640,640] → [1,300,6]`, 80 COCO classes, end2end) | Verified from asset |
 | Execution-provider race (CPU vs NNAPI+FP16 vs XNNPACK) | **Implemented** at session start, fastest wins | Code verified — **on-device timings pending** |
@@ -276,6 +276,7 @@ flutter build web --release            # Flutter Web (UI review build)
 - [x] Citation chips, fact checking, auto-updating conversation context
 - [x] CAS backfill from PubChem with checksum + Common Chemistry anchoring
 - [x] Audit fixes: TTL cache wipe, column mismatches, TTS errors, BLE reconnect, SSE stall guard, font declarations
+- [x] Analyzer driven to **0 issues** (all warnings fixed, deprecated `Radio`/`speech_to_text` APIs migrated) so CI runs green
 - [x] 93-test suite + CI + full documentation overhaul
 
 **Next**

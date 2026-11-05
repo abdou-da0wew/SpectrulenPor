@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -65,7 +64,7 @@ class OpenRouterTtsService {
   /// request failed — callers use the result to fall back to native TTS.
   Future<bool> speakMarkdown(String markdown) async {
     if (!isConfigured) return false;
-    final cleaned = stripMarkdownForTest(markdown);
+    final cleaned = stripMarkdownForTts(markdown);
     if (cleaned.isEmpty) return false;
 
     await stop();
@@ -123,8 +122,9 @@ class OpenRouterTtsService {
   /// Stop any narration immediately (called on mute / new speak / dispose).
   Future<void> stop() => sink.stop();
 
-  @visibleForTesting
-  static String stripMarkdownForTest(String md) {
+  /// Production markdown stripper used before any text reaches TTS (cloud or
+  /// native): removes <context_update> blocks, citation tags, markdown noise.
+  static String stripMarkdownForTts(String md) {
     var s = md;
     // Strip <context_update> blocks and fact-check / citation tags.
     s = s.replaceAll(

@@ -527,21 +527,29 @@ Built at: $_buildDate''';
               padding: const EdgeInsets.all(8),
               child: Column(
                 children: [
-                  for (var i = 0; i < OpenRouterService.modelChain.length; i++)
-                    RadioListTile<int>(
-                      title: Text(
-                        switch (i) {
-                          0 => l.modelGemma26,
-                          1 => l.modelInkling,
-                          _ => l.modelNemotron,
-                        },
-                        style: const TextStyle(fontSize: 13.5),
-                      ),
-                      value: i,
-                      groupValue: state.upstreamStartModel,
-                      onChanged: (v) => state.upstreamStartModel = v!,
-                      activeColor: palette.AppColors.dustyLavender,
+                  RadioGroup<int>(
+                    groupValue: state.upstreamStartModel,
+                    onChanged: (v) => state.upstreamStartModel = v!,
+                    child: Column(
+                      children: [
+                        for (var i = 0;
+                            i < OpenRouterService.modelChain.length;
+                            i++)
+                          RadioListTile<int>(
+                            title: Text(
+                              switch (i) {
+                                0 => l.modelGemma26,
+                                1 => l.modelInkling,
+                                _ => l.modelNemotron,
+                              },
+                              style: const TextStyle(fontSize: 13.5),
+                            ),
+                            value: i,
+                            activeColor: palette.AppColors.dustyLavender,
+                          ),
+                      ],
                     ),
+                  ),
                   const Divider(height: 16),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,

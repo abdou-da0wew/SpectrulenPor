@@ -73,8 +73,8 @@ class RecordingSink implements TtsSink {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('stripMarkdownForTest removes markdown noise', () {
-    final out = OpenRouterTtsService.stripMarkdownForTest(
+  test('stripMarkdownForTts removes markdown noise', () {
+    final out = OpenRouterTtsService.stripMarkdownForTts(
         '## Explore\n- **water** is `H2O`\n- _clean_ and clear');
     expect(out.contains('#'), isFalse);
     expect(out.contains('*'), isFalse);

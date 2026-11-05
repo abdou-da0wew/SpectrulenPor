@@ -221,7 +221,7 @@ void main() {
         'FirstURL': 'https://duckduckgo.com/Sodium_chloride',
       });
       expect(direct, isNotNull);
-      expect(direct!.title, 'Sodium chloride');
+      expect(direct.title, 'Sodium chloride');
       expect(direct.url, 'https://duckduckgo.com/Sodium_chloride');
 
       final nested = WebSearchResult.fromRelatedTopic(const {
@@ -234,7 +234,7 @@ void main() {
         ],
       });
       expect(nested, isNotNull);
-      expect(nested!.title, 'Halite');
+      expect(nested.title, 'Halite');
     });
   });
 

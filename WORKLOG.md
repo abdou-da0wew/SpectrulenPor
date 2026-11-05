@@ -2,6 +2,14 @@
 
 Reverse-chronological record of what was built, fixed, and verified. One entry per merged change-set.
 
+## 2026-11-05 — v5.5.1 · analyzer zeroed out, CI green (PR #8)
+
+- CI's first runs failed: `flutter analyze` was exiting 1 — the repo carried **10 real warnings** (my earlier severity scan was wrong) plus 78 info lints, and warnings are fatal by default.
+- Fixed all 10 warnings properly: renamed `stripMarkdownForTest` → public `stripMarkdownForTts` (it is production API used by the native-TTS fallback — the `@visibleForTesting` annotation was simply wrong), removed two unnecessary `!`, dropped the unused `_kvR` fixed-point constant, added a rationale `ignore_for_file` for just_audio's experimental streamed-source API, and one for the smoke tool's sink test-hook.
+- `dart fix --apply` cleaned 69 stale info lints across 24 files.
+- Migrated deprecated APIs: `RadioListTile` group-value/onChanged → `RadioGroup<int>` ancestor (Settings model-chain picker), `speech_to_text` named listen params → `SpeechListenOptions`, `BuildContext`-across-async-gap guarded with a `mounted` check; `tts_sink_web.dart` keeps `dart:html` behind a rationale ignore (package:web migration tracked in the roadmap).
+- Result: `flutter analyze` = **No issues found** (exit 0), 93 tests passing, `flutter build web --release` clean.
+
 ## 2026-11-05 — v5.5.1+16 · documentation overhaul (PR #7)
 
 - Rebuilt `README.md`: shields badges, Phosphor icon headers (committed SVGs, zero emojis), in-app screenshots, diagram-design architecture + scientific-RAG visualizations, honest implemented-vs-untested matrix, real benchmark table, target devices, one-command Flutter install for Windows/Linux, docs index.

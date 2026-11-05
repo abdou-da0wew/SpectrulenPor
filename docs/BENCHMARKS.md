@@ -9,7 +9,7 @@ One rule: **a number either was measured, or it is marked pending.** Nothing in 
 | Metric | Result | How to reproduce |
 |---|---|---|
 | Unit + widget test suite | **93 passing, 0 failing** | `flutter test` |
-| Static analysis | **0 errors · 0 warnings** · 78 info-level lints | `flutter analyze` |
+| Static analysis | **0 issues** ("No issues found") — 10 warnings fixed, 69 stale lints auto-fixed via `dart fix`, deprecated `Radio` group-value and `speech_to_text` listen APIs migrated | `flutter analyze` |
 | Flutter Web release build | Compiles clean; ~84 s cold compile of `lib/main.dart` | `flutter build web --release` |
 | CAS corpus integrity | 108/110 valid CAS (checksum-tested in tests); mixtures flagged | `flutter test test/services/docs_search_and_fact_checker_test.dart` |
 | PubChem backfill safety | `SKIP-FLAG 2 / entries changed 0` for flagged mixtures | `python3 tooling/backfill_cas_pubchem.py --only "Stainless|Borosilicate"` |

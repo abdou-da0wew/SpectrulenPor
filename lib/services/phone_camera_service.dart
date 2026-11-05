@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
-import 'dart:ui' show Size;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -156,8 +154,9 @@ class _EncodeArgs {
 }
 
 /// Fixed-point BT.601 YUV weights (×1024, rounding pre-added) — integer math
-/// is ~2x faster than doubles in the hot per-pixel loop.
-const int _kvR = 1 << 10; // Y coeff for R is 1.000
+/// is ~2x faster than doubles in the hot per-pixel loop. (The R coefficient
+/// is exactly 1.000, so after the ×1024 pre-round it cancels out of the math
+/// and needs no constant.)
 const int _kvG0 = 376; // -0.344136 * 1024, negated below
 const int _kvG1 = 731; // -0.714136 * 1024, negated below
 const int _kvU = 1814; // 1.772 * 1024

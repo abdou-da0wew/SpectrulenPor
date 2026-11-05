@@ -32,7 +32,7 @@ class DeepInfoCard extends StatelessWidget {
                 CircleAvatar(
                   radius: 14,
                   backgroundColor:
-                      palette.AppColors.dustyLavender.withOpacity(0.12),
+                      palette.AppColors.dustyLavender.withValues(alpha: 0.12),
                   child: const Icon(Icons.psychology,
                       color: palette.AppColors.dustyLavender, size: 18),
                 ),
@@ -81,7 +81,7 @@ class DeepInfoCard extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                     color: palette.AppColors.inkDark,
                   ),
-                  blockquoteDecoration: BoxDecoration(
+                  blockquoteDecoration: const BoxDecoration(
                     border: Border(
                       left: BorderSide(
                           color: palette.AppColors.dustyMauve, width: 3),
@@ -106,9 +106,9 @@ class DeepInfoCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.14),
+        color: color.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.5)),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
       ),
       child: Text(
         text,

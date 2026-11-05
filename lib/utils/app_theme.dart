@@ -68,7 +68,7 @@ class AppColors {
 ThemeData buildAppTheme([Locale locale = const Locale('en')]) {
   const seed = AppColors.dustyLavender;
 
-  final colorScheme = ColorScheme.light(
+  const colorScheme = ColorScheme.light(
     primary: seed,
     onPrimary: Colors.white,
     primaryContainer: AppColors.dustyMauve,
@@ -121,10 +121,10 @@ ThemeData buildAppTheme([Locale locale = const Locale('en')]) {
     cardTheme: CardThemeData(
       color: AppColors.surfaceLight,
       elevation: 2,
-      shadowColor: AppColors.silver.withOpacity(0.5),
+      shadowColor: AppColors.silver.withValues(alpha: 0.5),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: AppColors.silver.withOpacity(0.6)),
+        side: BorderSide(color: AppColors.silver.withValues(alpha: 0.6)),
       ),
       margin: const EdgeInsets.fromLTRB(12, 6, 12, 6),
     ),

@@ -1,11 +1,15 @@
 import 'dart:async';
 import 'dart:io' as io;
-import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart' as ja;
 import 'package:path_provider/path_provider.dart';
+
+// The streamed TTS pipeline intentionally builds on just_audio's experimental
+// StreamAudioSource/StreamAudioResponse API — it is the only way to feed a
+// live HTTP byte stream into the player without buffering the whole clip.
+// ignore_for_file: experimental_member_use
 
 /// Native-platform TTS audio sink.
 ///
