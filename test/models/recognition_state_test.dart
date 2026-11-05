@@ -6,7 +6,6 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:smart_glass_app/models/bluetooth_status.dart';
 import 'package:smart_glass_app/models/bounding_box.dart';
 import 'package:smart_glass_app/models/frame_data.dart';
 import 'package:smart_glass_app/models/recognition_state.dart';

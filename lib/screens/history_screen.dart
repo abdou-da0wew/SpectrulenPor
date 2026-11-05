@@ -219,7 +219,7 @@ class _HistoryScreenState extends State<HistoryScreen>
                 const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             leading: CircleAvatar(
               backgroundColor:
-                  palette.AppColors.dustyLavender.withOpacity(0.14),
+                  palette.AppColors.dustyLavender.withValues(alpha: 0.14),
               child: const Icon(
                 Icons.biotech_rounded,
                 color: palette.AppColors.dustyLavender,
@@ -615,7 +615,7 @@ class _HistoryScreenState extends State<HistoryScreen>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(
-        color: palette.AppColors.dustGrey.withOpacity(0.55),
+        color: palette.AppColors.dustGrey.withValues(alpha: 0.55),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Row(

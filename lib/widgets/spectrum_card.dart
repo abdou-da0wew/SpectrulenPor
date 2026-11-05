@@ -39,7 +39,7 @@ class SpectrumCard extends StatelessWidget {
                 CircleAvatar(
                   radius: 14,
                   backgroundColor:
-                      palette.AppColors.dustyMauve.withOpacity(0.14),
+                      palette.AppColors.dustyMauve.withValues(alpha: 0.14),
                   child: const Icon(Icons.ssid_chart,
                       size: 18, color: palette.AppColors.dustyMauve),
                 ),
@@ -225,9 +225,9 @@ class _StateChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.14),
+        color: color.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.5)),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

@@ -135,6 +135,9 @@ Future<void> main() async {
   await tts.init();
   tts.configure(
       apiKey: secrets['openrouter_tts'] ?? OpenRouterTtsService.defaultApiKey);
+  // Sink override is a test-hook by design; this smoke script exercises the
+  // real streamed pipeline into a file sink so the mp3 can be inspected.
+  // ignore: invalid_use_of_visible_for_testing_member
   tts.sink = _FileSink('build/tts_smoke.mp3');
   await tts.speakMarkdown('## Warning!\nThis is **SpectruLenPor** speaking '
       'through the streamed fish-audio pipeline.');

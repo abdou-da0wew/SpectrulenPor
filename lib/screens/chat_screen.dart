@@ -91,6 +91,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
     if (mounted) setState(() {});
     if (started) return;
+    if (!mounted) return;
 
     final isAr = state.isArabic;
     final reason = state.mic.lastError ?? '';
@@ -120,12 +121,12 @@ class _ChatScreenState extends State<ChatScreen> {
       final spoken = await state.openRouterTts.speakMarkdown(content);
       if (!spoken) {
         await state.nativeTts.speak(
-          OpenRouterTtsService.stripMarkdownForTest(content),
+          OpenRouterTtsService.stripMarkdownForTts(content),
         );
       }
     } else {
       await state.nativeTts.speak(
-        OpenRouterTtsService.stripMarkdownForTest(content),
+        OpenRouterTtsService.stripMarkdownForTts(content),
       );
     }
   }
@@ -601,10 +602,10 @@ class _AnchorBar extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               decoration: BoxDecoration(
-                color: palette.AppColors.dustyLavender.withOpacity(0.14),
+                color: palette.AppColors.dustyLavender.withValues(alpha: 0.14),
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
-                  color: palette.AppColors.dustyLavender.withOpacity(0.5),
+                  color: palette.AppColors.dustyLavender.withValues(alpha: 0.5),
                 ),
               ),
               child: Row(
@@ -662,7 +663,7 @@ class _AnchorBar extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.all(2),
             decoration: BoxDecoration(
-              color: palette.AppColors.inkDark.withOpacity(0.75),
+              color: palette.AppColors.inkDark.withValues(alpha: 0.75),
               borderRadius: BorderRadius.circular(4),
             ),
             child: Icon(badgeIcon, size: 10, color: Colors.white),
@@ -728,7 +729,7 @@ class _RunningContextDrawer extends StatelessWidget {
       decoration: BoxDecoration(
         color: palette.AppColors.surfaceLight,
         border: Border(
-          bottom: BorderSide(color: palette.AppColors.silver.withOpacity(0.8)),
+          bottom: BorderSide(color: palette.AppColors.silver.withValues(alpha: 0.8)),
         ),
       ),
       child: Column(
@@ -867,7 +868,7 @@ class _MessageBubble extends StatelessWidget {
           borderRadius: BorderRadius.circular(14),
           border: isSystem
               ? Border.all(
-                  color: palette.AppColors.silver.withOpacity(0.5),
+                  color: palette.AppColors.silver.withValues(alpha: 0.5),
                   width: 1,
                 )
               : null,
@@ -1092,7 +1093,7 @@ class _GoogleStyleChip extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: palette.AppColors.silver.withOpacity(0.7)),
+          border: Border.all(color: palette.AppColors.silver.withValues(alpha: 0.7)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -1156,7 +1157,7 @@ class _SourcesBlock extends StatelessWidget {
       decoration: BoxDecoration(
         color: palette.AppColors.alabasterGrey,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: palette.AppColors.silver.withOpacity(0.5)),
+        border: Border.all(color: palette.AppColors.silver.withValues(alpha: 0.5)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1330,7 +1331,7 @@ class _TypeBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.14),
+        color: color.withValues(alpha: 0.14),
         border: Border.all(color: color, width: 0.6),
         borderRadius: BorderRadius.circular(4),
       ),
@@ -1448,7 +1449,7 @@ class _InputRow extends StatelessWidget {
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: palette.AppColors.dustyLavender.withOpacity(0.08),
+            color: palette.AppColors.dustyLavender.withValues(alpha: 0.08),
             blurRadius: 6,
             offset: const Offset(0, -2),
           ),

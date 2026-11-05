@@ -29,14 +29,14 @@ class LiveLabelChip extends StatelessWidget {
       decoration: BoxDecoration(
         color: palette.AppColors.surfaceLight,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withOpacity(0.55), width: 1.2),
+        border: Border.all(color: color.withValues(alpha: 0.55), width: 1.2),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           CircleAvatar(
             radius: 14,
-            backgroundColor: color.withOpacity(0.15),
+            backgroundColor: color.withValues(alpha: 0.15),
             child: Icon(icon, color: color, size: 18),
           ),
           const SizedBox(width: 12),
