@@ -545,6 +545,9 @@ class DocsSearchService {
     for (final c in _compounds) {
       final formula = (c['formula'] as String?)?.toLowerCase() ?? '';
       final name = (c['name'] as String?)?.toLowerCase() ?? '';
+      final cas = (c['cas'] as String?)?.toLowerCase() ?? '';
+      final casDigits = cas.replaceAll(RegExp(r'[^0-9]'), '');
+      final qDigits = q.replaceAll(RegExp(r'[^0-9]'), '');
       final color = (c['color'] as String?)?.toLowerCase() ?? '';
       final state = (c['state'] as String?)?.toLowerCase() ?? '';
       final summary = (c['summary'] as String?)?.toLowerCase() ?? '';
@@ -558,7 +561,10 @@ class DocsSearchService {
           '';
 
       double score = 0;
-      if (formula.isNotEmpty && formula == q) {
+      if (casDigits.length >= 5 && qDigits.length >= 5 && casDigits == qDigits) {
+        // CAS Registry Number is a unique identifier: exact digit match wins.
+        score = 0.995;
+      } else if (formula.isNotEmpty && formula == q) {
         score = 0.99;
       } else if (name.isNotEmpty && name == q) {
         score = 0.98;
@@ -678,6 +684,7 @@ class DocsSearchService {
   static String _formatCompoundDetailed(Map<String, dynamic> c) {
     final parts = <String>[];
     if (c['formula'] != null) parts.add('Formula: ${c['formula']}');
+    if (c['cas'] != null) parts.add('CAS: ${c['cas']}');
     if (c['state'] != null) parts.add('State: ${c['state']}');
     if (c['color'] != null) parts.add('Color: ${c['color']}');
     if (c['density_g_cm3'] != null) {

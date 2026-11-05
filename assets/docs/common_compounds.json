@@ -2,6 +2,7 @@
   {
     "formula": "H2O",
     "name": "Water",
+    "cas": "7732-18-5",
     "state": "liquid",
     "color": "colorless",
     "density_g_cm3": 1.0,
@@ -22,6 +23,7 @@
   {
     "formula": "H2O2",
     "name": "Hydrogen peroxide",
+    "cas": "7722-84-1",
     "state": "liquid",
     "color": "colorless",
     "density_g_cm3": 1.45,
@@ -42,6 +44,7 @@
   {
     "formula": "NaCl",
     "name": "Sodium chloride",
+    "cas": "7647-14-5",
     "state": "solid",
     "color": "white crystalline",
     "density_g_cm3": 2.16,
@@ -61,6 +64,7 @@
   {
     "formula": "NaHCO3",
     "name": "Sodium bicarbonate",
+    "cas": "144-55-8",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 2.2,
@@ -80,6 +84,7 @@
   {
     "formula": "Na2CO3",
     "name": "Sodium carbonate",
+    "cas": "497-19-8",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 2.54,
@@ -99,6 +104,7 @@
   {
     "formula": "NaOH",
     "name": "Sodium hydroxide",
+    "cas": "1310-73-2",
     "state": "solid / aqueous",
     "color": "white pellets",
     "density_g_cm3": 2.13,
@@ -119,6 +125,7 @@
   {
     "formula": "KOH",
     "name": "Potassium hydroxide",
+    "cas": "1310-58-3",
     "state": "solid / aqueous",
     "color": "white",
     "density_g_cm3": 2.12,
@@ -137,6 +144,7 @@
   {
     "formula": "CaO",
     "name": "Calcium oxide (quicklime)",
+    "cas": "1305-78-8",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 3.34,
@@ -156,6 +164,7 @@
   {
     "formula": "Ca(OH)2",
     "name": "Calcium hydroxide (slaked lime)",
+    "cas": "1305-62-0",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 2.21,
@@ -175,6 +184,7 @@
   {
     "formula": "CaCO3",
     "name": "Calcium carbonate",
+    "cas": "471-34-1",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 2.71,
@@ -194,6 +204,7 @@
   {
     "formula": "CaSO4",
     "name": "Calcium sulfate",
+    "cas": "7778-18-9",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 2.96,
@@ -212,6 +223,7 @@
   {
     "formula": "KCl",
     "name": "Potassium chloride",
+    "cas": "7447-40-7",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 1.98,
@@ -230,6 +242,7 @@
   {
     "formula": "KNO3",
     "name": "Potassium nitrate",
+    "cas": "7757-79-1",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 2.11,
@@ -249,6 +262,7 @@
   {
     "formula": "NH4NO3",
     "name": "Ammonium nitrate",
+    "cas": "6484-52-2",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 1.72,
@@ -268,6 +282,7 @@
   {
     "formula": "NH3",
     "name": "Ammonia",
+    "cas": "7664-41-7",
     "state": "gas (compressed to liquid)",
     "color": "colorless",
     "density_g_cm3": 0.73,
@@ -289,6 +304,7 @@
   {
     "formula": "HCl",
     "name": "Hydrochloric acid",
+    "cas": "7647-01-0",
     "state": "aqueous",
     "color": "colorless",
     "density_g_cm3": 1.18,
@@ -309,6 +325,7 @@
   {
     "formula": "HNO3",
     "name": "Nitric acid",
+    "cas": "7697-37-2",
     "state": "liquid",
     "color": "colorless (yellow if aged)",
     "density_g_cm3": 1.51,
@@ -330,6 +347,7 @@
   {
     "formula": "H2SO4",
     "name": "Sulfuric acid",
+    "cas": "7664-93-9",
     "state": "liquid (oily)",
     "color": "colorless",
     "density_g_cm3": 1.84,
@@ -351,6 +369,7 @@
   {
     "formula": "H3PO4",
     "name": "Phosphoric acid",
+    "cas": "7664-38-2",
     "state": "liquid (syrupy)",
     "color": "colorless",
     "density_g_cm3": 1.685,
@@ -370,6 +389,7 @@
   {
     "formula": "CH3COOH",
     "name": "Acetic acid",
+    "cas": "64-19-7",
     "state": "liquid",
     "color": "colorless",
     "density_g_cm3": 1.049,
@@ -390,6 +410,7 @@
   {
     "formula": "C2H5OH",
     "name": "Ethanol",
+    "cas": "64-17-5",
     "state": "liquid",
     "color": "colorless",
     "density_g_cm3": 0.789,
@@ -411,6 +432,7 @@
   {
     "formula": "CH3OH",
     "name": "Methanol",
+    "cas": "67-56-1",
     "state": "liquid",
     "color": "colorless",
     "density_g_cm3": 0.792,
@@ -432,6 +454,7 @@
   {
     "formula": "C3H8O3",
     "name": "Glycerol",
+    "cas": "56-81-5",
     "state": "liquid (viscous)",
     "color": "colorless",
     "density_g_cm3": 1.261,
@@ -452,6 +475,7 @@
   {
     "formula": "C6H12O6",
     "name": "Glucose",
+    "cas": "50-99-7",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 1.54,
@@ -471,6 +495,7 @@
   {
     "formula": "C12H22O11",
     "name": "Sucrose",
+    "cas": "57-50-1",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 1.587,
@@ -492,6 +517,7 @@
   {
     "formula": "C8H10N4O2",
     "name": "Caffeine",
+    "cas": "58-08-2",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 1.23,
@@ -512,6 +538,7 @@
   {
     "formula": "CH4",
     "name": "Methane",
+    "cas": "74-82-8",
     "state": "gas",
     "color": "colorless",
     "density_g_cm3": 0.000657,
@@ -532,6 +559,7 @@
   {
     "formula": "C2H6",
     "name": "Ethane",
+    "cas": "74-84-0",
     "state": "gas",
     "color": "colorless",
     "density_g_cm3": 0.00128,
@@ -549,6 +577,7 @@
   {
     "formula": "C2H4",
     "name": "Ethylene",
+    "cas": "74-85-1",
     "state": "gas",
     "color": "colorless",
     "density_g_cm3": 0.00118,
@@ -568,6 +597,7 @@
   {
     "formula": "C2H2",
     "name": "Acetylene",
+    "cas": "74-86-2",
     "state": "gas",
     "color": "colorless",
     "density_g_cm3": 0.0011,
@@ -586,6 +616,7 @@
   {
     "formula": "C3H8",
     "name": "Propane",
+    "cas": "74-98-6",
     "state": "gas (LPG)",
     "color": "colorless",
     "density_g_cm3": 0.00183,
@@ -606,6 +637,7 @@
   {
     "formula": "C4H10",
     "name": "Butane",
+    "cas": "106-97-8",
     "state": "gas (LPG)",
     "color": "colorless",
     "density_g_cm3": 0.00248,
@@ -626,6 +658,7 @@
   {
     "formula": "C8H18",
     "name": "Octane",
+    "cas": "111-65-9",
     "state": "liquid",
     "color": "colorless",
     "density_g_cm3": 0.703,
@@ -644,6 +677,7 @@
   {
     "formula": "C6H6",
     "name": "Benzene",
+    "cas": "71-43-2",
     "state": "liquid",
     "color": "colorless",
     "density_g_cm3": 0.876,
@@ -664,6 +698,7 @@
   {
     "formula": "C6H5OH",
     "name": "Phenol",
+    "cas": "108-95-2",
     "state": "solid / liquid",
     "color": "white / pinkish",
     "density_g_cm3": 1.07,
@@ -684,6 +719,7 @@
   {
     "formula": "C6H7N",
     "name": "Aniline",
+    "cas": "62-53-3",
     "state": "liquid",
     "color": "colorless (yellow on storage)",
     "density_g_cm3": 1.022,
@@ -705,6 +741,7 @@
   {
     "formula": "CH2O",
     "name": "Formaldehyde",
+    "cas": "50-00-0",
     "state": "gas (aqueous = formalin)",
     "color": "colorless",
     "density_g_cm3": 0.815,
@@ -726,6 +763,7 @@
   {
     "formula": "CH2Cl2",
     "name": "Dichloromethane",
+    "cas": "75-09-2",
     "state": "liquid",
     "color": "colorless",
     "density_g_cm3": 1.326,
@@ -746,6 +784,7 @@
   {
     "formula": "C2H3N",
     "name": "Acetonitrile",
+    "cas": "75-05-8",
     "state": "liquid",
     "color": "colorless",
     "density_g_cm3": 0.786,
@@ -765,6 +804,7 @@
   {
     "formula": "C3H6O",
     "name": "Acetone",
+    "cas": "67-64-1",
     "state": "liquid",
     "color": "colorless",
     "density_g_cm3": 0.784,
@@ -785,6 +825,7 @@
   {
     "formula": "C4H8O2",
     "name": "Ethyl acetate",
+    "cas": "141-78-6",
     "state": "liquid",
     "color": "colorless",
     "density_g_cm3": 0.902,
@@ -805,6 +846,7 @@
   {
     "formula": "C2H4O2",
     "name": "Methyl formate",
+    "cas": "107-31-3",
     "state": "liquid",
     "color": "colorless",
     "density_g_cm3": 0.98,
@@ -823,6 +865,7 @@
   {
     "formula": "CuSO4",
     "name": "Copper(II) sulfate",
+    "cas": "7758-98-7",
     "state": "solid (pentahydrate)",
     "color": "blue crystals",
     "density_g_cm3": 2.28,
@@ -843,6 +886,7 @@
   {
     "formula": "CuSO4·5H2O",
     "name": "Copper(II) sulfate pentahydrate",
+    "cas": "7758-99-8",
     "state": "solid",
     "color": "blue",
     "density_g_cm3": 2.28,
@@ -862,6 +906,7 @@
   {
     "formula": "Fe2O3",
     "name": "Iron(III) oxide",
+    "cas": "1309-37-1",
     "state": "solid",
     "color": "red-brown",
     "density_g_cm3": 5.24,
@@ -881,6 +926,7 @@
   {
     "formula": "FeCl3",
     "name": "Iron(III) chloride",
+    "cas": "7705-08-0",
     "state": "solid / aqueous",
     "color": "black/green-brown / yellow-brown solution",
     "density_g_cm3": 2.9,
@@ -901,6 +947,7 @@
   {
     "formula": "FeSO4",
     "name": "Iron(II) sulfate",
+    "cas": "7720-78-7",
     "state": "solid (heptahydrate)",
     "color": "blue-green",
     "density_g_cm3": 1.898,
@@ -920,6 +967,7 @@
   {
     "formula": "KMnO4",
     "name": "Potassium permanganate",
+    "cas": "7722-64-7",
     "state": "solid",
     "color": "purple-black",
     "density_g_cm3": 2.7,
@@ -941,6 +989,7 @@
   {
     "formula": "K2Cr2O7",
     "name": "Potassium dichromate",
+    "cas": "7778-50-9",
     "state": "solid",
     "color": "orange-red",
     "density_g_cm3": 2.676,
@@ -962,6 +1011,7 @@
   {
     "formula": "AgNO3",
     "name": "Silver nitrate",
+    "cas": "7761-88-8",
     "state": "solid",
     "color": "colorless/white",
     "density_g_cm3": 4.35,
@@ -982,6 +1032,7 @@
   {
     "formula": "BaCl2",
     "name": "Barium chloride",
+    "cas": "10361-37-2",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 3.856,
@@ -1001,6 +1052,7 @@
   {
     "formula": "BaSO4",
     "name": "Barium sulfate",
+    "cas": "7727-43-7",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 4.499,
@@ -1019,6 +1071,7 @@
   {
     "formula": "Pb(NO3)2",
     "name": "Lead(II) nitrate",
+    "cas": "10099-74-8",
     "state": "solid",
     "color": "colorless/white",
     "density_g_cm3": 4.53,
@@ -1039,6 +1092,7 @@
   {
     "formula": "PbS",
     "name": "Lead(II) sulfide",
+    "cas": "1314-87-0",
     "state": "solid",
     "color": "black",
     "density_g_cm3": 7.6,
@@ -1057,6 +1111,7 @@
   {
     "formula": "HgS",
     "name": "Mercury(II) sulfide",
+    "cas": "1344-48-5",
     "state": "solid",
     "color": "red (cinnabar) / black (metacinnabar)",
     "density_g_cm3": 8.1,
@@ -1074,6 +1129,7 @@
   {
     "formula": "I2",
     "name": "Iodine",
+    "cas": "7553-56-2",
     "state": "solid",
     "color": "purple-black",
     "density_g_cm3": 4.93,
@@ -1095,6 +1151,7 @@
   {
     "formula": "Br2",
     "name": "Bromine",
+    "cas": "7726-95-6",
     "state": "liquid",
     "color": "red-brown",
     "density_g_cm3": 3.12,
@@ -1116,6 +1173,7 @@
   {
     "formula": "Cl2",
     "name": "Chlorine",
+    "cas": "7782-50-5",
     "state": "gas",
     "color": "yellow-green",
     "density_g_cm3": 0.003214,
@@ -1137,6 +1195,7 @@
   {
     "formula": "O3",
     "name": "Ozone",
+    "cas": "10028-15-6",
     "state": "gas",
     "color": "pale blue",
     "density_g_cm3": 0.002,
@@ -1157,6 +1216,7 @@
   {
     "formula": "SO2",
     "name": "Sulfur dioxide",
+    "cas": "7446-09-5",
     "state": "gas",
     "color": "colorless",
     "density_g_cm3": 0.002551,
@@ -1177,6 +1237,7 @@
   {
     "formula": "CO2",
     "name": "Carbon dioxide",
+    "cas": "124-38-9",
     "state": "gas",
     "color": "colorless",
     "density_g_cm3": 0.00156,
@@ -1197,6 +1258,7 @@
   {
     "formula": "CO",
     "name": "Carbon monoxide",
+    "cas": "630-08-0",
     "state": "gas",
     "color": "colorless",
     "density_g_cm3": 0.001145,
@@ -1216,6 +1278,7 @@
   {
     "formula": "NO2",
     "name": "Nitrogen dioxide",
+    "cas": "10102-44-0",
     "state": "gas",
     "color": "brown",
     "density_g_cm3": 0.00188,
@@ -1235,6 +1298,7 @@
   {
     "formula": "NO",
     "name": "Nitric oxide",
+    "cas": "10102-43-9",
     "state": "gas",
     "color": "colorless",
     "density_g_cm3": 0.00134,
@@ -1252,6 +1316,7 @@
   {
     "formula": "N2O",
     "name": "Nitrous oxide",
+    "cas": "10024-97-2",
     "state": "gas",
     "color": "colorless",
     "density_g_cm3": 0.0018,
@@ -1272,6 +1337,7 @@
   {
     "formula": "SiO2",
     "name": "Silicon dioxide",
+    "cas": "7631-86-9",
     "state": "solid",
     "color": "colorless / varies",
     "density_g_cm3": 2.65,
@@ -1291,6 +1357,7 @@
   {
     "formula": "Al2O3",
     "name": "Aluminum oxide",
+    "cas": "1344-28-1",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 3.95,
@@ -1310,6 +1377,7 @@
   {
     "formula": "TiO2",
     "name": "Titanium dioxide",
+    "cas": "13463-67-7",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 4.23,
@@ -1329,6 +1397,7 @@
   {
     "formula": "ZnO",
     "name": "Zinc oxide",
+    "cas": "1314-13-2",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 5.61,
@@ -1348,6 +1417,7 @@
   {
     "formula": "MnO2",
     "name": "Manganese dioxide",
+    "cas": "1313-13-9",
     "state": "solid",
     "color": "black",
     "density_g_cm3": 5.03,
@@ -1367,6 +1437,7 @@
   {
     "formula": "KClO3",
     "name": "Potassium chlorate",
+    "cas": "3811-04-9",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 2.32,
@@ -1387,6 +1458,7 @@
   {
     "formula": "K2CO3",
     "name": "Potassium carbonate",
+    "cas": "584-08-7",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 2.43,
@@ -1406,6 +1478,7 @@
   {
     "formula": "Li2CO3",
     "name": "Lithium carbonate",
+    "cas": "554-13-2",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 2.11,
@@ -1425,6 +1498,7 @@
   {
     "formula": "LiFePO4",
     "name": "Lithium iron phosphate",
+    "cas": "15365-14-7",
     "state": "solid",
     "color": "gray-black",
     "density_g_cm3": 3.6,
@@ -1443,6 +1517,7 @@
   {
     "formula": "C6H8O7",
     "name": "Citric acid",
+    "cas": "77-92-9",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 1.665,
@@ -1462,6 +1537,7 @@
   {
     "formula": "C4H6O5",
     "name": "Malic acid",
+    "cas": "6915-15-7",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 1.609,
@@ -1480,6 +1556,7 @@
   {
     "formula": "C4H6O6",
     "name": "Tartaric acid",
+    "cas": "87-69-4",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 1.79,
@@ -1499,6 +1576,7 @@
   {
     "formula": "C7H5NaO2",
     "name": "Sodium benzoate",
+    "cas": "532-32-1",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 1.44,
@@ -1517,6 +1595,7 @@
   {
     "formula": "C19H28O2",
     "name": "Testosterone",
+    "cas": "58-22-0",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 1.09,
@@ -1536,6 +1615,7 @@
   {
     "formula": "C21H30O2",
     "name": "Cannabidiol (CBD)",
+    "cas": "13956-29-1",
     "state": "solid / oily",
     "color": "white / pale yellow",
     "density_g_cm3": 1.04,
@@ -1554,6 +1634,7 @@
   {
     "formula": "C21H30O2",
     "name": "Tetrahydrocannabinol (THC)",
+    "cas": "1972-08-3",
     "state": "oily",
     "color": "colorless-yellow",
     "density_g_cm3": 0.98,
@@ -1574,6 +1655,7 @@
   {
     "formula": "C9H13N",
     "name": "Amphetamine",
+    "cas": "300-62-9",
     "state": "solid (salt)",
     "color": "white",
     "density_g_cm3": 1.0,
@@ -1593,6 +1675,7 @@
   {
     "formula": "C17H21NO4",
     "name": "Cocaine",
+    "cas": "50-36-2",
     "state": "solid (hydrochloride)",
     "color": "white",
     "density_g_cm3": 1.22,
@@ -1612,6 +1695,7 @@
   {
     "formula": "C10H15N",
     "name": "Methamphetamine",
+    "cas": "537-46-2",
     "state": "solid (hydrochloride)",
     "color": "white / clear crystals",
     "density_g_cm3": 1.0,
@@ -1630,6 +1714,7 @@
   {
     "formula": "C20H25N3O",
     "name": "Lysergic acid diethylamide (LSD)",
+    "cas": "50-37-3",
     "state": "solid",
     "color": "white / clear",
     "density_g_cm3": 1.24,
@@ -1649,6 +1734,7 @@
   {
     "formula": "C7H5NO3S",
     "name": "Saccharin",
+    "cas": "81-07-2",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 0.83,
@@ -1666,6 +1752,7 @@
   {
     "formula": "C7H14N2O4S",
     "name": "Aspartame",
+    "cas": "22839-47-0",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 1.35,
@@ -1684,6 +1771,7 @@
   {
     "formula": "C8H8O3",
     "name": "Vanillin",
+    "cas": "121-33-5",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 1.056,
@@ -1701,6 +1789,7 @@
   {
     "formula": "C9H8O4",
     "name": "Acetylsalicylic acid (aspirin)",
+    "cas": "50-78-2",
     "state": "solid",
     "color": "white",
     "density_g_cm3": 1.4,
@@ -1759,6 +1848,7 @@
   {
     "formula": "(C10H8O4)n",
     "name": "Polyethylene terephthalate (PET)",
+    "cas": "25038-59-9",
     "state": "solid",
     "color": "clear or translucent",
     "density_g_cm3": 1.38,
@@ -1777,6 +1867,7 @@
   {
     "formula": "(C3H6)n",
     "name": "Polypropylene (PP)",
+    "cas": "9003-07-0",
     "state": "solid",
     "color": "translucent white",
     "density_g_cm3": 0.905,
@@ -1795,6 +1886,7 @@
   {
     "formula": "(C16H14O3)n",
     "name": "Polycarbonate (PC)",
+    "cas": "25766-59-0",
     "state": "solid",
     "color": "optically clear",
     "density_g_cm3": 1.2,
@@ -1813,6 +1905,7 @@
   {
     "formula": "(C6H10O5)n",
     "name": "Cellulose",
+    "cas": "9004-34-6",
     "state": "solid",
     "color": "white fibrous",
     "density_g_cm3": 1.5,
@@ -1831,6 +1924,7 @@
   {
     "formula": "C6H8O6",
     "name": "Ascorbic acid (Vitamin C)",
+    "cas": "50-81-7",
     "state": "solid",
     "color": "white to pale yellow crystalline",
     "density_g_cm3": 1.65,
@@ -1849,6 +1943,7 @@
   {
     "formula": "NaClO",
     "name": "Sodium hypochlorite (bleach)",
+    "cas": "7681-52-9",
     "state": "liquid",
     "color": "pale greenish-yellow aqueous solution",
     "density_g_cm3": 1.11,
@@ -1868,6 +1963,7 @@
   {
     "formula": "C3H8O",
     "name": "Isopropanol (2-propanol)",
+    "cas": "67-63-0",
     "state": "liquid",
     "color": "colorless volatile liquid",
     "density_g_cm3": 0.786,
@@ -1887,6 +1983,7 @@
   {
     "formula": "C20H14O4",
     "name": "Phenolphthalein",
+    "cas": "77-09-8",
     "state": "solid",
     "color": "white powder (colorless below pH 8.2, fuchsia pink above pH 8.2)",
     "density_g_cm3": 1.28,
@@ -1904,6 +2001,7 @@
   {
     "formula": "C27H28Br2O5S",
     "name": "Bromothymol blue",
+    "cas": "76-59-5",
     "state": "solid",
     "color": "yellow (< pH 6.0), green (pH 7.0), blue (> pH 7.6)",
     "density_g_cm3": 1.25,
@@ -1922,6 +2020,7 @@
   {
     "formula": "MgSO4·7H2O",
     "name": "Magnesium sulfate heptahydrate (Epsom salt)",
+    "cas": "10034-99-8",
     "state": "solid",
     "color": "colorless crystalline needles",
     "density_g_cm3": 1.68,
@@ -1940,6 +2039,7 @@
   {
     "formula": "CaCl2",
     "name": "Calcium chloride",
+    "cas": "10043-52-4",
     "state": "solid",
     "color": "white hygroscopic pellets",
     "density_g_cm3": 2.15,
@@ -1958,6 +2058,7 @@
   {
     "formula": "Na2S2O3",
     "name": "Sodium thiosulfate",
+    "cas": "7772-98-7",
     "state": "solid",
     "color": "colorless monoclinic crystals",
     "density_g_cm3": 1.67,
@@ -1976,6 +2077,7 @@
   {
     "formula": "C2H2O4",
     "name": "Oxalic acid",
+    "cas": "144-62-7",
     "state": "solid",
     "color": "white crystalline solid",
     "density_g_cm3": 1.9,
@@ -1993,6 +2095,7 @@
   {
     "formula": "CH4N2O",
     "name": "Urea (carbamide)",
+    "cas": "57-13-6",
     "state": "solid",
     "color": "white prills or crystals",
     "density_g_cm3": 1.32,
@@ -2011,6 +2114,7 @@
   {
     "formula": "C3H6O3",
     "name": "Lactic acid",
+    "cas": "50-21-5",
     "state": "liquid",
     "color": "colorless to syrupy liquid",
     "density_g_cm3": 1.21,
@@ -2029,6 +2133,7 @@
   {
     "formula": "C55H72MgN4O5",
     "name": "Chlorophyll a",
+    "cas": "479-61-8",
     "state": "solid",
     "color": "deep blue-green pigment",
     "density_g_cm3": 1.08,
@@ -2047,6 +2152,7 @@
   {
     "formula": "LiCoO2",
     "name": "Lithium cobalt oxide",
+    "cas": "12190-79-3",
     "state": "solid",
     "color": "dark blue-black crystalline powder",
     "density_g_cm3": 5.05,
@@ -2063,6 +2169,7 @@
   {
     "formula": "In2O3·SnO2",
     "name": "Indium tin oxide (ITO)",
+    "cas": "50926-11-9",
     "state": "solid",
     "color": "optically transparent / yellowish thin film",
     "density_g_cm3": 7.14,
@@ -2081,6 +2188,7 @@
   {
     "formula": "Na2S2O5",
     "name": "Sodium metabisulfite",
+    "cas": "7681-57-4",
     "state": "solid",
     "color": "white crystalline powder",
     "density_g_cm3": 1.48,

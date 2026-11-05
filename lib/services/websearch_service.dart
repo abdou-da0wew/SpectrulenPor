@@ -48,6 +48,19 @@ class WebSearchResult {
   }
 
   factory WebSearchResult.fromRelatedTopic(Map<String, dynamic> j) {
+    // DuckDuckGo wraps grouped results as {Name, Topics: [...]}; flatten the
+    // group to its first concrete entry so containers become usable citations.
+    final nested = j['Topics'];
+    if (nested is List) {
+      for (final t in nested) {
+        if (t is Map &&
+            ((t['Text'] as String?)?.isNotEmpty ?? false) &&
+            ((t['FirstURL'] as String?)?.isNotEmpty ?? false)) {
+          return WebSearchResult.fromRelatedTopic(
+              Map<String, dynamic>.from(t));
+        }
+      }
+    }
     final link = (j['FirstURL'] as String?) ?? '';
     final icon = (j['Icon'] is Map) ? (j['Icon'] as Map)['URL'] as String? : null;
     final text = (j['Text'] as String?) ?? '';

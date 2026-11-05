@@ -132,7 +132,7 @@ class _BoundingBoxOverlayState extends State<BoundingBoxOverlay>
               clipBehavior: Clip.none,
               children: [
                 for (final b in displayBoxes)
-                  _buildBoxWidget(
+                  ..._buildBoxWidget(
                     b: b,
                     viewW: w,
                     viewH: h,
@@ -148,7 +148,12 @@ class _BoundingBoxOverlayState extends State<BoundingBoxOverlay>
     );
   }
 
-  Widget _buildBoxWidget({
+  /// Builds the hit-testable box surface and its label badge as SIBLING
+  /// [Positioned]s. The badge paints 28px above the box (`top: -28` before),
+  /// outside any box-sized hit-test bounds — a badge nested inside the box's
+  /// [Positioned] can never receive a tap (the parent hit-test rejects
+  /// out-of-bounds positions first), so it lives in the outer stack.
+  List<Widget> _buildBoxWidget({
     required BoundingBox b,
     required double viewW,
     required double viewH,
@@ -175,29 +180,30 @@ class _BoundingBoxOverlayState extends State<BoundingBoxOverlay>
     // Place badge just above the box when space allows, otherwise inside top-left.
     final badgeAbove = top >= 32.0;
 
-    return Positioned(
-      left: left,
-      top: top,
-      width: boxW,
-      height: boxH,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => widget.onSelect(isSelected ? null : b),
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Positioned.fill(
-              child: CustomPaint(
-                painter: _TargetBoxPainter(
-                  isSelected: isSelected,
-                  lockScale: isSelected ? lockT : 1.0,
-                ),
-              ),
+    return [
+      Positioned(
+        left: left,
+        top: top,
+        width: boxW,
+        height: boxH,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => widget.onSelect(isSelected ? null : b),
+          child: CustomPaint(
+            painter: _TargetBoxPainter(
+              isSelected: isSelected,
+              lockScale: isSelected ? lockT : 1.0,
             ),
-            Positioned(
-              left: 0,
-              top: badgeAbove ? -28 : 4,
-              child: ConstrainedBox(
+          ),
+        ),
+      ),
+      Positioned(
+        left: left,
+        top: badgeAbove ? top - 28 : top + 4,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => widget.onSelect(isSelected ? null : b),
+          child: ConstrainedBox(
                 constraints: BoxConstraints(
                   maxWidth: math.max(boxW, math.min(220.0, viewW - left)),
                 ),
@@ -276,10 +282,8 @@ class _BoundingBoxOverlayState extends State<BoundingBoxOverlay>
                 ),
               ),
             ),
-          ],
-        ),
-      ),
-    );
+          ),
+    ];
   }
 }
 

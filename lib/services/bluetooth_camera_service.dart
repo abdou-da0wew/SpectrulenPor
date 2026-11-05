@@ -248,7 +248,12 @@ class BluetoothCameraService {
 
         // --- Scan for SOI (FFD8), honoring a 0xFF carried from the
         //     previous notification (marker split across chunks). ---
-        int soi = -1;
+        // NB: -1 is a VALID virtual position here (pos - 1 when the FF ended
+        // the previous chunk and pos == 0), so "not found" must be a
+        // different sentinel — using -1 silently discarded every chunk-
+        // starting straddled SOI and corrupted the frame stream.
+        const int soiNotFound = -2;
+        int soi = soiNotFound;
         if (_lastByte == 0xFF && bytes[pos] == 0xD8) {
           soi = pos - 1; // virtual: the FF lives at the end of the previous chunk
           _jpegBuf.add([0xFF]);
@@ -260,7 +265,7 @@ class BluetoothCameraService {
             }
           }
         }
-        if (soi < 0) {
+        if (soi == soiNotFound) {
           _lastByte = bytes.last;
           return;
         }

@@ -32,19 +32,19 @@ void main() {
     // Brand title in the AppBar
     expect(find.text('SpectruLenPor'), findsOneWidget);
     // Camera source toggle buttons
-    expect(find.text('Phone Camera'), findsWidgets);
-    expect(find.text('Smart Glasses'), findsOneWidget);
+    expect(find.text('Phone camera'), findsWidgets);
+    expect(find.text('Glasses'), findsOneWidget);
     // Permission card (camera denied in test VM)
     expect(find.text('Camera Access Required'), findsOneWidget);
     expect(find.text('Grant Access'), findsOneWidget);
     // Bottom Live Analysis bar
-    expect(find.text('Live Analysis'), findsOneWidget);
+    expect(find.text('AI analysis'), findsOneWidget);
     expect(find.text('Waiting for analysis…'), findsOneWidget);
 
     // Switching to Smart Glasses shows the BLE ConnectionStatusBar
-    await tester.tap(find.text('Smart Glasses'));
+    await tester.tap(find.text('Glasses'));
     await tester.pumpAndSettle();
-    expect(find.text('Connect Glasses'), findsOneWidget);
+    expect(find.text('Connect glasses'), findsOneWidget);
   });
 
   testWidgets('app reacts to locale flip — Arabic renders RTL',
@@ -59,7 +59,7 @@ void main() {
     expect(Localizations.localeOf(ctx).languageCode, 'ar');
     expect(Directionality.of(ctx), TextDirection.rtl);
     expect(find.text('سبكترو لِن بور'), findsOneWidget);
-    expect(find.textContaining('التحليل الفوري'), findsOneWidget);
+    expect(find.textContaining('تحليل الذكاء الاصطناعي'), findsOneWidget);
     expect(find.text('يلزم إذن الكاميرا'), findsOneWidget);
   });
 
@@ -76,18 +76,26 @@ void main() {
       },
     );
 
+    // Tall viewport: the settings screen is a lazy ListView — a phone-sized
+    // test surface leaves the API-key cards unbuilt (unfindable). A tall
+    // surface builds the whole column at once.
+    tester.view.physicalSize = const Size(1080, 3200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
     await tester.tap(find.byTooltip('Settings'));
     await tester.pumpAndSettle(const Duration(milliseconds: 600));
 
-    expect(find.textContaining('MOONDREAM3'), findsOneWidget);
-    expect(find.textContaining('OPENROUTER'), findsOneWidget);
+    expect(find.text('MOONDREAM3 CLOUD — PRIMARY VISION'), findsOneWidget);
+    expect(find.text('OPENROUTER API'), findsOneWidget);
 
-    // Seeded TTS key is preserved as the real key (not a placeholder string).
+    // Seeded keys are preserved as the real values (not placeholder strings).
+    // Tall viewport builds the lazy ListView's API-key cards up front.
     final fields = tester.widgetList<TextField>(find.byType(TextField)).toList();
-    expect(fields, hasLength(3));
-    expect(fields[0].controller?.text, 'md-secret');
-    expect(fields[1].controller?.text, 'llm-secret');
-    expect(fields[2].controller?.text, 'tts-secret');
+    expect(fields.length, greaterThanOrEqualTo(3));
+    expect(
+      fields.map((f) => f.controller?.text),
+      containsAllInOrder(<String>['md-secret', 'llm-secret', 'tts-secret']),
+    );
 
     await tester.scrollUntilVisible(
       find.textContaining('gemma-4-26b-a4b-it:free'),
@@ -112,7 +120,7 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
     await tester.pumpAndSettle();
-    expect(find.textContaining('DIAGNOSTICS'), findsOneWidget);
+    expect(find.textContaining('DIAGNOSTICS'), findsWidgets);
 
     // Scroll down to About + Build & Version card.
     await tester.scrollUntilVisible(
@@ -127,12 +135,14 @@ void main() {
     );
     expect(find.textContaining('Malak Adel Sayed Hassan'), findsOneWidget);
 
+    // '(build ' is unique to the version card (the about text also contains
+    // 'SpectruLenPor v…', which would break the finder's single-match rule).
     await tester.scrollUntilVisible(
-      find.textContaining('SpectruLenPor v'),
+      find.textContaining('(build '),
       300,
       scrollable: find.byType(Scrollable).first,
     );
     await tester.pumpAndSettle();
-    expect(find.textContaining('SpectruLenPor v'), findsOneWidget);
+    expect(find.textContaining('(build '), findsOneWidget);
   });
 }

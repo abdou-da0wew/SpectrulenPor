@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:smart_glass_app/models/citation.dart';
 import 'package:smart_glass_app/services/docs_search_service.dart';
@@ -51,7 +54,7 @@ void main() {
         allowNetwork: false,
       );
       expect(boro, isNotEmpty);
-      expect(boro.first.title, contains('Borosilicate Glass'));
+      expect(boro.first.title, contains('Borosilicate glass'));
     });
 
     test('detailed mode returns rich atomic, electronic & physical properties',
@@ -96,6 +99,87 @@ void main() {
         allowNetwork: false,
       );
       expect(forkDocs, isNotEmpty);
+    });
+
+    test('search by CAS Registry Number resolves the exact compound', () async {
+      final docs = DocsSearchService.instance;
+      await docs.init();
+
+      // Exact formatted CAS (water)
+      final byCas = docs.searchLocal('7732-18-5');
+      expect(byCas, isNotEmpty);
+      // CAS is a unique identifier: the exact compound must be the top hit.
+      expect(byCas.first.title, startsWith('Water'));
+      // Snippet surfaces the identifier for the AI citation pipeline.
+      expect(byCas.first.snippet, contains('CAS: 7732-18-5'));
+
+      // Hyphens/spaces optional: digits-only normalization still matches.
+      final loose = docs.searchLocal('7732 18 5');
+      expect(loose, isNotEmpty);
+      expect(loose.first.title, startsWith('Water'));
+
+      // Unrelated digits must not match a CAS.
+      final miss = docs.searchLocal('99999-99-4');
+      expect(
+        miss.where((d) => d.title.startsWith('Water')),
+        isEmpty,
+      );
+
+      // Aspirin via CAS.
+      final aspirin = docs.searchLocal('50-78-2');
+      expect(aspirin, isNotEmpty);
+      expect(aspirin.first.title, contains('aspirin'));
+    });
+
+    test('bundled corpus CAS numbers are complete and checksum-valid',
+        () async {
+      final docs = DocsSearchService.instance;
+      await docs.init();
+
+      // CAS check digit: body digits weighted right-to-left, mod 10.
+      bool casValid(String cas) {
+        final digits = cas.replaceAll('-', '');
+        if (digits.length < 4 || int.tryParse(digits) == null) return false;
+        final check = int.parse(digits[digits.length - 1]);
+        var total = 0;
+        for (var i = 0; i < digits.length - 1; i++) {
+          total += int.parse(digits[i]) * (digits.length - 1 - i);
+        }
+        return total % 10 == check;
+      }
+
+      final raw = await rootBundle
+          .loadString('assets/docs/common_compounds.json');
+      final compounds =
+          (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
+
+      final withCas = compounds.where((c) => c['cas'] != null).toList();
+      // 108 of 110 carry a CAS; the 2 true mixtures (glass, steel) do not.
+      expect(withCas.length, 108);
+      for (final c in withCas) {
+        expect(casValid(c['cas'] as String), isTrue,
+            reason: '${c['name']}: invalid CAS ${c['cas']}');
+      }
+      final noCas =
+          compounds.where((c) => c['cas'] == null).map((c) => c['name']);
+      expect(noCas, containsAll(<String>['Borosilicate glass']));
+
+      // Known anchor values (PubChem CAS Common Chemistry).
+      final byName = {for (final c in compounds) c['name'] as String: c};
+      expect(byName['Water']!['cas'], '7732-18-5');
+      expect(byName['Sodium chloride']!['cas'], '7647-14-5');
+      expect(byName['Copper(II) sulfate pentahydrate']!['cas'], '7758-99-8');
+      // Hydrates must not collapse into their anhydrous CAS.
+      expect(
+        byName['Magnesium sulfate heptahydrate (Epsom salt)']!['cas'],
+        isNot('7487-88-9'),
+      );
+      // Mixtures must never inherit a single-component CAS.
+      expect(
+        byName['Stainless steel (304 austenitic)']!['cas'],
+        isNot('7439-89-6'),
+        reason: '7439-89-6 is elemental iron, not stainless steel',
+      );
     });
   });
 

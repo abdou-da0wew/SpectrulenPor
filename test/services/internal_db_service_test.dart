@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -10,13 +12,28 @@ import 'package:smart_glass_app/models/spectrum_reading.dart';
 import 'package:smart_glass_app/services/internal_db_service.dart';
 import 'package:smart_glass_app/services/moondream_service.dart';
 
+
+/// Fresh [InternalDatabaseService] backed by an ISOLATED temp directory.
+/// The default forTest() fallback dir is shared across tests AND test runs,
+/// which leaks persisted rows (e.g. 10 accumulated ERROR logs broke
+/// `getLogs(level: 'ERROR') == 1`).
+InternalDatabaseService freshDb() {
+  final dir = Directory.systemTemp.createTempSync('sldb_unit_');
+  addTearDown(() {
+    try {
+      dir.deleteSync(recursive: true);
+    } catch (_) {}
+  });
+  return InternalDatabaseService.forTest(directoryPath: dir.path);
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('InternalDatabaseService (all 9 tables)', () {
     test('saves, lists, hydrates, appends messages & deletes chat sessions',
         () async {
-      final db = InternalDatabaseService.forTest();
+      final db = freshDb();
       await db.init();
 
       final frames = CapturedFrames(
@@ -102,7 +119,7 @@ void main() {
 
     test('TTL response caching increments hit_count and prunes expired rows',
         () async {
-      final db = InternalDatabaseService.forTest();
+      final db = freshDb();
       await db.init();
 
       await db.putCached(
@@ -134,7 +151,7 @@ void main() {
       // Regression: the native where clause used a TEXT bound against the
       // INTEGER expires_at column, which matched every row and wiped the
       // whole cache on each launch. Fresh rows must survive eviction.
-      final db = InternalDatabaseService.forTest();
+      final db = freshDb();
       await db.init();
 
       await db.putCached(
@@ -158,7 +175,7 @@ void main() {
 
     test('logs, crash/hang reports, telemetry, traces, user_data & export work',
         () async {
-      final db = InternalDatabaseService.forTest();
+      final db = freshDb();
       await db.init();
 
       await db.logInfo('YOLO', 'Model staged');

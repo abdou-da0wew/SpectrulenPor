@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
@@ -443,6 +444,7 @@ class RecognitionState extends ChangeNotifier {
   DateTime? _lastProcessAt;
 
   void _onFrame(FrameData frame) {
+    if (_disposed) return;
     _lastFrame = frame;
     notifyListeners();
 
@@ -459,6 +461,7 @@ class RecognitionState extends ChangeNotifier {
   Future<void> _runGatedPipeline(FrameData frame) async {
     try {
       final gate = await VisionGate.check(frame.jpegBytes);
+      if (_disposed) return;
       _lastGate = gate;
       notifyListeners();
 
@@ -467,6 +470,7 @@ class RecognitionState extends ChangeNotifier {
           _source == CameraSource.phone &&
           !_flashOn) {
         final ok = await phoneCamera.setTorch(true);
+        if (_disposed) return;
         if (ok) {
           _autoFlashOn = true;
           _flashOn = true;
@@ -481,6 +485,7 @@ class RecognitionState extends ChangeNotifier {
       // the scene sits right at the darkness boundary.
       if (_autoFlashOn && _flashOn && gate.brightness >= kAutoTorchOffBrightness) {
         await phoneCamera.setTorch(false);
+        if (_disposed) return;
         _autoFlashOn = false;
         _flashOn = false;
         notifyListeners();
@@ -548,7 +553,7 @@ class RecognitionState extends ChangeNotifier {
         error: e,
         stackTrace: st,
       ));
-      notifyListeners();
+      if (!_disposed) notifyListeners();
     }
   }
 
@@ -781,6 +786,10 @@ class RecognitionState extends ChangeNotifier {
   List<int>? _lastFrameSignature;
   DateTime? _lastDetectionAt;
   bool _yoloInFlight = false;
+
+  /// Set in [dispose]; async pipeline stages check it after every await so a
+  /// screen teardown mid-frame never touches the notifier after disposal.
+  bool _disposed = false;
   FrameData? _yoloPendingFrame;
 
   /// Runs YOLO26-Nano with **latest-frame pipelining**: while one inference
@@ -1110,6 +1119,7 @@ class RecognitionState extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _btStatusSub?.cancel();
     _btFrameSub?.cancel();
     _phoneFrameSub?.cancel();
@@ -1278,7 +1288,9 @@ Uint8List _paintBoxesIsolate(_PaintBoxesArgs args) {
       final pct = (b.confidence * 100).round().clamp(0, 100);
       final tagText = 'SELECTED: ${b.label.toUpperCase()} ($pct%)';
       final bannerH = 24;
-      final bannerW = (tagText.length * 9 + 16).clamp(80, w);
+      // NB: clamp(80, w) throws `Invalid argument(s): 80` on frames narrower
+      // than 80px (low > high) — order the bounds explicitly instead.
+      final bannerW = math.min(w, math.max(80, tagText.length * 9 + 16));
       final bx1 = x1.clamp(0, (w - bannerW).clamp(0, w));
       final by1 = (y1 >= bannerH + 2)
           ? (y1 - bannerH)
@@ -1300,7 +1312,10 @@ Uint8List _paintBoxesIsolate(_PaintBoxesArgs args) {
         color: white,
       );
     }
-    return Uint8List.fromList(img.encodeJpg(decoded, quality: 90));
+    // Encode the COMPOSITED canvas (blur + boxes + banner) — encoding the
+    // original `decoded` here silently discarded the entire privacy blur and
+    // all box overlays and shipped the clean frame as the marked variant.
+    return Uint8List.fromList(img.encodeJpg(canvas, quality: 90));
   } catch (e) {
     debugPrint('[_paintBoxesOnJpeg] failed: $e');
     return args.jpeg;
