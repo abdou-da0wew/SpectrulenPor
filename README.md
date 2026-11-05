@@ -51,6 +51,10 @@ Captured by launching the app on Flutter Web in a phone-layout headless browser 
 |---|---|---|---|
 | <img src="docs/screenshots/02b_settings_rag.png" width="200" alt="RAG modes" /> | <img src="docs/screenshots/03_history.png" width="200" alt="History" /> | <img src="docs/screenshots/04_diagnostics.png" width="200" alt="Diagnostics" /> | <img src="docs/screenshots/05_home_ar.png" width="200" alt="Arabic RTL" /> |
 
+| Glasses (BLE) source — disconnected state |
+|---|
+| <img src="docs/screenshots/02_glasses_ble.png" width="270" alt="Glasses BLE source" /> |
+
 ---
 
 <img src="docs/assets/icons/cpu.svg" width="24" valign="middle" alt="" /> **System architecture**
@@ -58,6 +62,12 @@ Captured by launching the app on Flutter Web in a phone-layout headless browser 
 <img src="docs/assets/architecture.png" width="100%" alt="SpectruLenPor architecture diagram" />
 
 *Editable source: [`docs/diagrams/architecture.html`](docs/diagrams/architecture.html) — built with the [diagram-design](https://github.com/cathrynlavery/diagram-design) editorial design system (HTML + inline SVG, rendered to PNG).*
+
+The step-by-step capture/analysis swimlane, in the same editorial system:
+
+<img src="docs/diagrams/pipeline.png" width="100%" alt="Capture and analysis pipeline swimlane" />
+
+*Editable source: [`docs/diagrams/pipeline.html`](docs/diagrams/pipeline.html).*
 
 ---
 
@@ -245,16 +255,16 @@ flutter build web --release            # Flutter Web (UI review build)
 
 <img src="docs/assets/icons/bluetooth.svg" width="24" valign="middle" alt="" /> **Hardware bill of materials (EGP)**
 
-| Component | Cost |
-|---|---|
-| AI-Thinker ESP32-CAM + OV2640 camera module | ~600 |
-| GUVA-S12SD UV sensor + analog IR sensor | ~350 |
-| FTDI / USB-to-TTL programming adapter | ~200 |
-| TP4056 Li-ion charging module + rechargeable cell | ~250 |
-| Eyeglass frame mount, enclosure & wiring | ~350 |
-| Android smartphone (existing user device) | 0 |
-| Software & AI stack (Flutter, ONNX Runtime, SQLite, Moondream/OpenRouter free tiers) | 0 |
-| **Total prototype cost** | **≈ 1,750 EGP** |
+| Component | Cost | Source |
+|---|---|---|
+| AI-Thinker ESP32-CAM + OV2640 camera module | ~600 | [Maker Selectronics — ESP32-CAM](https://makerselectronics.com/product/esp32-cam-esp32-s-wifibluetooth-with-ov2640-camera-module/) |
+| ESP32-CAM-MB micro-USB programmer shield (CH340) | ~120 | [Maker Selectronics — ESP32-CAM-MB](https://makerselectronics.com/product/esp32-cam-mb-micro-module-esp32-cam/) |
+| GUVA-S12SD UV sensor + analog IR sensor | ~350 | — |
+| TP4056 Li-ion charging module + rechargeable cell | ~250 | — |
+| Eyeglass frame mount, enclosure & wiring | ~430 | — |
+| Android smartphone (existing user device) | 0 | — |
+| Software & AI stack (Flutter, ONNX Runtime, SQLite, Moondream/OpenRouter free tiers) | 0 | — |
+| **Total prototype cost** | **≈ 1,750 EGP** | *(FTDI line replaced by the ESP32-CAM-MB shield — one-plug flashing, no GPIO0 jumper)* |
 
 ---
 

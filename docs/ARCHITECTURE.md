@@ -6,6 +6,12 @@ This document details the internal engineering of **SpectruLenPor** (`com.spectr
 
 *Editable diagram source: [`diagrams/architecture.html`](diagrams/architecture.html) (diagram-design editorial HTML/SVG system).*
 
+The step-by-step capture/analysis swimlane across the four actors (glasses, phone app, cloud AI, student):
+
+![Capture and analysis pipeline](diagrams/pipeline.png)
+
+*Editable source: [`diagrams/pipeline.html`](diagrams/pipeline.html).*
+
 ---
 
 ## 0. MethodChannel registry (native Android, Kotlin)

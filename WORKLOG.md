@@ -2,6 +2,14 @@
 
 Reverse-chronological record of what was built, fixed, and verified. One entry per merged change-set.
 
+## 2026-11-05 — v5.5.1+16 · hardware lock, pipeline swimlane, glasses screenshot, web camera fix (PR #12)
+
+- **Hardware decision locked** (user-confirmed): the glasses end is the AI-Thinker **ESP32-CAM (ESP32-S + OV2640)** flashed via the **ESP32-CAM-MB** micro-USB programmer shield, procured from Maker Selectronics (Egypt). Links recorded in `CONTEXT.md` (new "Locked hardware decision" section), `README.md` BOM (MB shield ~120 EGP replaces the FTDI line; mount/wiring adjusted to keep the ≈ 1,750 EGP total), and `firmware/README.md` (new "Official hardware" + one-plug flashing procedure; FTDI path kept as fallback).
+- **Capture/analysis pipeline swimlane** added in the same diagram-design editorial system: `docs/diagrams/pipeline.html` (self-contained HTML, passes geometry + self checks) rendered to `docs/diagrams/pipeline.png`; embedded in `README.md` and `docs/ARCHITECTURE.md` next to the existing architecture figure.
+- **Glasses (BLE) source screenshot** captured (`docs/screenshots/02_glasses_ble.png`) — disconnected-state UI; added to the README gallery.
+- **Web camera fix**: `PhoneCameraService.start` now guards `lockCaptureOrientation` and `startImageStream` with `kIsWeb` — camera_web throws `CameraException(NotSupportedError)` for both, so the browser preview died at startup. This is what makes the reproducible web-screenshot pipeline show the live feed.
+- Reconciliation: branch rebased onto the PR #7-#11 documentation/CI line; their README/AGENTS/CONTEXT/WORKLOG/BENCHMARKS versions kept, the unique additions above merged in; duplicate local artifacts (own architecture render, redundant screenshots) dropped in favor of the merged ones.
+
 ## 2026-11-05 — v5.5.1 · analyzer zeroed out, CI green (PR #8)
 
 - CI's first runs failed: `flutter analyze` was exiting 1 — the repo carried **10 real warnings** (my earlier severity scan was wrong) plus 78 info lints, and warnings are fatal by default.

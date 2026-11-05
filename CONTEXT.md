@@ -6,6 +6,15 @@ Everything an agent or a new contributor needs to understand the *why* behind Sp
 
 Build working smart glasses + companion app for real-time chemical and material identification, as a student research project at **Ashmounin Secondary School** (Menoufia, Egypt), within a **2,500–6,000 EGP** hardware budget. The prototype (≈ 1,750 EGP) mounts an ESP32-CAM with UV/IR sensors into an eyeglass frame; a phone runs the intelligence.
 
+## Locked hardware decision
+
+The glasses end is the **AI-Thinker ESP32-CAM (ESP32-S + OV2640)** flashed via the **ESP32-CAM-MB** micro-USB programmer shield, procured from Maker Selectronics (Egypt) — locked November 2026:
+
+- ESP32-CAM module: <https://makerselectronics.com/product/esp32-cam-esp32-s-wifibluetooth-with-ov2640-camera-module/>
+- ESP32-CAM-MB programmer (CH340 USB-UART, one-plug flashing + 5 V power + serial monitor): <https://makerselectronics.com/product/esp32-cam-mb-micro-module-esp32-cam/>
+
+The MB shield replaces the generic FTDI adapter in the BOM and removes the manual `GPIO0`-to-GND flashing jumper. Pinout and BLE contract: [`firmware/README.md`](firmware/README.md).
+
 ## The scenario the product is designed for
 
 A student walks through a chemistry lab or daily environment, points the camera (phone or glasses) at an object — a beaker, a reagent bottle, a metal spoon — and gets, in under a minute and in Arabic or English:

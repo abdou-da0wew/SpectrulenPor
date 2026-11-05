@@ -5,6 +5,13 @@ explains **what was already implemented in the app**, **why the raw-ONNX-on-CPU
 approach was slow**, and **the full upgrade ladder** from "ONNX on CPU" to
 "NPUs and INT8" — with exact export commands (`tooling/export_yolo26_mobile.py`).
 
+**Status legend (see the benchmark table in [`README.md`](../README.md#real-benchmarks--status)):**
+every layer in section 1 is **implemented** in `main`; its numeric wins
+("2-6x", "1.2-1.8x") are vendor-typical figures that the startup EP benchmark
+measures on *your* device at first launch — they are deliberately not quoted
+as project measurements anywhere. Stages 3-5 of the ladder are tooling +
+documentation only until a real export and a physical-device run happen.
+
 ---
 
 ## 1. What the app already does now (v5.5.1)
