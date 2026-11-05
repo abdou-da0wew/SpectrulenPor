@@ -180,6 +180,37 @@ void main() {
         isNot('7439-89-6'),
         reason: '7439-89-6 is elemental iron, not stainless steel',
       );
+      // Mixtures carry an explicit cas_skip flag + human-readable cas_note so
+      // the AI layer can state "no single CAS" instead of guessing one.
+      expect(byName['Borosilicate glass']!['cas_skip'], isTrue);
+      expect(byName['Borosilicate glass']!['cas_note'], isNotEmpty);
+      expect(byName['Stainless steel (304 austenitic)']!['cas_skip'], isTrue);
+      expect(byName['Stainless steel (304 austenitic)']!['cas_note'], isNotEmpty);
+    });
+
+    test('detailed mode surfaces CAS numbers and mixture cas_note for the AI',
+        () async {
+      final docs = DocsSearchService.instance;
+      await docs.init();
+
+      final water = await docs.searchByMode(
+        'Water',
+        mode: DocsSearchMode.detailed,
+        allowNetwork: false,
+      );
+      expect(water.first.snippet, contains('CAS: 7732-18-5'));
+
+      final steel = await docs.searchByMode(
+        'Stainless steel',
+        mode: DocsSearchMode.detailed,
+        allowNetwork: false,
+      );
+      final steelDoc = steel.firstWhere(
+        (d) => d.title.contains('Stainless steel'),
+        orElse: () => steel.first,
+      );
+      expect(steelDoc.snippet, contains('CAS: not applicable'));
+      expect(steelDoc.snippet, contains('Fe-Cr-Ni alloy'));
     });
   });
 
