@@ -7,7 +7,6 @@ import 'package:provider/provider.dart';
 
 import '../l10n/app_localizations.dart';
 import '../main.dart' show appLocale;
-import '../models/bluetooth_status.dart';
 import '../models/recognition_state.dart';
 import '../utils/app_theme.dart' as palette;
 import '../utils/app_typography.dart';
@@ -425,7 +424,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ? palette.AppColors.dustyLavender
                     : palette.AppColors.silver,
                 disabledBackgroundColor:
-                    palette.AppColors.dustGrey.withOpacity(0.9),
+                    palette.AppColors.dustGrey.withValues(alpha: 0.9),
                 disabledForegroundColor: palette.AppColors.inkSoft,
                 padding:
                     const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -477,7 +476,7 @@ class _HomeScreenState extends State<HomeScreen> {
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: palette.AppColors.dustyLavender.withOpacity(0.1),
+            color: palette.AppColors.dustyLavender.withValues(alpha: 0.1),
             blurRadius: 4,
             offset: const Offset(0, -1),
           ),
@@ -637,7 +636,7 @@ class _PermissionCard extends StatelessWidget {
                 width: 76,
                 height: 76,
                 decoration: BoxDecoration(
-                  color: palette.AppColors.dustyLavender.withOpacity(0.18),
+                  color: palette.AppColors.dustyLavender.withValues(alpha: 0.18),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
@@ -880,7 +879,7 @@ class _LiveBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: palette.AppColors.danger.withOpacity(0.9),
+        color: palette.AppColors.danger.withValues(alpha: 0.9),
         borderRadius: BorderRadius.circular(7),
       ),
       child: Row(
@@ -917,10 +916,10 @@ class _DetectionCountBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
       decoration: BoxDecoration(
-        color: palette.AppColors.inkDark.withOpacity(0.8),
+        color: palette.AppColors.inkDark.withValues(alpha: 0.8),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: palette.AppColors.dustyMauve.withOpacity(0.8),
+          color: palette.AppColors.dustyMauve.withValues(alpha: 0.8),
         ),
       ),
       child: Row(
@@ -955,7 +954,7 @@ class _HintChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: palette.AppColors.inkDark.withOpacity(0.76),
+        color: palette.AppColors.inkDark.withValues(alpha: 0.76),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: Colors.white24),
       ),

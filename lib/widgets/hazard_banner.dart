@@ -26,7 +26,7 @@ class HazardBanner extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-            color: palette.AppColors.danger.withOpacity(0.4),
+            color: palette.AppColors.danger.withValues(alpha: 0.4),
             blurRadius: 12,
             offset: const Offset(0, 3),
           ),

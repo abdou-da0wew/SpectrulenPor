@@ -95,12 +95,14 @@ class MicService {
           }
           onResult(r.recognizedWords, r.finalResult);
         },
-        listenFor: const Duration(seconds: 30),
-        pauseFor: const Duration(seconds: 3),
-        partialResults: true,
-        localeId: localeId,
-        cancelOnError: true,
-        listenMode: ListenMode.dictation,
+        listenOptions: SpeechListenOptions(
+          listenFor: const Duration(seconds: 30),
+          pauseFor: const Duration(seconds: 3),
+          partialResults: true,
+          localeId: localeId,
+          cancelOnError: true,
+          listenMode: ListenMode.dictation,
+        ),
       );
       return true;
     } catch (e) {

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 
@@ -94,7 +93,7 @@ class LocalVisionService {
 
     // ---- 0. VISION GATE ----
     final gate = _gateCheckOverride != null
-        ? await _gateCheckOverride!(jpegBytes)
+        ? await _gateCheckOverride(jpegBytes)
         : await VisionGate.check(jpegBytes);
     lastGate = gate;
 

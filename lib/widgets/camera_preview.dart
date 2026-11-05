@@ -78,10 +78,10 @@ class CameraPreviewWidget extends StatelessWidget {
                     vertical: 8,
                   ),
                   decoration: BoxDecoration(
-                    color: palette.AppColors.inkDark.withOpacity(0.84),
+                    color: palette.AppColors.inkDark.withValues(alpha: 0.84),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: palette.AppColors.dustyMauve.withOpacity(0.75),
+                      color: palette.AppColors.dustyMauve.withValues(alpha: 0.75),
                     ),
                   ),
                   child: Row(
@@ -199,9 +199,9 @@ class _CornerBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
-        color: palette.AppColors.inkDark.withOpacity(0.76),
+        color: palette.AppColors.inkDark.withValues(alpha: 0.76),
         borderRadius: BorderRadius.circular(9),
-        border: Border.all(color: color.withOpacity(0.75)),
+        border: Border.all(color: color.withValues(alpha: 0.75)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

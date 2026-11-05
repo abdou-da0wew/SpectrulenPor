@@ -1,3 +1,8 @@
+// Web preview sink: dart:html is the only way to reach the browser media
+// element and SpeechSynthesis-free blob: URL playback in the plain Flutter
+// web build; package:web migration is tracked in the roadmap.
+// ignore_for_file: deprecated_member_use, avoid_web_libraries_in_flutter
+
 import 'dart:async';
 import 'dart:html' as html;
 import 'dart:typed_data';

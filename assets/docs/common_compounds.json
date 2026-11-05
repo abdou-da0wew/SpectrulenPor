@@ -1824,7 +1824,9 @@
     ],
     "hazards": [
       "sharp laceration hazard if shattered"
-    ]
+    ],
+    "cas_note": "Mixture - glass composition (SiO2/B2O3/Na2O/Al2O3); no single CAS RN",
+    "cas_skip": true
   },
   {
     "formula": "Fe-Cr-Ni (70% Fe, 18% Cr, 8% Ni)",
@@ -1843,7 +1845,9 @@
     ],
     "hazards": [
       "safe in bulk solid form; welding fumes contain hexavalent chromium"
-    ]
+    ],
+    "cas_note": "Mixture - Fe-Cr-Ni alloy; components have their own CAS, the alloy has none",
+    "cas_skip": true
   },
   {
     "formula": "(C10H8O4)n",

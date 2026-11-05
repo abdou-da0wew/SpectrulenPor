@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SpectruLenPor · Scientific RAG</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f5f5f5;
+      --color-ink:     #2d3142;
+      --color-muted:   #4f5d75;
+      --color-soft:    #5a6580;
+      --color-accent:  #bf4520;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans); background: var(--color-paper); color: var(--color-ink);
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1240px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono); font-size: 0.66rem; font-weight: 500;
+      letter-spacing: 0.18em; text-transform: uppercase; color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif); font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400; letter-spacing: -0.02em; line-height: 1.15; margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 960px; display: block; }
+    .note {
+      font-family: var(--font-serif); font-style: italic; font-size: 0.9rem;
+      color: var(--color-soft); margin-top: 1.25rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Scientific RAG · DocsSearchService</p>
+    <h1>From detection to grounded, CAS-annotated answers</h1>
+
+    <svg viewBox="0 40 1120 345" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="rag-title rag-desc">
+      <title id="rag-title">Scientific RAG flow</title>
+      <desc id="rag-desc">A YOLO label is expanded to candidate materials, searched across three modes, matched to a CAS-annotated compound record, assembled into a grounded context block, and answered with inline citations that a fact checker verifies; live lookups to PubChem, Wikipedia and DuckDuckGo feed the same pipeline through a TTL cache.</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#bf4520"/></marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <!-- arrows -->
+      <line x1="180" y1="200" x2="204" y2="200" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <line x1="364" y1="200" x2="388" y2="200" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <line x1="548" y1="200" x2="572" y2="200" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <line x1="732" y1="200" x2="756" y2="200" stroke="#bf4520" stroke-width="1.4" marker-end="url(#arrow-accent)"/>
+      <line x1="916" y1="200" x2="940" y2="200" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <line x1="470" y1="232" x2="470" y2="296" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+      <line x1="1022" y1="240" x2="1022" y2="296" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+
+      <!-- arrow labels -->
+      <rect x="484" y="176" width="72" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="520" y="185" fill="#bf4520" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">CAS MATCH</text>
+      <rect x="438" y="256" width="64" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="470" y="265" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">TTL CACHE</text>
+      <rect x="988" y="260" width="56" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="1016" y="269" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VERIFY</text>
+
+      <!-- node 1: YOLO label (input) -->
+      <rect x="20" y="168" width="160" height="64" rx="6" fill="rgba(79,93,117,0.10)" stroke="#5a6580" stroke-width="1"/>
+      <text x="100" y="200" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">YOLO26 label</text>
+      <text x="100" y="216" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">"bottle" · COCO class</text>
+
+      <!-- node 2: semantic expansion (backend) -->
+      <rect x="204" y="168" width="160" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="284" y="200" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Semantic expansion</text>
+      <text x="284" y="216" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">bottle → glass · PET · H2O</text>
+
+      <!-- node 3: docs search (backend) -->
+      <rect x="388" y="168" width="160" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="468" y="200" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">DocsSearchService</text>
+      <text x="468" y="216" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">strict · detailed · semantic</text>
+
+      <!-- node 4: compound record (focal) -->
+      <rect x="572" y="160" width="160" height="80" rx="6" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1.2"/>
+      <rect x="580" y="168" width="28" height="12" rx="2" fill="transparent" stroke="rgba(191,69,32,0.45)" stroke-width="0.8"/>
+      <text x="594" y="177" fill="#bf4520" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">CAS</text>
+      <text x="652" y="196" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Compound record</text>
+      <text x="652" y="212" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Water · CAS 7732-18-5</text>
+      <text x="652" y="226" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">mixtures → "not applicable"</text>
+
+      <!-- node 5: grounded context (backend) -->
+      <rect x="756" y="168" width="160" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="836" y="200" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Grounded context</text>
+      <text x="836" y="216" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">GHS · properties · CAS lines</text>
+
+      <!-- node 6: streamed answer (backend) -->
+      <rect x="940" y="168" width="164" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="1022" y="200" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Streamed answer</text>
+      <text x="1022" y="216" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">inline [n] citations</text>
+
+      <!-- node: live lookups (external, dashed) -->
+      <rect x="388" y="296" width="164" height="64" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <text x="470" y="328" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Live lookups</text>
+      <text x="470" y="344" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">PubChem · Wikipedia · DDG</text>
+
+      <!-- node: fact checker (backend, dashed feed) -->
+      <rect x="940" y="296" width="164" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="1022" y="328" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Fact checker</text>
+      <text x="1022" y="344" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">claims vs corpus &amp; web</text>
+    </svg>
+
+    <p class="note">Every CAS number is checksum-validated and sourced from PubChem CAS Common Chemistry — mixtures carry an explicit "not applicable" note so the model never invents a registry number.</p>
+  </div>
+</body>
+</html>

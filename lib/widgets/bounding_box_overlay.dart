@@ -223,19 +223,19 @@ class _BoundingBoxOverlayState extends State<BoundingBoxOverlay>
                         : null,
                     color: isSelected
                         ? null
-                        : palette.AppColors.inkDark.withOpacity(0.82),
+                        : palette.AppColors.inkDark.withValues(alpha: 0.82),
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
                       color: isSelected
-                          ? Colors.white.withOpacity(0.9)
-                          : palette.AppColors.dustyMauve.withOpacity(0.75),
+                          ? Colors.white.withValues(alpha: 0.9)
+                          : palette.AppColors.dustyMauve.withValues(alpha: 0.75),
                       width: isSelected ? 1.3 : 1.0,
                     ),
                     boxShadow: isSelected
                         ? [
                             BoxShadow(
                               color:
-                                  palette.AppColors.dustyMauve.withOpacity(0.45),
+                                  palette.AppColors.dustyMauve.withValues(alpha: 0.45),
                               blurRadius: 8,
                               spreadRadius: 1,
                             ),
@@ -304,12 +304,12 @@ class _TargetBoxPainter extends CustomPainter {
     if (!isSelected) {
       // Subtle translucent wash + clean lavender frame + corner ticks
       final fillPaint = Paint()
-        ..color = palette.AppColors.dustyLavender.withOpacity(0.08)
+        ..color = palette.AppColors.dustyLavender.withValues(alpha: 0.08)
         ..style = PaintingStyle.fill;
       canvas.drawRRect(rrect, fillPaint);
 
       final borderPaint = Paint()
-        ..color = palette.AppColors.dustyMauve.withOpacity(0.85)
+        ..color = palette.AppColors.dustyMauve.withValues(alpha: 0.85)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.6;
       canvas.drawRRect(rrect, borderPaint);
@@ -317,7 +317,7 @@ class _TargetBoxPainter extends CustomPainter {
       _drawCornerBrackets(
         canvas,
         size,
-        color: Colors.white.withOpacity(0.85),
+        color: Colors.white.withValues(alpha: 0.85),
         strokeWidth: 2.2,
         fraction: 0.16,
       );
@@ -327,14 +327,14 @@ class _TargetBoxPainter extends CustomPainter {
     // Selected object: outer glow + tinted highlight + crisp double border +
     // bold corner brackets + center target reticle marker.
     final glowPaint = Paint()
-      ..color = palette.AppColors.dustyMauve.withOpacity(0.42)
+      ..color = palette.AppColors.dustyMauve.withValues(alpha: 0.42)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 6.0
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
     canvas.drawRRect(rrect, glowPaint);
 
     final fillPaint = Paint()
-      ..color = palette.AppColors.dustyMauve.withOpacity(0.16)
+      ..color = palette.AppColors.dustyMauve.withValues(alpha: 0.16)
       ..style = PaintingStyle.fill;
     canvas.drawRRect(rrect, fillPaint);
 
@@ -350,7 +350,7 @@ class _TargetBoxPainter extends CustomPainter {
         const Radius.circular(7),
       );
       final innerStroke = Paint()
-        ..color = Colors.white.withOpacity(0.75)
+        ..color = Colors.white.withValues(alpha: 0.75)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.0;
       canvas.drawRRect(innerRect, innerStroke);
@@ -372,7 +372,7 @@ class _TargetBoxPainter extends CustomPainter {
       final radius = baseRadius * (0.75 + 0.25 * lockScale.clamp(0.5, 1.2));
 
       final ringBg = Paint()
-        ..color = palette.AppColors.dustyLavender.withOpacity(0.65)
+        ..color = palette.AppColors.dustyLavender.withValues(alpha: 0.65)
         ..style = PaintingStyle.fill;
       canvas.drawCircle(center, radius, ringBg);
 

@@ -684,7 +684,13 @@ class DocsSearchService {
   static String _formatCompoundDetailed(Map<String, dynamic> c) {
     final parts = <String>[];
     if (c['formula'] != null) parts.add('Formula: ${c['formula']}');
-    if (c['cas'] != null) parts.add('CAS: ${c['cas']}');
+    if (c['cas'] != null) {
+      parts.add('CAS: ${c['cas']}');
+    } else if (c['cas_note'] != null) {
+      // Mixtures (glass, steel) have no single CAS - tell the model why so it
+      // never invents a registry number when the user asks for one.
+      parts.add('CAS: not applicable - ${c['cas_note']}');
+    }
     if (c['state'] != null) parts.add('State: ${c['state']}');
     if (c['color'] != null) parts.add('Color: ${c['color']}');
     if (c['density_g_cm3'] != null) {

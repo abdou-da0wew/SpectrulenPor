@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show MissingPluginException;
@@ -626,7 +625,7 @@ class RecognitionState extends ChangeNotifier {
     try {
       final buffer = StringBuffer();
       final telemetry =
-          _lastReading == null ? null : _lastReading!.telemetryLine(_localeCode);
+          _lastReading?.telemetryLine(_localeCode);
 
       await for (final chunk in openRouter.streamAnalysis(
         labelSentence: localDescription,
@@ -1235,7 +1234,7 @@ Uint8List _paintBoxesIsolate(_PaintBoxesArgs args) {
         color: mauve,
         thickness: 5,
       );
-      final inset = 4;
+      const inset = 4;
       if (x2 - x1 > inset * 2 && y2 - y1 > inset * 2) {
         img.drawRect(
           canvas,
@@ -1287,7 +1286,7 @@ Uint8List _paintBoxesIsolate(_PaintBoxesArgs args) {
       // Readable SELECTED label banner
       final pct = (b.confidence * 100).round().clamp(0, 100);
       final tagText = 'SELECTED: ${b.label.toUpperCase()} ($pct%)';
-      final bannerH = 24;
+      const bannerH = 24;
       // NB: clamp(80, w) throws `Invalid argument(s): 80` on frames narrower
       // than 80px (low > high) — order the bounds explicitly instead.
       final bannerW = math.min(w, math.max(80, tagText.length * 9 + 16));

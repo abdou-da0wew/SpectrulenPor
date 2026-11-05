@@ -19,7 +19,7 @@ python3 tooling/convert_mobilenet_onnx.py --output_dir assets/models
 
 ## 3. CAS Registry Backfill: `backfill_cas_pubchem.py`
 
-Populates the `cas` field of the bundled corpora from **PubChem** (PUG REST + PUG-View). 108 of the 110 compounds in `common_compounds.json` carry a CAS Registry Number; the two true mixtures (borosilicate glass, 304 stainless steel) correctly have none.
+Populates the `cas` field of the bundled corpora from **PubChem** (PUG REST + PUG-View). 108 of the 110 compounds in `common_compounds.json` carry a CAS Registry Number; the two true mixtures (borosilicate glass, 304 stainless steel) carry `cas_skip: true` + a `cas_note` and are skipped before any query — a name variant can silently resolve to a single component (e.g. steel → iron), so flagged entries can never be poisoned by a re-run.
 
 ```bash
 python3 tooling/backfill_cas_pubchem.py                 # dry run, full report
@@ -39,4 +39,17 @@ python3 tooling/backfill_cas_pubchem.py --set "Glucose=50-99-7" --write  # verif
 
 Rate-limited to ~3.3 req/s (PubChem's limit is 5) with 429/503/504 exponential-backoff retries. Polymers (PET `25038-59-9`, PP `9003-07-0`, PC `25766-59-0`, cellulose `9004-34-6`) have no PubChem compound records — they were verified out-of-band (Wikipedia infoboxes / Wikidata P231) and pinned via `--set`, which the tool records as `PIN` in its report.
 
-**In-app surfacing** (`DocsSearchService`): a query that normalizes to a bundled CAS (`7732-18-5`, `7732 18 5`) resolves the compound as the **top hit**, and every compound citation snippet now includes `CAS: <number>` so the AI answer pipeline can cite exact registry numbers instead of hallucinating them.
+**In-app surfacing** (`DocsSearchService`): a query that normalizes to a bundled CAS (`7732-18-5`, `7732 18 5`) resolves the compound as the **top hit**, and every compound citation snippet now includes `CAS: <number>` (mixtures render `CAS: not applicable - <cas_note>`) so the AI answer pipeline can cite exact registry numbers instead of hallucinating them.
+
+## 4. In-Browser Screenshot Capture: `make_fake_camera_scene.py` + `take_web_screenshots.py`
+
+The README screenshots are real app screens captured by launching the Flutter Web build in a phone-layout headless Chromium (412×915 CSS @2x, touch emulation):
+
+```bash
+flutter build web --release
+python3 -m http.server 8123 -d build/web &
+python3 tooling/make_fake_camera_scene.py     # writes /tmp/lab_scene.y4m (lab desk scene)
+python3 tooling/take_web_screenshots.py       # captures docs/screenshots/*.png
+```
+
+Chromium's fake camera (`--use-file-for-fake-video-capture`) plays the generated lab-scene video so the live-detection screenshots show a realistic preview; the Arabic RTL shot is taken by tapping the app-bar language toggle in-session. Requires `playwright` (Python) with its Chromium installed.

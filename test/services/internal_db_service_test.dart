@@ -49,7 +49,7 @@ void main() {
         ),
         capturedAt: DateTime.utc(2026, 10, 28, 12, 0),
       );
-      final md = MoondreamStructuredAnalysis(
+      const md = MoondreamStructuredAnalysis(
         caption: 'Clear volatile liquid in flask',
         whatItIs: 'Ethanol (C2H5OH)',
         howItsUsed: 'Lab solvent and disinfectant',

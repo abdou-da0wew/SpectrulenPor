@@ -14,7 +14,9 @@ Design rules (mirroring the app's "never guess" AI discipline):
   * If a record yields several *distinct* valid CAS numbers, it is reported
     as AMBIGUOUS and nothing is written (resolve manually with --set).
   * True mixtures/materials (borosilicate glass, 304 stainless steel, ITO)
-    have no single CAS - they are skipped, not failed.
+    have no single CAS - they carry `cas_skip: true` plus a human-readable
+    `cas_note` in the corpus and are skipped, never re-queried (a name
+    variant can silently resolve to a single component, e.g. steel -> iron).
 
 Usage:
   python3 tooling/backfill_cas_pubchem.py                 # dry run, full report
@@ -357,6 +359,13 @@ def main() -> int:
                 changed += 1
                 print(f"PIN   {name:44s} -> {v:14s} (verified manual override)")
                 counts["PIN"] = counts.get("PIN", 0) + 1
+            continue
+        if e.get("cas_skip"):
+            # Flagged in the corpus as a true mixture/alloy/glass: no single
+            # CAS RN exists. Never query PubChem for these - a name variant
+            # can silently resolve to a single component (steel -> iron).
+            counts["SKIP-FLAG"] = counts.get("SKIP-FLAG", 0) + 1
+            print(f"SKIP  {name:44s} -> cas_skip flagged (mixture/material)")
             continue
         if e.get("cas") and not args.refresh:
             counts["KEEP"] = counts.get("KEEP", 0) + 1
