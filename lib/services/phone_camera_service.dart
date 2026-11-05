@@ -63,10 +63,17 @@ class PhoneCameraService {
 
     final ctrl = CameraController(back, preset, enableAudio: false);
     await ctrl.initialize();
-    await ctrl.lockCaptureOrientation(DeviceOrientation.portraitUp);
+    // Web (camera_web) throws CameraException(NotSupportedError) for both
+    // orientation lock and image streams — the preview still renders, so
+    // guard both and keep the live view usable in the browser.
+    if (!kIsWeb) {
+      await ctrl.lockCaptureOrientation(DeviceOrientation.portraitUp);
+    }
     _controller = ctrl;
 
-    await ctrl.startImageStream(_onCameraImage);
+    if (!kIsWeb) {
+      await ctrl.startImageStream(_onCameraImage);
+    }
     _streaming = true;
     debugPrint('[PhoneCamera] live — ${ctrl.value.previewSize}');
   }

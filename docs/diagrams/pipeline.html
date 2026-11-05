@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SpectruLenPor capture &amp; analysis pipeline</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f5f5f5;   /* white-smoke */
+      --color-ink:     #2d3142;   /* jet-black */
+      --color-muted:   #4f5d75;   /* blue-slate */
+      --color-soft:    #5a6580;
+      --color-accent:  #bf4520;   /* burnt-tangerine */
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', 'Noto Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+
+    .frame { max-width: 1200px; width: 100%; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+
+    svg { width: 100%; min-width: 1064px; display: block; }
+    @media print {
+      .diagram-container { overflow-x: visible; }
+      svg { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Process &middot; Diagram Design</p>
+    <h1>From photons to a cited spoken answer</h1>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 1064 436" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="pipeline-title pipeline-desc">
+        <title id="pipeline-title">SpectruLenPor capture and analysis pipeline</title>
+        <desc id="pipeline-desc">Process diagram across four actors: the ESP32-CAM glasses capture a frame, the phone app gates it and detects boxes on-device, the student selects a box, the app redacts everything outside it, the cloud VLM cascade describes and analyzes it with citations, and text-to-speech speaks the answer.</desc>
+        <defs>
+          <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+            <circle cx="11" cy="11" r="0.8" fill="rgba(45,49,66,0.10)"/>
+          </pattern>
+          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+          <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#bf4520"/></marker>
+          <marker id="arrow-sm" markerWidth="6" markerHeight="5" refX="5" refY="2.5" orient="auto"><polygon points="0 0, 6 2.5, 0 5" fill="#4f5d75"/></marker>
+        </defs>
+
+        <rect width="100%" height="100%" fill="#f5f5f5"/>
+        <rect width="100%" height="100%" fill="url(#dots)" opacity="0.55"/>
+
+        <!-- Lane tints (lanes 0 and 2) -->
+        <rect x="140" y="36" width="924" height="80" fill="rgba(45,49,66,0.018)"/>
+        <rect x="140" y="196" width="924" height="80" fill="rgba(45,49,66,0.018)"/>
+
+        <!-- Lane dividers -->
+        <line x1="140" y1="36" x2="1064" y2="36" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+        <line x1="140" y1="116" x2="1064" y2="116" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+        <line x1="140" y1="196" x2="1064" y2="196" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+        <line x1="140" y1="276" x2="1064" y2="276" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+        <line x1="140" y1="356" x2="1064" y2="356" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+        <!-- Label column divider -->
+        <line x1="140" y1="36" x2="140" y2="356" stroke="rgba(45,49,66,0.20)" stroke-width="1"/>
+
+        <!-- ================= ARROWS (before nodes) ================= -->
+        <!-- 1. Capture -> VisionGate (down one lane) -->
+        <path d="M 248,76 H 302 Q 310,76 310,84 V 124" fill="none" stroke="#4f5d75" stroke-width="1.0" marker-end="url(#arrow)"/>
+        <!-- 2. VisionGate -> YOLO26-Nano (focal-in, same lane) -->
+        <line x1="360" y1="156" x2="372" y2="156" stroke="#bf4520" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+        <!-- 3. YOLO26-Nano -> Pick a box (focal-out, down two lanes) -->
+        <path d="M 472,156 H 526 Q 534,156 534,164 V 284" fill="none" stroke="#bf4520" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+        <!-- 4. Pick a box -> Privacy blur (up one lane) -->
+        <path d="M 584,316 H 638 Q 646,316 646,308 V 188" fill="none" stroke="#4f5d75" stroke-width="1.0" marker-end="url(#arrow)"/>
+        <!-- 5. Privacy blur -> Moondream3 (down one lane) -->
+        <path d="M 696,156 H 750 Q 758,156 758,164 V 204" fill="none" stroke="#4f5d75" stroke-width="1.0" marker-end="url(#arrow)"/>
+        <!-- 6. Moondream3 -> OpenRouter + RAG (same lane) -->
+        <line x1="808" y1="236" x2="820" y2="236" stroke="#4f5d75" stroke-width="1.0" marker-end="url(#arrow)"/>
+        <!-- 7. OpenRouter + RAG -> Fish Audio TTS (same lane) -->
+        <line x1="920" y1="236" x2="932" y2="236" stroke="#4f5d75" stroke-width="1.0" marker-end="url(#arrow)"/>
+
+        <!-- ================= STEP HEADER CHIPS ================= -->
+        <!-- Step 1 Capture -->
+        <rect x="190" y="8" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+        <text x="198" y="19" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">1</text>
+        <text x="198" y="32" fill="#4f5d75" font-size="6" font-weight="500" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.12em">CAPTURE</text>
+        <!-- Step 2 Filter -->
+        <rect x="302" y="8" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+        <text x="310" y="19" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">2</text>
+        <text x="310" y="32" fill="#4f5d75" font-size="6" font-weight="500" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.12em">FILTER</text>
+        <!-- Step 3 Detect (focal) -->
+        <rect x="414" y="8" width="16" height="16" rx="8" fill="rgba(191,69,32,0.20)"/>
+        <text x="422" y="19" fill="#bf4520" font-size="9" font-weight="600" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">3</text>
+        <text x="422" y="32" fill="#bf4520" font-size="6" font-weight="500" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.12em">DETECT</text>
+        <!-- Step 4 Select -->
+        <rect x="526" y="8" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+        <text x="534" y="19" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">4</text>
+        <text x="534" y="32" fill="#4f5d75" font-size="6" font-weight="500" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.12em">SELECT</text>
+        <!-- Step 5 Redact -->
+        <rect x="638" y="8" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+        <text x="646" y="19" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">5</text>
+        <text x="646" y="32" fill="#4f5d75" font-size="6" font-weight="500" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.12em">REDACT</text>
+        <!-- Step 6 Describe -->
+        <rect x="750" y="8" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+        <text x="758" y="19" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">6</text>
+        <text x="758" y="32" fill="#4f5d75" font-size="6" font-weight="500" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.12em">DESCRIBE</text>
+        <!-- Step 7 Analyze -->
+        <rect x="862" y="8" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+        <text x="870" y="19" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">7</text>
+        <text x="870" y="32" fill="#4f5d75" font-size="6" font-weight="500" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.12em">ANALYZE</text>
+        <!-- Step 8 Speak -->
+        <rect x="974" y="8" width="16" height="16" rx="8" fill="rgba(45,49,66,0.12)"/>
+        <text x="982" y="19" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">8</text>
+        <text x="982" y="32" fill="#4f5d75" font-size="6" font-weight="500" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.12em">SPEAK</text>
+
+        <!-- ================= LANE LABELS ================= -->
+        <text x="70" y="80" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">GLASSES</text>
+        <text x="70" y="152" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">PHONE</text>
+        <text x="70" y="164" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">APP</text>
+        <text x="70" y="228" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">CLOUD</text>
+        <text x="70" y="240" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">AI</text>
+        <text x="70" y="308" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">STUDENT</text>
+
+        <!-- ================= NODES ================= -->
+        <!-- N1 GLASSES x Capture -->
+        <rect x="148" y="44" width="100" height="64" rx="4" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+        <rect x="152" y="48" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+        <text x="159" y="56" fill="#2d3142" font-size="6" font-weight="600" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">G</text>
+        <text x="198" y="70" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">OV2640 frame</text>
+        <text x="198" y="84" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">light &rarr; QVGA JPEG</text>
+        <text x="198" y="96" fill="#5a6580" font-size="6.5" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">ESP32-CAM + UV/IR</text>
+
+        <!-- N2 PHONE APP x Filter -->
+        <rect x="260" y="124" width="100" height="64" rx="4" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+        <rect x="264" y="128" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+        <text x="271" y="136" fill="#2d3142" font-size="6" font-weight="600" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">APP</text>
+        <text x="310" y="150" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">VisionGate</text>
+        <text x="310" y="164" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">JPEG &rarr; clean JPEG</text>
+        <text x="310" y="176" fill="#5a6580" font-size="6.5" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">auto-torch</text>
+
+        <!-- N3 PHONE APP x Detect (FOCAL) -->
+        <rect x="372" y="124" width="100" height="64" rx="4" fill="rgba(191,69,32,0.08)" stroke="#bf4520" stroke-width="1"/>
+        <rect x="376" y="128" width="14" height="10" rx="2" fill="rgba(191,69,32,0.20)"/>
+        <text x="383" y="136" fill="#bf4520" font-size="6" font-weight="600" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">APP</text>
+        <text x="422" y="150" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">YOLO26-Nano</text>
+        <text x="422" y="164" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">JPEG &rarr; boxes</text>
+        <text x="422" y="176" fill="#5a6580" font-size="6.5" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">on-device</text>
+
+        <!-- N4 STUDENT x Select -->
+        <rect x="484" y="284" width="100" height="64" rx="4" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+        <rect x="488" y="288" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+        <text x="495" y="296" fill="#2d3142" font-size="6" font-weight="600" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">YOU</text>
+        <text x="534" y="310" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Pick a box</text>
+        <text x="534" y="324" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">boxes &rarr; target</text>
+        <text x="534" y="336" fill="#5a6580" font-size="6.5" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">touch UI</text>
+
+        <!-- N5 PHONE APP x Redact -->
+        <rect x="596" y="124" width="100" height="64" rx="4" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+        <rect x="600" y="128" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+        <text x="607" y="136" fill="#2d3142" font-size="6" font-weight="600" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">APP</text>
+        <text x="646" y="150" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Privacy blur</text>
+        <text x="646" y="164" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">crop &rarr; redacted</text>
+        <text x="646" y="176" fill="#5a6580" font-size="6.5" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">isolate JPEG</text>
+
+        <!-- N6 CLOUD AI x Describe -->
+        <rect x="708" y="204" width="100" height="64" rx="4" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+        <rect x="712" y="208" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+        <text x="719" y="216" fill="#2d3142" font-size="6" font-weight="600" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">AI</text>
+        <text x="758" y="230" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Moondream3</text>
+        <text x="758" y="244" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">crop &rarr; caption</text>
+        <text x="758" y="256" fill="#5a6580" font-size="6.5" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">VLM &middot; box-only</text>
+
+        <!-- N7 CLOUD AI x Analyze -->
+        <rect x="820" y="204" width="100" height="64" rx="4" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+        <rect x="824" y="208" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+        <text x="831" y="216" fill="#2d3142" font-size="6" font-weight="600" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">AI</text>
+        <text x="870" y="230" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">OpenRouter+RAG</text>
+        <text x="870" y="244" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">caption &rarr; cited</text>
+        <text x="870" y="256" fill="#5a6580" font-size="6.5" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">PubChem &middot; Wiki</text>
+
+        <!-- N8 CLOUD AI x Speak -->
+        <rect x="932" y="204" width="100" height="64" rx="4" fill="#ffffff" stroke="rgba(45,49,66,0.25)" stroke-width="1"/>
+        <rect x="936" y="208" width="14" height="10" rx="2" fill="rgba(45,49,66,0.12)"/>
+        <text x="943" y="216" fill="#2d3142" font-size="6" font-weight="600" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">AI</text>
+        <text x="982" y="230" fill="#2d3142" font-size="9" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Fish Audio TTS</text>
+        <text x="982" y="244" fill="#4f5d75" font-size="6.5" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">text &rarr; speech</text>
+        <text x="982" y="256" fill="#5a6580" font-size="6.5" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">native fallback</text>
+
+        <!-- ================= LEGEND ================= -->
+        <text x="144" y="372" fill="#4f5d75" font-size="6" font-weight="500" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">STEPS</text>
+        <rect x="196" y="364" width="12" height="12" rx="6" fill="rgba(45,49,66,0.12)"/>
+        <text x="212" y="373" fill="#4f5d75" font-size="6" font-family="'Geist Mono', ui-monospace, monospace">1 CAPTURE</text>
+        <rect x="296" y="364" width="12" height="12" rx="6" fill="rgba(45,49,66,0.12)"/>
+        <text x="312" y="373" fill="#4f5d75" font-size="6" font-family="'Geist Mono', ui-monospace, monospace">2 FILTER</text>
+        <rect x="384" y="364" width="12" height="12" rx="6" fill="rgba(191,69,32,0.20)"/>
+        <text x="400" y="373" fill="#bf4520" font-size="6" font-family="'Geist Mono', ui-monospace, monospace">3 DETECT</text>
+        <rect x="476" y="364" width="12" height="12" rx="6" fill="rgba(45,49,66,0.12)"/>
+        <text x="492" y="373" fill="#4f5d75" font-size="6" font-family="'Geist Mono', ui-monospace, monospace">4 SELECT</text>
+        <rect x="568" y="364" width="12" height="12" rx="6" fill="rgba(45,49,66,0.12)"/>
+        <text x="584" y="373" fill="#4f5d75" font-size="6" font-family="'Geist Mono', ui-monospace, monospace">5 REDACT</text>
+        <rect x="660" y="364" width="12" height="12" rx="6" fill="rgba(45,49,66,0.12)"/>
+        <text x="676" y="373" fill="#4f5d75" font-size="6" font-family="'Geist Mono', ui-monospace, monospace">6 DESCRIBE</text>
+        <rect x="768" y="364" width="12" height="12" rx="6" fill="rgba(45,49,66,0.12)"/>
+        <text x="784" y="373" fill="#4f5d75" font-size="6" font-family="'Geist Mono', ui-monospace, monospace">7 ANALYZE</text>
+        <rect x="868" y="364" width="12" height="12" rx="6" fill="rgba(45,49,66,0.12)"/>
+        <text x="884" y="373" fill="#4f5d75" font-size="6" font-family="'Geist Mono', ui-monospace, monospace">8 SPEAK</text>
+
+        <text x="144" y="393" fill="#4f5d75" font-size="6" font-weight="500" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.12em">FLOW</text>
+        <line x1="196" y1="389" x2="224" y2="389" stroke="#bf4520" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+        <text x="232" y="393" fill="#4f5d75" font-size="6" font-family="'Geist Mono', ui-monospace, monospace">FOCAL HANDOFF</text>
+        <line x1="356" y1="389" x2="384" y2="389" stroke="#4f5d75" stroke-width="1.0" marker-end="url(#arrow)"/>
+        <text x="392" y="393" fill="#4f5d75" font-size="6" font-family="'Geist Mono', ui-monospace, monospace">DATA HANDOFF</text>
+        <text x="520" y="393" fill="#5a6580" font-size="6" font-family="'Geist Mono', ui-monospace, monospace">LEFT LABEL = LANE (WHO) &middot; TOP NUMBER = STEP (WHEN)</text>
+      </svg>
+    </div>
+  </div>
+</body>
+</html>

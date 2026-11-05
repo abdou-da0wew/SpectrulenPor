@@ -1,6 +1,15 @@
 # SpectruLenPor ESP32-CAM Smart Glasses Firmware
 
-Firmware file: [`esp32cam_glasses_firmware.ino`](esp32cam_glasses_firmware.ino)
+<img src="https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2.1.1/assets/regular/eye.svg" width="15" align="absMiddle" alt="glasses icon"> Firmware file: [`esp32cam_glasses_firmware.ino`](esp32cam_glasses_firmware.ino)
+
+## Official hardware (locked decision)
+
+The glasses use the **AI-Thinker ESP32-CAM (ESP32-S + WiFi/BT + OV2640 2 MP)** flashed through the **ESP32-CAM-MB** micro-USB programmer shield — no FTDI wiring needed:
+
+| Part | Role | Procurement |
+|---|---|---|
+| ESP32-CAM (ESP32-S, OV2640) | camera + BLE capture end, UV/IR ADC inputs, flash LED | [Maker Selectronics — ESP32-CAM](https://makerselectronics.com/product/esp32-cam-esp32-s-wifibluetooth-with-ov2640-camera-module/) |
+| ESP32-CAM-MB (micro-USB shield, CH340 USB-UART) | one-plug flashing + 5 V power + serial monitor | [Maker Selectronics — ESP32-CAM-MB](https://makerselectronics.com/product/esp32-cam-mb-micro-module-esp32-cam/) |
 
 ## Hardware Pinout (AI-Thinker ESP32-CAM)
 
@@ -26,7 +35,15 @@ Firmware file: [`esp32cam_glasses_firmware.ino`](esp32cam_glasses_firmware.ino)
 
 ## Flashing Instructions
 
+### With the ESP32-CAM-MB shield (recommended — one plug)
+
 1. Install **Arduino IDE 2.x** and add the Espressif **esp32** board package.
 2. Select board **AI Thinker ESP32-CAM** (`Partition Scheme: Huge APP (3MB No OTA)`).
-3. Bridge `GPIO0` to `GND`, connect via FTDI (`5V` power, `3.3V` logic), and click **Upload**.
-4. Disconnect `GPIO0` from `GND` and press **RST**. Verify `SpectruLenPor-ESP32` appears in BLE scan.
+3. Seat the ESP32-CAM onto the ESP32-CAM-MB header (camera lens over the board edge), connect the micro-USB cable, and click **Upload** — the shield handles `GPIO0` grounding, CH340 USB-UART, and 5 V power.
+4. Press the shield's **RST** button after upload. Verify `SpectruLenPor-ESP32` appears in a BLE scan.
+
+### With a bare board and FTDI adapter (fallback)
+
+1. Same IDE/board settings as above.
+2. Bridge `GPIO0` to `GND`, connect via FTDI (`5V` power, `3.3V` logic), and click **Upload**.
+3. Disconnect `GPIO0` from `GND` and press **RST**. Verify `SpectruLenPor-ESP32` appears in BLE scan.

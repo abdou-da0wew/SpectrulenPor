@@ -2,6 +2,12 @@
 
 This document details the internal engineering of **SpectruLenPor** (`com.spectraglass.app`), covering the vision pipeline, ONNX tensor geometry, user-gated dual capture, 3-mode scientific RAG + fact-checking, auto-updating `ConversationContext`, and the 9-table SQLite WAL internal database.
 
+<img src="https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2.1.1/assets/regular/cpu.svg" width="15" align="absMiddle" alt="cpu icon"> The two editorial visualizations below were drawn with the [diagram-design](https://github.com/cathrynlavery/diagram-design) system; their editable HTML sources are [`docs/diagrams/architecture.html`](diagrams/architecture.html) and [`docs/diagrams/pipeline.html`](diagrams/pipeline.html).
+
+![System architecture](diagrams/architecture.png)
+
+![Capture and analysis pipeline](diagrams/pipeline.png)
+
 ---
 
 ## 1. End-to-End Pipeline & Cloud-Only Execution Policy
