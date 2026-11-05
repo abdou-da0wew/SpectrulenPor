@@ -9,6 +9,7 @@ Reverse-chronological record of what was built, fixed, and verified. One entry p
 - `dart fix --apply` cleaned 69 stale info lints across 24 files.
 - Migrated deprecated APIs: `RadioListTile` group-value/onChanged → `RadioGroup<int>` ancestor (Settings model-chain picker), `speech_to_text` named listen params → `SpeechListenOptions`, `BuildContext`-across-async-gap guarded with a `mounted` check; `tts_sink_web.dart` keeps `dart:html` behind a rationale ignore (package:web migration tracked in the roadmap).
 - Result: `flutter analyze` = **No issues found** (exit 0), 93 tests passing, `flutter build web --release` clean.
+- CI note: GitHub Actions jobs for this account fail at runner startup with zero steps and no logs - verified with a bare `echo hi` smoke job (diagnosis PR, smoke file removed afterwards). `ci.yml` stays committed; the badge is static until the owner clears the account-level block (Settings -> Actions / billing).
 
 ## 2026-11-05 — v5.5.1+16 · documentation overhaul (PR #7)
 

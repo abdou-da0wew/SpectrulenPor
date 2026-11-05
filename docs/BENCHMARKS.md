@@ -2,6 +2,7 @@
 
 One rule: **a number either was measured, or it is marked pending.** Nothing in this file is estimated. Re-run the reproduction commands after any pipeline change and update this table in the same PR.
 
+- **CI note:** the `ci.yml` workflow (analyze + test) is committed and correct, but GitHub Actions jobs for this account currently fail at runner startup with no logs - even a bare `echo hi` job does. The rows below were therefore measured locally on the exact same commit; CI will reproduce them once the account-level Actions block is cleared.
 - **Environment for "Measured" rows:** Flutter `3.47.9 stable` (framework rev `c197ca5199`), Linux x64 CI-style sandbox, repository `main` at `v5.5.1+16`, 2026-11-05.
 
 ## Software verification (measured)
