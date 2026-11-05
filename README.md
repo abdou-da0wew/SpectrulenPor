@@ -19,7 +19,7 @@ Local-first object detection · grounded chemistry answers · inline citations
 
 | | | | | | |
 |---|---|---|---|---|---|
-| [![ci](https://github.com/abdou-da0wew/SpectrulenPor/actions/workflows/ci.yml/badge.svg)](https://github.com/abdou-da0wew/SpectrulenPor/actions/workflows/ci.yml) | ![tests](https://img.shields.io/badge/tests-93%20passing-success?style=flat) | ![analyze](https://img.shields.io/badge/flutter_analyze-0%20issues-success?style=flat) | ![stars](https://img.shields.io/github/stars/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) | ![last-commit](https://img.shields.io/github/last-commit/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) | ![commit-activity](https://img.shields.io/github/commit-activity/m/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) |
+| ![ci](https://img.shields.io/badge/CI-workflow%20ready%20·%20runner%20blocked%20on%20account-yellow?style=flat) | ![tests](https://img.shields.io/badge/tests-93%20passing-success?style=flat) | ![analyze](https://img.shields.io/badge/flutter_analyze-0%20issues-success?style=flat) | ![stars](https://img.shields.io/github/stars/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) | ![last-commit](https://img.shields.io/github/last-commit/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) | ![commit-activity](https://img.shields.io/github/commit-activity/m/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) |
 
 | | | | |
 |---|---|---|---|
@@ -147,7 +147,7 @@ Hardware target budget: 2,500–6,000 EGP · actual prototype BOM ≈ 1,750 EGP.
 <img src="docs/assets/icons/git-branch.svg" width="24" valign="middle" alt="" /> **Repository status**
 
 - **Default branch:** `main` · current version **v5.5.1+16** (`com.spectraglass.app`)
-- **CI:** GitHub Actions runs `flutter analyze` + `flutter test` on every push and PR (badge above reflects real runs)
+- **CI:** `.github/workflows/ci.yml` runs `flutter analyze` + `flutter test` on every push and PR. The workflow is committed and correct, but GitHub Actions jobs for this account currently die at runner startup (even a bare echo job fails with zero logs; the same pipeline passes locally), so the badge is pinned static until the owner clears the account-level Actions block under Settings -> Actions / billing.
 - **History:** PR #3 vision accuracy/UX · PR #4 audit fixes (cache wipe, columns, TTS, BLE reconnect, SSE, signing, fonts) · PR #5 PubChem CAS backfill · PR #6 mixture-CAS guard · PR #7 documentation overhaul
 - **Work log:** see [`WORKLOG.md`](WORKLOG.md) for the dated change history
 - **License:** none yet — © authors, all rights reserved
