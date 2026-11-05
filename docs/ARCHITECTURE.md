@@ -2,6 +2,23 @@
 
 This document details the internal engineering of **SpectruLenPor** (`com.spectraglass.app`), covering the vision pipeline, ONNX tensor geometry, user-gated dual capture, 3-mode scientific RAG + fact-checking, auto-updating `ConversationContext`, and the 9-table SQLite WAL internal database.
 
+![SpectruLenPor architecture](assets/architecture.png)
+
+*Editable diagram source: [`diagrams/architecture.html`](diagrams/architecture.html) (diagram-design editorial HTML/SVG system).*
+
+---
+
+## 0. MethodChannel registry (native Android, Kotlin)
+
+| Channel | Implementation | Purpose |
+|---|---|---|
+| `com.spectraglass/yolo` | `YoloInferenceChannel.kt` | ONNX Runtime session with EP race, letterbox pre/post-processing, latest-wins inference |
+| `com.spectraglass/db` | `AppDatabaseChannel.kt` | 9-table SQLite WAL store, TTL eviction, logs/crash/telemetry/trace writes |
+| `com.spectraglass/flashlight` | `FlashlightChannel.kt` | Torch control (CameraManager `setTorchMode`, tablet fallback paths) |
+| `com.spectraglass/moondream` | `MoondreamChannel.kt` | Optional local llama.cpp GGUF bridge (`moondream_jni.cpp`) behind cloud Moondream3 |
+
+Everything else (camera capture, ML Kit fallbacks, TTS, speech input) runs through Dart plugins. On **Flutter Web** the native channels are unavailable and the app degrades to stubs (`onnx_backend_stub.dart`, `vision_mlkit_stub.dart`, `db_file_store_stub.dart`): UI is fully renderable (used for the README screenshots), but camera streaming, YOLO inference and SQLite are native-only.
+
 ---
 
 ## 1. End-to-End Pipeline & Cloud-Only Execution Policy
@@ -61,7 +78,7 @@ When **Cloud-only models (except YOLO26-Nano)** is enabled (`RecognitionState.cl
 | `DocsSearchMode.detailed` | Full 26-field element cards (atomic mass, electron configuration, electronegativity, ionization energy, atomic radius, oxidation states, density, °C/K phase points) + compound/GHS cards + PubChem + Wikipedia + Web Search. | Deep study of physical, atomic, and safety properties. |
 | `DocsSearchMode.semantic` | Maps visual YOLO object classes to constituent materials/chemicals (e.g., `cup`/`beaker` → borosilicate glass, water, caffeine; `cell phone` → LiCoO2, ITO, silicon, polycarbonate; `scissors`/`fork` → 304 stainless steel, Fe, Cr, Ni) + character-trigram cosine/Jaccard fuzzy matching + full cloud hybrid retrieval. | Camera-first exploration of real-world objects and labware. |
 
-**CAS Registry Numbers:** `common_compounds.json` carries a checksum-validated `cas` field for 108 of 110 compounds (the true mixtures — borosilicate glass, 304 stainless steel — correctly have none). Values were backfilled from PubChem via `tooling/backfill_cas_pubchem.py` (CAS Common Chemistry / PUG-View as primary source; polymers verified via Wikipedia/Wikidata and pinned). A query whose digits normalize to a bundled CAS (`7732-18-5`, `7732 18 5`) returns that compound as the **top local hit** in every mode, and compound citation snippets include `CAS: <number>` so the grounded LLM cites exact registry numbers instead of inventing them.
+**CAS Registry Numbers:** `common_compounds.json` carries a checksum-validated `cas` field for 108 of 110 compounds. The two true mixtures — borosilicate glass, 304 stainless steel — have **no** CAS by nature: they carry `cas_skip: true` plus a human-readable `cas_note`, which the detailed-mode formatter turns into `CAS: not applicable - <cas_note>` so the model states the absence instead of inventing a registry number. Values were backfilled from PubChem via `tooling/backfill_cas_pubchem.py` (CAS Common Chemistry / PUG-View as primary source; polymers verified via Wikipedia/Wikidata and pinned; `cas_skip` entries are never re-queried). A query whose digits normalize to a bundled CAS (`7732-18-5`, `7732 18 5`) returns that compound as the **top local hit** in every mode, and compound citation snippets include `CAS: <number>` so the grounded LLM cites exact registry numbers instead of inventing them.
 
 ---
 

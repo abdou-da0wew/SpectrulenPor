@@ -1,154 +1,200 @@
-# SpectruLenPor (v5.5.0) — Smart Scientific Glasses for Spectrum Analysis & Chemical Element/Compound Identification
+<div align="center">
+
+<img src="docs/assets/icons/eye.svg" width="42" alt="SpectruLenPor" />
+
+# SpectruLenPor
 
 **النظارة الذكية لتحليل الطيف واكتشاف العناصر والمركبات الكيميائية**
 
-SpectruLenPor is a bilingual (**English / العربية RTL**) Flutter Android application + ESP32-CAM BLE smart-glasses platform for real-time object detection, UV/IR spectrum telemetry, grounded chemical & scientific identification, Google-Search-style inline `[n]` citations, automated claim fact-checking, auto-updating structured scientific memory, and persistent session & diagnostics storage.
+**Smart scientific glasses for spectrum analysis and chemical element / compound identification**
 
-> **Project Credits**
-> - **Student Researcher:** Malak Adel Sayed Hassan · Grade 1 Secondary, Class 3/1 · Ashmounin Secondary School
-> - **Software & Systems Developer:** Abdoul-Rahman Ayman Mohamed
-> - **Hardware Target Budget:** 2,500–6,000 EGP (actual BOM ≈ 1,750 EGP)
-> - **Current Release:** `v5.5.0+15` (`com.spectraglass.app`)
+<img src="docs/assets/icons/flask.svg" width="16" valign="middle" alt="" />
+Local-first object detection · grounded chemistry answers · inline citations
 
----
+<br>
 
-## Key Capabilities in v5.5
+| | | | | | |
+|---|---|---|---|---|---|
+| ![version](https://img.shields.io/badge/version-5.5.1%2B16-7D5A78?style=flat) | ![flutter](https://img.shields.io/badge/Flutter-3.19%2B-02569B?style=flat&logo=flutter&logoColor=white) | ![dart](https://img.shields.io/badge/Dart-3.3%2B-0175C2?style=flat&logo=dart&logoColor=white) | ![android](https://img.shields.io/badge/Android-12%2B%20(API%2031)-3DDC84?style=flat&logo=android&logoColor=white) | ![platform](https://img.shields.io/badge/platform-Android%20·%20Web-lightgrey?style=flat) | ![license](https://img.shields.io/badge/license-All%20rights%20reserved-lightgrey?style=flat) |
 
-1. **Local On-Device YOLO26-Nano Vision (`assets/models/yolo26n.onnx`)**
-   - Runs **100% locally** on Android via `onnxruntime-android:1.22.0` (`YoloInferenceChannel.kt` on `com.spectraglass/yolo`).
-   - Bundled in the APK (`5.04 MB`, Ultralytics `8.4.0`, ONNX IR v10 / Opset 22, `end2end=True`, FP32 `[1, 3, 640, 640] -> [1, 300, 6]`), automatically extracted/verified to `filesDir/models/yolo26n.onnx` on first startup, with built-in HTTPS auto-download recovery (`ensureModel`).
-2. **Cloud-Only Models Policy Toggle (Except Local YOLO26-Nano)**
-   - Configurable in **Settings → Cloud-Only Policy & Local YOLO26-Nano** (and via the AppBar indicator).
-   - When enabled, **YOLO26-Nano remains local on-device** for live interactive bounding boxes while VLM (**Moondream3 Cloud**), LLM (**OpenRouter** chain), and **Cloud TTS** execute strictly in the cloud—skipping non-YOLO local fallbacks (local GGUF, ONNX classifier, ML Kit).
-3. **Full-Viewport Camera Preview, Target Lock-On Reticle & Strict Dual Capture**
-   - Full-bleed edge-to-edge camera preview (`SizedBox.expand` + `FittedBox(fit: BoxFit.cover)`) at `ResolutionPreset.high` with matching `BoxFit.cover` coordinate projection in `BoundingBoxOverlay`—never shrunk or letterboxed.
-   - Tapping any YOLO bounding box locks a custom animated target marker (glowing dusty-mauve double frame, corner L-brackets, center crosshair reticle, and `SELECTED · <label> <pct>%` pill).
-   - **Strict user-gated dual capture**: `cleanJpeg` (unobstructed frame) and `withBoxesJpeg` (frame painted with corner brackets, target reticle, and `SELECTED` banner) are captured **only** when a bounding box is selected and the user presses **Capture 2 Frames & Analyze**.
-4. **Scientific Knowledge Base, 3 Search Modes, Citations & Fact-Checking**
-   - **Bundled offline corpus (`assets/docs/`)**:
-     - **119 Periodic Table elements** (`periodic_table.json`) with full atomic, electronic, and physical properties (including automatic K → °C conversions).
-     - **110 chemical compounds & lab/everyday materials** (`common_compounds.json`) with formulas, CAS numbers, molar masses, properties, uses, and hazards.
-     - **GHS01–GHS09 hazard classes & laboratory PPE protocols** (`lab_safety.json`).
-   - **Live cloud scientific sources** (cached with TTL in the internal DB): **PubChem** (`pubchem.ncbi.nlm.nih.gov`), **Wikipedia REST API** (`en.wikipedia.org` / `ar.wikipedia.org`), and **DuckDuckGo Instant Answer Web Search**.
-   - **3 selectable RAG search modes (`DocsSearchMode`)**:
-     - **`strict`** — exact symbol, chemical formula, CAS number, and canonical title matching.
-     - **`detailed`** — full multi-property scientific cards + cloud chemistry/encyclopedia references.
-     - **`semantic`** — expands YOLO object classes (e.g., `bottle` → PET / borosilicate glass / water; `fork` → 304 stainless steel / Fe / Cr / Ni) + trigram fuzzy matching + cloud search.
-   - **Inline `[n]` citations & automated fact-checking**: Every initial report **and** every follow-up chat turn attaches clickable `[n]` citation pills, a Google-AI-Overviews-style **Sources & Fact Check** card, and sentence-level `FactCheckerService` verification (`Verified` / `Unverified`) using **Material Icons exclusively (zero emojis)**.
-5. **Auto-Updating Structured Anchored `ConversationContext`**
-   - Every LLM system prompt embeds both the visual `AnchorContext` and the structured `ConversationContext` (`objectIdentified`, `userGoal`, `chemicalFormula`, `stateOfMatter`, `physicalProperties`, `chemicalProperties`, `composition`, `formation`, `commonUses`, `hazards`, `sceneContext`, `labFindings`, `safetyProtocols`, `relatedCompounds`, `establishedFacts`, `openQuestions`, `referencedEntities`, `userNotes`, `turnCount`).
-   - At the end of each turn, the AI emits `<context_update>{...}</context_update>`, which `ChatSession` strips from visible Markdown, merges non-destructively into running memory, and persists to the database.
-6. **9-Table Internal SQLite WAL Database & Diagnostics Suite**
-   - Native Android SQLite WAL database (`AppDatabaseChannel.kt` on `com.spectraglass/db`, `spectrulenpor_internal.db`) with automatic persistent file/memory fallback (`InternalDatabaseService`):
-     - `chat_sessions` & `chat_messages` (full chat history + dual JPEG paths + resume/delete in `HistoryScreen`)
-     - `response_cache` (TTL + hit-count caching for PubChem, Wikipedia, and WebSearch)
-     - `app_logs` (`INFO` / `WARN` / `ERROR` + stack traces)
-     - `crash_hang_reports` (`FlutterError.onError`, `PlatformDispatcher.instance.onError`, 40-entry breadcrumb ring, and `HangWatchdog` UI-stall detector)
-     - `telemetry_events` (BLE UV/IR/ambient spectrum readings)
-     - `pipeline_traces` (millisecond execution spans across YOLO, Moondream, DocsSearch, OpenRouter, and FactChecker)
-     - `user_data` (pinned lab notes & settings) & `user_activity` (chronological user actions).
+| | | | | | |
+|---|---|---|---|---|---|
+| [![ci](https://github.com/abdou-da0wew/SpectrulenPor/actions/workflows/ci.yml/badge.svg)](https://github.com/abdou-da0wew/SpectrulenPor/actions/workflows/ci.yml) | ![tests](https://img.shields.io/badge/tests-93%20passing-success?style=flat) | ![analyze](https://img.shields.io/badge/flutter_analyze-0%20errors%20·%200%20warnings-success?style=flat) | ![stars](https://img.shields.io/github/stars/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) | ![last-commit](https://img.shields.io/github/last-commit/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) | ![commit-activity](https://img.shields.io/github/commit-activity/m/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) |
+
+| | | | |
+|---|---|---|---|
+| ![issues](https://img.shields.io/github/issues/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) | ![prs](https://img.shields.io/github/issues-pr/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) | ![code-size](https://img.shields.io/github/languages/code-size/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) | [![prs-welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat)](CONTRIBUTING.md) |
+
+</div>
 
 ---
 
-## System Architecture (v5.5)
+<img src="docs/assets/icons/graduation-cap.svg" width="24" valign="middle" alt="" /> **The project idea**
 
-```
-[ESP32-CAM + OV2640 + UV (GPIO12) + IR (GPIO13) + Flash LED (GPIO4)]
-        │  BLE GATT (ffe0 / ffe1 notify / ffe2 write): QVGA JPEGs + "$UV:..;IR:.." @ 5 Hz
-        ▼
-[ANDROID APP — SpectruLenPor v5.5]
-  ├─ Camera Sources: Phone Camera (HD native texture, BoxFit.cover) OR BLE Smart Glasses
-  ├─ VisionGate: Brightness & texture check + auto-torch assist in dark labs
-  ├─ Local YOLO26-Nano (com.spectraglass/yolo · onnxruntime-android 1.22.0)
-  │    └─ Interactive BoundingBoxOverlay + animated target reticle + SELECTED badge
-  ├─ User Action: Select target box ──► Press "Capture 2 Frames & Analyze"
-  │    ├─ Frame 1: cleanJpeg (unobstructed color/texture view)
-  │    └─ Frame 2: withBoxesJpeg (painted target brackets, crosshair reticle & SELECTED banner)
-  ├─ Moondream3 Cloud VLM (api.moondream.ai · analyzeSelected on paired frames)
-  ├─ DocsSearchService (Strict | Detailed | Semantic)
-  │    ├─ Local: 119 Elements + 110 Compounds + GHS01–GHS09 Safety
-  │    └─ Cloud (TTL-cached): PubChem PUG REST + Wikipedia (EN/AR) + WebSearch
-  ├─ OpenRouter Reasoning Chain (gemma-4-26b → inkling-small → nemotron-3-nano)
-  │    ├─ System Prompt = Visual AnchorContext + Auto-Updating ConversationContext + [n] Sources
-  │    └─ Emits Markdown with inline [n] + trailing <context_update>{...}</context_update>
-  ├─ FactCheckerService: Claim-by-claim lexical & numeric verification against [n] sources
-  ├─ Audio Narration: Streamed fish-audio/s2.1-pro-free:free TTS or offline Android TTS
-  └─ InternalDatabaseService (com.spectraglass/db · SQLite WAL, 9 tables + HangWatchdog)
-```
+SpectruLenPor is a student research project from Ashmounin Secondary School (Egypt): a pair of **low-cost smart glasses** built around an ESP32-CAM with UV/IR sensors, paired with a **bilingual (English / العربية RTL) Flutter Android app** that turns any Android 12+ phone into a scientific analysis instrument.
 
-For deep implementation details, tensor layouts, and database schemas, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Point the camera at an object and the app runs **YOLO26-Nano fully on-device** to draw live, tappable bounding boxes. Lock a target and press *Capture & Analyze*: the app sends the frame to a vision-language model, grounds the answer in a **bundled scientific corpus** (119 elements, 110 compounds with PubChem-sourced CAS registry numbers, GHS lab safety) plus live lookups, and streams back a cited, fact-checked explanation with voice narration — designed to keep working in a school lab on a **2,500–6,000 EGP hardware budget** (actual prototype BOM ≈ 1,750 EGP).
+
+Detection, quality gating, caching, storage and diagnostics all run **locally and privately on the phone**; only the heavy AI steps (VLM, LLM, cloud TTS) are cloud-based, and a **Cloud-Only policy toggle** controls exactly what leaves the device — local YOLO always stays local.
 
 ---
 
-## Repository Structure
+<img src="docs/assets/icons/device-mobile.svg" width="24" valign="middle" alt="" /> **In-app screenshots**
 
-```
-SpectrulenPor/
-├── README.md                         # Project overview, setup & usage guide
-├── pubspec.yaml                      # v5.5.0+15 dependencies, bundled fonts, docs & yolo26n.onnx
-├── l10n.yaml                         # Flutter gen-l10n configuration (EN + AR RTL)
-├── docs/
-│   └── ARCHITECTURE.md               # Deep technical spec (ONNX, RAG modes, Context, SQLite DB)
-├── assets/
-│   ├── models/yolo26n.onnx           # Bundled YOLO26-Nano ONNX model (5.04 MB, 80 classes)
-│   ├── docs/
-│   │   ├── README.md                 # Scientific corpus documentation
-│   │   ├── periodic_table.json       # 119 chemical elements (atomic/electronic/physical)
-│   │   ├── common_compounds.json     # 110 compounds & lab/everyday materials
-│   │   └── lab_safety.json           # GHS01–GHS09 hazard classes & PPE rules
-│   ├── fonts/                        # Bundled Jaro, Rubik, Space Mono & Zain (zero runtime fetch)
-│   ├── config/secrets.example.json   # API key template
-│   └── version.json                  # Build/version fallback metadata
-├── lib/
-│   ├── main.dart                     # DB init, crash/hang hooks, service bootstrap & routes
-│   ├── config/app_secrets.dart       # Key resolution (Prefs → secrets.json → --dart-define)
-│   ├── l10n/                         # app_en.arb, app_ar.arb & AppLocalizations
-│   ├── models/                       # RecognitionState, ConversationContext, Citation, SpectrumReading…
-│   ├── services/                     # YoloDetector, InternalDatabaseService, DocsSearchService,
-│   │                                 # PubChem, Wikipedia, WebSearch, FactChecker, Moondream,
-│   │                                 # OpenRouter, ChatSession, BLE/PhoneCamera, TTS, Mic…
-│   ├── screens/                      # HomeScreen, ChatScreen, SettingsScreen,
-│   │                                 # HistoryScreen, DiagnosticsDbScreen
-│   ├── widgets/                      # BoundingBoxOverlay, CameraPreviewWidget, SpectrumCard…
-│   └── utils/                        # AppColors / buildAppTheme & AppTypography
-├── android/app/src/main/
-│   ├── kotlin/com/spectraglass/app/  # MainActivity, YoloInferenceChannel, AppDatabaseChannel,
-│   │                                 # FlashlightChannel, MoondreamChannel
-│   └── cpp/                          # Optional local llama.cpp JNI bridge (moondream_jni.cpp)
-├── firmware/
-│   ├── README.md                     # Hardware wiring & BLE GATT protocol docs
-│   └── esp32cam_glasses_firmware.ino # ESP32-CAM sketch (JPEG stream + UV/IR + deferred capture)
-├── tooling/
-│   ├── README.md                     # ONNX inspection & custom quantization guide
-│   └── convert_mobilenet_onnx.py     # Optional custom classifier export + INT8 quantization
-├── tool/real_api_smoke_test.dart     # Live cloud API smoke test script
-└── test/                             # Unit & widget test suites (models, services, l10n, UI)
-```
+Captured by launching the app on Flutter Web in a phone-layout headless browser (see `tooling/take_web_screenshots.py`).
+
+| Live detection view (EN) | Camera permission gate | Settings & policies |
+|---|---|---|
+| <img src="docs/screenshots/01_home_live.png" width="270" alt="Live detection view" /> | <img src="docs/screenshots/01_home_gate.png" width="270" alt="Camera permission gate" /> | <img src="docs/screenshots/02_settings.png" width="270" alt="Settings" /> |
+
+| RAG search modes | History & docs explorer | Internal DB diagnostics | Arabic RTL home |
+|---|---|---|---|
+| <img src="docs/screenshots/02b_settings_rag.png" width="200" alt="RAG modes" /> | <img src="docs/screenshots/03_history.png" width="200" alt="History" /> | <img src="docs/screenshots/04_diagnostics.png" width="200" alt="Diagnostics" /> | <img src="docs/screenshots/05_home_ar.png" width="200" alt="Arabic RTL" /> |
 
 ---
 
-## Getting Started
+<img src="docs/assets/icons/cpu.svg" width="24" valign="middle" alt="" /> **System architecture**
 
-### 1. Prerequisites
-- **Flutter SDK** `>= 3.19.0` (Dart `>= 3.3.0 < 4.0.0`)
-- **Android Studio / SDK** (`compileSdk 36`, `minSdk 31`, JDK 17)
+<img src="docs/assets/architecture.png" width="100%" alt="SpectruLenPor architecture diagram" />
 
-### 2. Configure API Keys
-Copy the template and add your cloud keys (never committed to Git):
+*Editable source: [`docs/diagrams/architecture.html`](docs/diagrams/architecture.html) — built with the [diagram-design](https://github.com/cathrynlavery/diagram-design) editorial design system (HTML + inline SVG, rendered to PNG).*
+
+---
+
+<img src="docs/assets/icons/magnifying-glass.svg" width="24" valign="middle" alt="" /> **Scientific RAG & CAS discipline**
+
+Every chemical answer is grounded against a curated corpus instead of model memory. CAS registry numbers are **not handwritten**: a reproducible script (`tooling/backfill_cas_pubchem.py`) resolves each compound on PubChem, validates the check-digit, prefers the curated CAS Common Chemistry record, and refuses ambiguous results. The two true mixtures (borosilicate glass, 304 stainless steel) carry an explicit `cas_note` so the AI states *"no single CAS"* rather than inventing one.
+
+<img src="docs/assets/scientific-rag.png" width="100%" alt="Scientific RAG flow diagram" />
+
+*Editable source: [`docs/diagrams/scientific-rag.html`](docs/diagrams/scientific-rag.html).*
+
+---
+
+<img src="docs/assets/icons/check-circle.svg" width="24" valign="middle" alt="" /> **Implementation status — what is real and what is untested**
+
+| Capability | Status |
+|---|---|
+| Local YOLO26-Nano ONNX inference + interactive boxes (tap-to-lock) | **Implemented** · unit-tested · on-device accuracy/latency **not yet benchmarked** |
+| Instant stale-box clearing on fast camera sweeps + 2.5 s expiry guard | **Implemented** · unit-tested |
+| VisionGate quality gate (luma ≥ 38, Laplacian ≥ 45) + torch hysteresis | **Implemented** · unit-tested |
+| Privacy blur of everything outside the capture box (+15 % margin) | **Implemented** · on-device visual check pending |
+| Moondream3 strict box-bound captions (never narrates the whole table) | **Implemented** · needs a live-API validation run |
+| OpenRouter prompt discipline (target-scoped, zero-guessing, citation rules) | **Implemented** · smoke script `tool/real_api_smoke_test.dart` pending a live run |
+| CAS backfill from PubChem (checksum + Common Chemistry anchored) | **Implemented** · 108/110 verified · mixtures explicitly flagged · test-locked |
+| 3-mode scientific RAG (strict / detailed / semantic) + TTL caching | **Implemented** · unit-tested |
+| Inline `[n]` citation chips + claim-level fact checking | **Implemented** · widget-tested |
+| TTS: streamed Fish Audio + native Android fallback (sane rate/pitch) | **Implemented** · unit-tested · live voice output untested |
+| 9-table SQLite WAL database + diagnostics screens + HangWatchdog | **Implemented** · unit-tested (file_json fallback engine on web/tests) |
+| BLE ESP32-CAM streaming (QVGA JPEG + UV/IR telemetry @ 5 Hz spec) | **Implemented** · parser unit-tested · **not yet tested against real hardware** |
+| ESP32-CAM firmware (`firmware/esp32cam_glasses_firmware.ino`) | **Shipped as source** · not yet flashed / bench-tested |
+| Release signing & R8 templates | **Configured** · no production keystore yet |
+| CI (analyze + test on every push/PR) | **Implemented** · badge reflects real runs |
+| Flutter Web build | **Compiles** · camera/YOLO/BLE are native-only (graceful stubs on web) |
+
+---
+
+<img src="docs/assets/icons/wave-square.svg" width="24" valign="middle" alt="" /> **Real benchmarks**
+
+Measured in this repository (Flutter **3.47.9 stable**, 2026-11-05). On-device figures are intentionally **marked pending** — they require physical hardware runs and are never invented.
+
+| Metric | Value | Status |
+|---|---|---|
+| Unit + widget test suite | **93 passing, 0 failing** | Measured — `flutter test` |
+| `flutter analyze` | **0 errors · 0 warnings** · 78 info-level lints | Measured |
+| `flutter build web --release` | Compiles clean (~84 s cold compile) | Measured |
+| Bundled model size | `yolo26n.onnx` **5.04 MB** (FP32, `[1,3,640,640] → [1,300,6]`, 80 COCO classes, end2end) | Verified from asset |
+| Execution-provider race (CPU vs NNAPI+FP16 vs XNNPACK) | **Implemented** at session start, fastest wins | Code verified — **on-device timings pending** |
+| Detection latency p50 / p95 | — | **Not yet measured** (needs Android hardware) |
+| BLE frame throughput | 5 Hz QVGA JPEG design target | **Not yet measured** on hardware |
+| CAS corpus coverage | **108 / 110** compounds · 2 mixtures flagged `cas_skip` | Verified · test-locked |
+| Bundled corpus | 119 elements · 110 compounds · 9 GHS pictograms | Verified · test-locked |
+| Prototype hardware BOM | **≈ 1,750 EGP** of the 2,500–6,000 EGP budget | From parts list |
+
+Reproduce the software-side numbers:
 
 ```bash
+flutter pub get
+flutter analyze
+flutter test          # 93 passing
+flutter build web --release
+```
+
+---
+
+<img src="docs/assets/icons/target.svg" width="24" valign="middle" alt="" /> **Target devices**
+
+| Target | Requirement |
+|---|---|
+| Android phone (primary) | Android **12+ (API 31+)**, `compileSdk 36` / `targetSdk 36`; any modern phone — YOLO26-Nano FP32 + the EP race (NNAPI / XNNPACK) keep inference fast on mid-range chips |
+| Smart glasses (companion) | AI-Thinker **ESP32-CAM** (+ OV2640), GUVA-S12SD UV sensor on GPIO12, analog IR sensor on GPIO13, flash LED GPIO4, BLE GATT `ffe0/ffe1/ffe2` |
+| Desktop / CI | Flutter **3.19+** (Dart 3.3+), JDK 17, Android SDK 36 |
+| Web | Flutter Web build works for UI review; camera, YOLO, BLE, SQLite stay native-only |
+
+---
+
+<img src="docs/assets/icons/github-logo.svg" width="24" valign="middle" alt="" /> **Authors**
+
+| | |
+|---|---|
+| **Malak Adel Sayed Hassan** | Author & student researcher — Grade 1 Secondary, Class 3/1, Ashmounin Secondary School |
+| **Abdoul-Rahman Ayman Mohamed** ([@abdou-da0wew](https://github.com/abdou-da0wew)) | Co-author & software/systems developer |
+
+Hardware target budget: 2,500–6,000 EGP · actual prototype BOM ≈ 1,750 EGP.
+
+---
+
+<img src="docs/assets/icons/git-branch.svg" width="24" valign="middle" alt="" /> **Repository status**
+
+- **Default branch:** `main` · current version **v5.5.1+16** (`com.spectraglass.app`)
+- **CI:** GitHub Actions runs `flutter analyze` + `flutter test` on every push and PR (badge above reflects real runs)
+- **History:** PR #3 vision accuracy/UX · PR #4 audit fixes (cache wipe, columns, TTS, BLE reconnect, SSE, signing, fonts) · PR #5 PubChem CAS backfill · PR #6 mixture-CAS guard · PR #7 documentation overhaul
+- **Work log:** see [`WORKLOG.md`](WORKLOG.md) for the dated change history
+- **License:** none yet — © authors, all rights reserved
+
+---
+
+<img src="docs/assets/icons/lightning.svg" width="24" valign="middle" alt="" /> **Quick start**
+
+### 1. Install Flutter (one command)
+
+**Linux** (snap):
+
+```bash
+sudo snap install flutter --classic
+```
+
+**Linux** (git, no snap):
+
+```bash
+git clone https://github.com/flutter/flutter.git -b stable --depth 1 "$HOME/flutter" && export PATH="$HOME/flutter/bin:$PATH" && flutter doctor
+```
+
+**Windows** (PowerShell, one line — clone stable, add to PATH, verify):
+
+```powershell
+git clone https://github.com/flutter/flutter.git -b stable --depth 1 "$env:USERPROFILE\flutter"; $env:PATH = "$env:USERPROFILE\flutter\bin;$env:PATH"; flutter doctor
+```
+
+> Tip: to make the Windows PATH change permanent, add `%USERPROFILE%\flutter\bin` to the user PATH environment variable. Tested with Flutter **3.47.9 stable**; the app requires **3.19+**.
+
+### 2. Clone & configure keys
+
+```bash
+git clone https://github.com/abdou-da0wew/SpectrulenPor.git
+cd SpectrulenPor
 cp assets/config/secrets.example.json assets/config/secrets.json
 ```
 
 ```json
 {
-  "moondream": "<your Moondream API key — docs.moondream.ai>",
-  "openrouter_llm": "<your OpenRouter LLM key — openrouter.ai/keys>",
-  "openrouter_tts": "<your OpenRouter TTS key — openrouter.ai/keys>"
+  "moondream": "<Moondream API key — docs.moondream.ai>",
+  "openrouter_llm": "<OpenRouter LLM key — openrouter.ai/keys>",
+  "openrouter_tts": "<OpenRouter TTS key — openrouter.ai/keys>"
 }
 ```
 
-Keys can also be entered live inside **Settings** or passed at build time via `--dart-define`:
+Keys can also be entered live in **Settings**, or injected at build time:
 
 ```bash
 flutter build apk --release \
@@ -157,41 +203,49 @@ flutter build apk --release \
   --dart-define=OPENROUTER_TTS_KEY=...
 ```
 
-### 3. Run & Test
+### 3. Run
 
 ```bash
-flutter pub get
-flutter analyze
-flutter test
-flutter run
+flutter pub get      # fetch dependencies
+flutter analyze      # 0 errors / 0 warnings
+flutter test         # 93 tests
+flutter run          # run on a connected Android device
 ```
 
----
+### 4. Build
 
-## Smart Glasses Hardware & Firmware (`firmware/`)
+```bash
+flutter build apk --release            # Android APK
+flutter build web --release            # Flutter Web (UI review build)
+```
 
-1. Flash `firmware/esp32cam_glasses_firmware.ino` to an **AI-Thinker ESP32-CAM** board.
-2. Connect analog **UV sensor (GUVA-S12SD)** to `GPIO12` and **IR sensor** to `GPIO13` (`GPIO4` drives the onboard flash LED).
-3. Power on (`SpectruLenPor-ESP32`) and tap **Smart Glasses → Connect Glasses** in the app.
-4. See [`firmware/README.md`](firmware/README.md) for the complete pinout and BLE GATT specification.
+### 5. Connect the smart glasses
 
----
-
-## Typography & Design System
-
-- **Brand Palette (`AppColors`)**: Alabaster Grey (`#E5E3E1`), Dust Grey (`#D4D3CD`), Silver (`#C2BEC0`), Dusty Mauve (`#A67E98`), Dusty Lavender (`#825376`), Deep Plum Ink (`#3A2434`).
-- **Bundled Offline Fonts (`assets/fonts/`)**:
-  - **Jaro** — English brand/display headers
-  - **Rubik** — English UI controls, badges, and body text
-  - **Space Mono** — Scientific properties, code, citations, telemetry, and diagnostics
-  - **Zain** — Complete Arabic (`ar`) RTL typography across display, body, and paragraphs
-- **Iconography**: 100% vector Material Icons (`Icons.*`) across every screen, badge, citation chip, and status indicator—zero emojis.
+1. Flash `firmware/esp32cam_glasses_firmware.ino` to an AI-Thinker ESP32-CAM.
+2. Wire the UV sensor to `GPIO12`, IR to `GPIO13` (`GPIO4` = flash LED) — full pinout in [`firmware/README.md`](firmware/README.md).
+3. Power on (`SpectruLenPor-ESP32`) → in the app tap **Smart Glasses → Connect Glasses**.
 
 ---
 
-## Hardware Bill of Materials (EGP)
+<img src="docs/assets/icons/book-open.svg" width="24" valign="middle" alt="" /> **Documentation index**
 
-| Component | Estimated Cost (EGP) |
+| Document | Purpose |
+|---|---|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Deep technical spec: pipeline, MethodChannels, RAG modes, DB schema, CAS discipline |
+| [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) | Real measured numbers vs pending on-device measurements, with reproduction steps |
+| [`docs/YOLO26_MOBILE_OPTIMIZATION.md`](docs/YOLO26_MOBILE_OPTIMIZATION.md) | Mobile inference ladder: EP race, LiteRT/INT8, CoreML, ExecuTorch, fine-tuning |
+| [`AGENTS.md`](AGENTS.md) | Ground rules for AI coding agents working in this repo |
+| [`CONTEXT.md`](CONTEXT.md) | Project context: mission, glossary, data inventory, constraints |
+| [`WORKLOG.md`](WORKLOG.md) | Dated engineering work log |
+| [`tooling/README.md`](tooling/README.md) | Model tooling, CAS backfill, screenshot capture scripts |
+| [`firmware/README.md`](firmware/README.md) | ESP32-CAM wiring & BLE GATT protocol |
+| [`assets/docs/README.md`](assets/docs/README.md) | Scientific corpus format documentation |
+
+---
+
+<img src="docs/assets/icons/bluetooth.svg" width="24" valign="middle" alt="" /> **Hardware bill of materials (EGP)**
+
+| Component | Cost |
 |---|---|
 | AI-Thinker ESP32-CAM + OV2640 camera module | ~600 |
 | GUVA-S12SD UV sensor + analog IR sensor | ~350 |
@@ -200,19 +254,34 @@ flutter run
 | Eyeglass frame mount, enclosure & wiring | ~350 |
 | Android smartphone (existing user device) | 0 |
 | Software & AI stack (Flutter, ONNX Runtime, SQLite, Moondream/OpenRouter free tiers) | 0 |
-| **Total Prototype Cost** | **≈ 1,750 EGP** *(within 2,500–6,000 EGP target)* |
+| **Total prototype cost** | **≈ 1,750 EGP** |
 
 ---
 
-## Completed Engineering Roadmap
+<img src="docs/assets/icons/sparkle.svg" width="24" valign="middle" alt="" /> **Design system**
 
-- [x] Full-viewport edge-to-edge phone camera & BLE ESP32-CAM glasses streaming
-- [x] Local on-device YOLO26-Nano (`yolo26n.onnx`) with first-startup staging & HTTPS auto-download
-- [x] Cloud-only models setting (keeping YOLO26-Nano local on-device)
-- [x] Interactive bounding boxes with animated target lock-on marker & strict user-gated dual JPEG capture (`cleanJpeg` + `withBoxesJpeg`)
-- [x] Bundled 119 elements + 110 compounds/materials + GHS01–GHS09 safety corpus
-- [x] Live PubChem, Wikipedia (EN/AR), and DuckDuckGo Web Search with `strict`, `detailed`, and `semantic` RAG modes
-- [x] Google-Search-style `[n]` inline citations & automated claim-level fact-checking
-- [x] Auto-updating structured `ConversationContext` (`<context_update>`) injected into every LLM system prompt
-- [x] 9-table Android SQLite WAL Internal Database (`HistoryScreen` + `DiagnosticsDbScreen` + `HangWatchdog`)
-- [x] Bilingual EN / AR (RTL) UI + streamed `fish-audio` & native offline TTS
+- **Brand palette** (`lib/utils/app_theme.dart`): Alabaster Grey `#E5E3E1` · Dust Grey `#D4D3CD` · Silver `#C2BEC0` · Dusty Mauve `#A67E98` · Dusty Lavender `#825376` · Deep Plum Ink `#3A2434`.
+- **Bundled offline fonts** (`assets/fonts/`, declared in `pubspec.yaml`): **Jaro** (display) · **Rubik** (UI) · **Space Mono** (scientific/telemetry) · **Zain** (Arabic RTL).
+- **Iconography:** Material Icons in-app; **[Phosphor](https://phosphoricons.com) icons** in docs (`docs/assets/icons/`, MIT); **zero emojis** anywhere — in code, UI, or documentation.
+- **Diagrams:** [diagram-design](https://github.com/cathrynlavery/diagram-design) editorial HTML/SVG system.
+
+---
+
+<img src="docs/assets/icons/list-checks.svg" width="24" valign="middle" alt="" /> **Roadmap**
+
+**Shipped (v5.5.1)**
+
+- [x] On-device YOLO26-Nano with EP race, instant box clearing, tap-to-lock targets
+- [x] Privacy blur + strict dual capture + Moondream box-bound grounding
+- [x] Citation chips, fact checking, auto-updating conversation context
+- [x] CAS backfill from PubChem with checksum + Common Chemistry anchoring
+- [x] Audit fixes: TTL cache wipe, column mismatches, TTS errors, BLE reconnect, SSE stall guard, font declarations
+- [x] 93-test suite + CI + full documentation overhaul
+
+**Next**
+
+- [ ] On-device benchmark runs (detection latency, EP timings) recorded in `docs/BENCHMARKS.md`
+- [ ] Flash & bench-test the ESP32-CAM glasses firmware against real hardware
+- [ ] LiteRT/INT8 export ladder step (see `docs/YOLO26_MOBILE_OPTIMIZATION.md`)
+- [ ] Live TTS + OpenRouter + Moondream validation with production keys
+- [ ] Production release keystore + tagged GitHub releases
