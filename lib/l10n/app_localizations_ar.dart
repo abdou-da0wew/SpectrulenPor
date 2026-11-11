@@ -252,6 +252,45 @@ class AppLocalizationsAr extends AppLocalizations {
   String get btConnectionError => 'خطأ في اتصال البلوتوث';
 
   @override
+  String get wifiConfigTitle => 'تكوين WiFi للنظارة';
+
+  @override
+  String get wifiSsidLabel => 'اسم الشبكة (SSID)';
+
+  @override
+  String get wifiPasswordLabel => 'كلمة المرور';
+
+  @override
+  String get wifiSaveConnect => 'حفظ والاتصال';
+
+  @override
+  String get wifiConfigured => 'تم تكوين WiFi — في انتظار اتصال النظارة';
+
+  @override
+  String get wifiConnected => 'تم الاتصال عبر WiFi — فيديو SVGA عبر UDP';
+
+  @override
+  String get wifiDisconnected => 'تم قطع اتصال WiFi';
+
+  @override
+  String get glassesIpLabel => 'عنوان IP للنظارة';
+
+  @override
+  String get startUdpVideo => 'بدء فيديو UDP';
+
+  @override
+  String get stopVideo => 'إيقاف الفيديو';
+
+  @override
+  String get refreshStatus => 'تحديث الحالة';
+
+  @override
+  String get restartEsp => 'إعادة تشغيل وحدة التحكم';
+
+  @override
+  String get alreadyConnected => 'متصل بالفعل';
+
+  @override
   String get aboutBody =>
       'سبكترو لِن بور v5.5 — رصد الكائنات المحلي عبر YOLO26-Nano ONNX (مرفق بالتطبيق مع تنزيل/تحقق تلقائي) + خيار النماذج السحابية فقط (مع بقاء YOLO محلياً) + رؤية موندريم ٣ السحابية + سلسلة OpenRouter الاستدلالية (gemma←inkling←nemotron) + بث صوت fish-audio/s2.1-pro-free:free + بحث علمي بثلاثة أوضاع (صارم / مفصل / دلالي عبر 119 عنصراً كيميائياً و110 مركبات ومعايير السلامة GHS وPubChem وويكيبيديا والويب) + استشهادات مرقمة [n] وتدقيق الحقائق + سياق علمي مهيكل ذاتي التحديث + قاعدة بيانات داخلية SQLite WAL من 9 جداول لحفظ المحادثات والكاش والسجلات والأعطال والقياسات.\n\nالخط التشغيلي: كاميرا الهاتف أو نظارة ESP32-CAM ← صناديق YOLO26-Nano التفاعلية ← لمس الصندوق لوضع علامة الهدف ← الضغط على التقاط وتحليل لأخذ صورتين (نظيفة + معلمة) ← تحليل موندريم ٣ ← سياق علمي موثق وتدقيق الحقائق ← محادثة مستمرة محفوظة تلقائياً.\n\nملك عادل سيد حسن (طالبة) · عبد الرحمن أيمن محمد (مطور) · الصف الأول الثانوي ٣/١ · مدرسة الأشمونين الثانوية · الميزانية: ٢٬٥٠٠–٦٬٠٠٠ جنيه.';
 }

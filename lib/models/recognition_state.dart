@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -24,6 +25,7 @@ import '../services/openrouter_service.dart';
 import '../services/openrouter_tts_service.dart';
 import '../services/phone_camera_service.dart';
 import '../services/vision_gate.dart';
+import '../services/wifi_udp_video_service.dart';
 import '../services/yolo_detector.dart';
 import 'bounding_box.dart';
 import 'captured_frames.dart';
@@ -61,6 +63,17 @@ class RecognitionState extends ChangeNotifier {
   StreamSubscription<FrameData>? _btFrameSub;
   StreamSubscription<FrameData>? _phoneFrameSub;
   StreamSubscription<SpectrumReading>? _btSensorSub;
+  StreamSubscription<FrameData>? _udpFrameSub;
+  StreamSubscription<String>? _btStatusMessageSub;
+
+  // UDP video service (SVGA over WiFi when glasses are on LAN)
+  final WifiUdpVideoService _udpVideo = WifiUdpVideoService();
+
+  // WiFi config state (sent to ESP over BLE; used for UDP video discovery)
+  String _wifiSsid = '';
+  String _wifiPass = '';
+  String _wifiStatus = 'disconnected'; // disconnected | connecting | connected
+  String _wifiIp = '';
 
   RecognitionState({
     required this.bluetooth,
@@ -238,6 +251,7 @@ class RecognitionState extends ChangeNotifier {
     if (s == _source) return;
     _source = s;
     await phoneCamera.stop();
+    await stopUdpVideo();
     if (s == CameraSource.phone) {
       await bluetooth.pauseStream();
       if (_cameraPermission.isGranted) {
@@ -250,6 +264,10 @@ class RecognitionState extends ChangeNotifier {
     } else {
       if (_btStatus == BluetoothStatus.connected) {
         await bluetooth.resumeStream();
+        // If we have a known glasses IP, switch to UDP video (SVGA).
+        if (_wifiIp.isNotEmpty) {
+          await startUdpVideo(_wifiIp);
+        }
       }
     }
     unawaited(InternalDatabaseService.instance.recordActivity(
@@ -303,6 +321,67 @@ class RecognitionState extends ChangeNotifier {
     } else {
       await FlashlightService.instance.setTorch(on);
     }
+    notifyListeners();
+  }
+
+  // ----------------------------- WiFi config (glasses LAN) -----------------------------
+
+  /// Send WiFi credentials to the glasses over BLE. The ESP connects to the
+  /// network and mDNS-broadcasts itself; the app then finds it on the LAN and
+  /// switches video to UDP (SVGA).
+  Future<void> setWifiConfig(String ssid, String pass) async {
+    _wifiSsid = ssid;
+    _wifiPass = pass;
+    notifyListeners();
+    await bluetooth.wifiConfigPut(ssid, pass);
+    _wifiStatus = 'connecting';
+    notifyListeners();
+  }
+
+  /// Request current WiFi config + status from the glasses over BLE.
+  Future<void> requestWifiStatus() async {
+    await bluetooth.wifiConfigGet();
+    await bluetooth.connectionStatusGet();
+  }
+
+  /// Restart the ESP32-CAM (0x05).
+  Future<void> restartGlasses() async {
+    await bluetooth.restart();
+    _wifiStatus = 'disconnected';
+    _wifiIp = '';
+    notifyListeners();
+  }
+
+  /// Shut down the ESP32-CAM (0x06).
+  Future<void> shutdownGlasses() async {
+    await bluetooth.shutdown();
+    await _udpVideo.stop();
+    _wifiStatus = 'disconnected';
+    _wifiIp = '';
+    notifyListeners();
+  }
+
+  /// Start UDP video to the glasses (requires WiFi IP known).
+  Future<void> startUdpVideo(String ip) async {
+    if (wifiConnected) return;
+    try {
+      final addr = InternetAddress(ip);
+      await _udpVideo.start(espIp: addr);
+      _wifiStatus = 'connected';
+      _wifiIp = ip;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[UDP] start failed: $e');
+      _wifiStatus = 'disconnected';
+      notifyListeners();
+    }
+  }
+
+  /// Stop UDP video.
+  Future<void> stopUdpVideo() async {
+    await _udpVideo.stop();
+    _wifiStatus = 'disconnected';
+    _wifiIp = '';
     notifyListeners();
   }
 
@@ -383,7 +462,7 @@ class RecognitionState extends ChangeNotifier {
       notifyListeners();
     });
     _btFrameSub = bluetooth.frameStream.listen((frame) {
-      if (_source == CameraSource.glasses) {
+      if (_source == CameraSource.glasses && !useUdpVideo) {
         _onFrame(frame);
       }
     });
@@ -393,6 +472,12 @@ class RecognitionState extends ChangeNotifier {
       }
     });
     _btSensorSub = bluetooth.sensorStream.listen(_onSensor);
+    _btStatusMessageSub = bluetooth.statusMessageStream.listen(_handleBtStatusMessage);
+    _udpFrameSub = _udpVideo.frameStream.listen((frame) {
+      if (useUdpVideo) {
+        _onFrame(frame);
+      }
+    });
   }
 
   DateTime? _lastSensorLogAt;
@@ -415,12 +500,64 @@ class RecognitionState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Handle status / WiFi / command-ack messages from the ESP over BLE TX.
+  void _handleBtStatusMessage(String msg) {
+    if (msg.startsWith(r'$WIFI_CFG:')) {
+      final ssid = msg.substring(r'$WIFI_CFG:'.length);
+      _wifiSsid = ssid;
+      notifyListeners();
+    } else if (msg.startsWith(r'$STATUS:')) {
+      _parseStatusMessage(msg);
+    } else if (msg == r'$WIFI:connected') {
+      _wifiStatus = 'connected';
+      notifyListeners();
+    } else if (msg == r'$WIFI:disconnected') {
+      _wifiStatus = 'disconnected';
+      _wifiIp = '';
+      notifyListeners();
+    } else if (msg == r'$CMD:wifi_config_received') {
+      debugPrint('[GLASSES] WiFi config acknowledged by ESP');
+    } else if (msg.startsWith(r'$CMD:')) {
+      debugPrint('[GLASSES] cmd ack: $msg');
+    } else {
+      debugPrint('[GLASSES] status msg: $msg');
+    }
+  }
+
+  /// Parse $STATUS:bt=...,wifi=...,ip=...,flash=...,stream=...
+  void _parseStatusMessage(String msg) {
+    // $STATUS:bt=1,wifi=connected,ip=192.168.1.50,flash=0,stream=1
+    final fields = <String, String>{};
+    for (final pair in msg.substring(r'$STATUS:'.length).split(',')) {
+      final kv = pair.split('=');
+      if (kv.length == 2) {
+        fields[kv[0].trim()] = kv[1].trim();
+      }
+    }
+    final wifi = fields['wifi'] ?? '';
+    final ip = fields['ip'] ?? '0.0.0.0';
+    _wifiStatus = wifi == 'connected' ? 'connected' : 'disconnected';
+    if (ip != '0.0.0.0') _wifiIp = ip;
+    notifyListeners();
+  }
+
   // ----------------------------- Bluetooth & Sensors -----------------------------
   BluetoothStatus _btStatus = BluetoothStatus.disconnected;
   BluetoothStatus get btStatus => _btStatus;
 
   SpectrumReading? _lastReading;
   SpectrumReading? get lastReading => _lastReading;
+
+  // --- WiFi / UDP video state ---
+  WifiUdpVideoService get udpVideo => _udpVideo;
+  String get wifiSsid => _wifiSsid;
+  String get wifiPass => _wifiPass;
+  String get wifiStatus => _wifiStatus;
+  String get wifiIp => _wifiIp;
+  bool get wifiConnected => _wifiStatus == 'connected';
+  /// Prefer UDP video (SVGA) when on the same LAN as the glasses, else fall
+  /// back to BLE video (QVGA).
+  bool get useUdpVideo => _source == CameraSource.glasses && wifiConnected;
 
   bool _hazardActive = false;
   bool get hazardActive => _hazardActive;
@@ -1123,6 +1260,9 @@ class RecognitionState extends ChangeNotifier {
     _btFrameSub?.cancel();
     _phoneFrameSub?.cancel();
     _btSensorSub?.cancel();
+    _udpFrameSub?.cancel();
+    _btStatusMessageSub?.cancel();
+    _udpVideo.dispose();
     _chatSession?.dispose();
     super.dispose();
   }

@@ -73,6 +73,8 @@ class _HomeScreenState extends State<HomeScreen> {
               onConnect: state.connectToGlasses,
               onDisconnect: state.disconnect,
             ),
+          if (state.source == CameraSource.glasses)
+            _buildWifiConfigSection(context, state, loc),
           Expanded(child: _buildCameraArea(state, loc)),
           _buildCaptureControlBar(context, state),
           if (state.source == CameraSource.glasses && state.lastReading != null)
@@ -276,6 +278,197 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
+  // ===========================================================================
+  // WIFI CONFIG SECTION (glasses source)
+  // ===========================================================================
+  Widget _buildWifiConfigSection(
+    BuildContext context,
+    RecognitionState state,
+    AppLocalizations loc,
+  ) {
+    final configured = state.wifiSsid.isNotEmpty;
+    final connected = state.wifiConnected;
+
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.wifi_rounded,
+                  size: 18,
+                  color: connected
+                      ? palette.AppColors.success
+                      : palette.AppColors.dustyMauve,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    connected
+                        ? loc.wifiConnected
+                        : configured
+                            ? loc.wifiConfigured
+                            : loc.wifiConfigTitle,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13.5,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (connected && state.useUdpVideo)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: palette.AppColors.success.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      'UDP SVGA',
+                      style: GoogleFonts.spaceMono(
+                        color: palette.AppColors.success,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (!configured) ...[
+              TextField(
+                decoration: InputDecoration(
+                  labelText: loc.wifiSsidLabel,
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
+                onChanged: (v) => _wifiSsidCtl.text = v,
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                decoration: InputDecoration(
+                  labelText: loc.wifiPasswordLabel,
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
+                obscureText: true,
+                onChanged: (v) => _wifiPassCtl.text = v,
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _wifiSsidCtl.text.isNotEmpty
+                          ? () async {
+                              await state.setWifiConfig(
+                                  _wifiSsidCtl.text, _wifiPassCtl.text);
+                            }
+                          : null,
+                      icon: const Icon(Icons.save_rounded, size: 17),
+                      label: Text(loc.wifiSaveConnect),
+                    ),
+                  ),
+                ],
+              ),
+            ] else ...[
+              if (state.wifiSsid.isNotEmpty)
+                Text(
+                  'SSID: ${state.wifiSsid}',
+                  style: TextStyle(
+                    color: palette.AppColors.inkSoft,
+                    fontSize: 12,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      decoration: InputDecoration(
+                        labelText: loc.glassesIpLabel,
+                        border: const OutlineInputBorder(),
+                        isDense: true,
+                        hintText: '192.168.1.50',
+                      ),
+                      onChanged: (v) => _wifiIpCtl.text = v,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    onPressed: connected
+                        ? null
+                        : () async {
+                            await state.startUdpVideo(_wifiIpCtl.text);
+                          },
+                    icon: Icon(
+                      connected
+                          ? Icons.check_circle_rounded
+                          : Icons.play_arrow_rounded,
+                      color: connected
+                          ? palette.AppColors.success
+                          : palette.AppColors.dustyLavender,
+                    ),
+                    tooltip: connected
+                        ? loc.alreadyConnected
+                        : loc.startUdpVideo,
+                  ),
+                ],
+              ),
+              if (connected) ...[
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Text(
+                      'IP: ${state.wifiIp}',
+                      style: TextStyle(
+                        color: palette.AppColors.inkSoft,
+                        fontSize: 12,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                    const Spacer(),
+                    OutlinedButton.icon(
+                      onPressed: () => state.stopUdpVideo(),
+                      icon: const Icon(Icons.stop_rounded, size: 16),
+                      label: Text(loc.stopVideo),
+                    ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: state.requestWifiStatus,
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    label: Text(loc.refreshStatus),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    onPressed: state.restartGlasses,
+                    icon: const Icon(Icons.restart_alt_rounded, size: 16),
+                    label: Text(loc.restartEsp),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  // WiFi config controllers (lazily initialized)
+  final TextEditingController _wifiSsidCtl = TextEditingController();
+  final TextEditingController _wifiPassCtl = TextEditingController();
+  final TextEditingController _wifiIpCtl = TextEditingController();
 
   Widget _segButton(
     BuildContext context,

@@ -20,6 +20,10 @@
     <!-- Location is required by the OS to discover BLE devices on 6.0–11 -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 
+    <!-- WiFi state for UDP video streaming from glasses -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+
     <!-- Phone camera is used as a dev/debug fallback source -->
     <uses-permission android:name="android.permission.CAMERA" />
 

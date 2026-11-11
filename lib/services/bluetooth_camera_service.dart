@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
@@ -11,15 +12,23 @@ import '../models/spectrum_reading.dart';
 /// Streams JPEG frames + UV/IR sensor telemetry from the ESP32-CAM over BLE,
 /// and sends control commands back (stream on/off, single frame, flashlight).
 ///
+/// Dual-connection architecture with the ESP-IDF firmware:
+///   * BLE (ffe0/ffe1/ffe2)  — telemetry, commands, WiFi config, warnings
+///   * WiFi + UDP (port 8888) — SVGA (800x600) JPEG video stream
+///
 /// Service contract with the firmware (must stay in sync both sides):
 ///  * Service UUID:  `ffe0`   TX (glasses→phone, notify): `ffe1`
 ///  * RX (phone→glasses, write): `ffe2`
 ///  * Frame protocol: JPEG chunks delimited by SOI (FFD8) / EOI (FFD9),
-///    chunked into ~500-byte BLE notifications.
+///    chunked into ~500-byte BLE notifications (fallback when WiFi is down).
 ///  * Telemetry packets: `$UV:1234;IR:567\n` interleaved between frames.
+///  * Status packets: `$WIFI_CFG:ssid=...`, `$STATUS:...`, `$WIFI:connected|disconnected`
 ///  * Commands (single byte writes):
 ///      0x01 stream on · 0x00 stream off · 0x02 single frame
 ///      0x03 flashlight ON · 0x04 flashlight OFF
+///      0x05 restart · 0x06 shutdown
+///      0x07 wifi config PUT (payload: "SSID\0PASS\0")
+///      0x08 wifi config GET · 0x09 connection status GET
 class BluetoothCameraService {
   static const String serviceUuid = '0000ffe0-0000-1000-8000-00805f9b34fb';
   static const String txCharUuid = '0000ffe1-0000-1000-8000-00805f9b34fb';
@@ -31,16 +40,26 @@ class BluetoothCameraService {
   /// Auto-reconnect policy: exponential backoff 1,2,4,8,16,16 s, then give up.
   static const int maxReconnectAttempts = 6;
 
-  // Command bytes (mirrored in firmware)
+  // Command bytes (mirrored in firmware config.h)
   static const int cmdStreamOn = 0x01;
   static const int cmdStreamOff = 0x00;
   static const int cmdSingleFrame = 0x02;
   static const int cmdFlashOn = 0x03;
   static const int cmdFlashOff = 0x04;
+  static const int cmdRestart = 0x05;
+  static const int cmdShutdown = 0x06;
+  static const int cmdWifiConfigPut = 0x07;
+  static const int cmdWifiConfigGet = 0x08;
+  static const int cmdConnectionStatus = 0x09;
 
   final StreamController<BluetoothStatus> _statusCtl =
       StreamController<BluetoothStatus>.broadcast();
   Stream<BluetoothStatus> get statusStream => _statusCtl.stream;
+
+  /// WiFi / connection status messages from the ESP over BLE TX.
+  final StreamController<String> _statusMessageCtl =
+      StreamController<String>.broadcast();
+  Stream<String> get statusMessageStream => _statusMessageCtl.stream;
 
   final StreamController<FrameData> _frameCtl =
       StreamController<FrameData>.broadcast();
@@ -236,9 +255,17 @@ class BluetoothCameraService {
           final s = _textBuf.toString();
           if (s.contains('\n')) {
             for (final line in s.split('\n')) {
-              final reading = SpectrumReading.tryParse(line.trim());
-              if (reading != null) {
-                _sensorCtl.add(reading);
+              final trimmed = line.trim();
+              if (trimmed.isEmpty) continue;
+              // Spectrum telemetry: $UV:..;IR:..
+              if (trimmed.startsWith(r'$UV:')) {
+                final reading = SpectrumReading.tryParse(trimmed);
+                if (reading != null) {
+                  _sensorCtl.add(reading);
+                }
+              } else {
+                // Status / WiFi / command acknowledgment messages
+                _statusMessageCtl.add(trimmed);
               }
             }
             _textBuf.clear();
@@ -352,6 +379,33 @@ class BluetoothCameraService {
   Future<void> setFlashlight(bool on) =>
       _sendCmd(on ? cmdFlashOn : cmdFlashOff);
 
+  /// Restart the ESP32-CAM (0x05).
+  Future<void> restart() => _sendCmd(cmdRestart);
+
+  /// Shut down the ESP32-CAM (0x06).
+  Future<void> shutdown() => _sendCmd(cmdShutdown);
+
+  /// Send WiFi credentials to the ESP over BLE (0x07).
+  /// Payload format: "SSID\0PASS\0"
+  Future<void> wifiConfigPut(String ssid, String pass) async {
+    if (_rxChar == null) return;
+    final payload = Uint8List.fromList(
+      [...utf8.encode(ssid), 0, ...utf8.encode(pass), 0],
+    );
+    try {
+      await _rxChar!.write([cmdWifiConfigPut, ...payload],
+          withoutResponse: false);
+    } catch (e) {
+      debugPrint('[BLE] wifi config put failed: $e');
+    }
+  }
+
+  /// Request current WiFi config from the ESP (0x08).
+  Future<void> wifiConfigGet() => _sendCmd(cmdWifiConfigGet);
+
+  /// Request connection + WiFi status from the ESP (0x09).
+  Future<void> connectionStatusGet() => _sendCmd(cmdConnectionStatus);
+
   Future<void> disconnect() async {
     _userDisconnect = true; // suppress auto-reconnect
     _reconnectTimer?.cancel();
@@ -377,5 +431,6 @@ class BluetoothCameraService {
     _statusCtl.close();
     _frameCtl.close();
     _sensorCtl.close();
+    _statusMessageCtl.close();
   }
 }

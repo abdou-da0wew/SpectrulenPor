@@ -164,10 +164,10 @@ class _Placeholder extends StatelessWidget {
           children: [
             const Icon(
               Icons.visibility_outlined,
-              size: 48,
+              size: 44,
               color: palette.AppColors.dustyMauve,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             Text(
               message,
               textAlign: TextAlign.center,

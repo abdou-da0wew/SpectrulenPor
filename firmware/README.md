@@ -16,8 +16,8 @@ The glasses use the **AI-Thinker ESP32-CAM (ESP32-S + WiFi/BT + OV2640 2 MP)** f
 | Signal / Sensor | ESP32 GPIO | Notes |
 |---|---|---|
 | Camera module | Onboard OV2640 | QVGA (`320x240`) JPEG frames |
-| UV sensor (GUVA-S12SD analog out) | `GPIO12` | 12-bit ADC (`0–4095`) |
-| IR sensor (analog out) | `GPIO13` | 12-bit ADC (`0–4095`) |
+| UV sensor (GUVA-S12SD analog out) | `GPIO14` | 12-bit ADC (`0–4095`). Moved off GPIO12 (MTDI strapping pin) so a divider cannot hold MTDI high at boot and block startup. |
+| IR sensor (analog out) | `GPIO15` | 12-bit ADC (`0–4095`) |
 | Onboard high-power flash LED | `GPIO4` | Controlled over BLE (`0x03` / `0x04`) |
 
 ## BLE GATT Contract (`SpectruLenPor-ESP32`)

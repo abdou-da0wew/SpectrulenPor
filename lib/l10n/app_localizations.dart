@@ -560,6 +560,84 @@ abstract class AppLocalizations {
   /// **'Bluetooth connection error'**
   String get btConnectionError;
 
+  /// No description provided for @wifiConfigTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Configure WiFi for glasses'**
+  String get wifiConfigTitle;
+
+  /// No description provided for @wifiSsidLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'WiFi SSID'**
+  String get wifiSsidLabel;
+
+  /// No description provided for @wifiPasswordLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Password'**
+  String get wifiPasswordLabel;
+
+  /// No description provided for @wifiSaveConnect.
+  ///
+  /// In en, this message translates to:
+  /// **'Save & Connect'**
+  String get wifiSaveConnect;
+
+  /// No description provided for @wifiConfigured.
+  ///
+  /// In en, this message translates to:
+  /// **'WiFi configured — waiting for glasses'**
+  String get wifiConfigured;
+
+  /// No description provided for @wifiConnected.
+  ///
+  /// In en, this message translates to:
+  /// **'WiFi connected — SVGA video over UDP'**
+  String get wifiConnected;
+
+  /// No description provided for @wifiDisconnected.
+  ///
+  /// In en, this message translates to:
+  /// **'WiFi disconnected'**
+  String get wifiDisconnected;
+
+  /// No description provided for @glassesIpLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Glasses IP address'**
+  String get glassesIpLabel;
+
+  /// No description provided for @startUdpVideo.
+  ///
+  /// In en, this message translates to:
+  /// **'Start UDP Video'**
+  String get startUdpVideo;
+
+  /// No description provided for @stopVideo.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop Video'**
+  String get stopVideo;
+
+  /// No description provided for @refreshStatus.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh Status'**
+  String get refreshStatus;
+
+  /// No description provided for @restartEsp.
+  ///
+  /// In en, this message translates to:
+  /// **'Restart ESP'**
+  String get restartEsp;
+
+  /// No description provided for @alreadyConnected.
+  ///
+  /// In en, this message translates to:
+  /// **'Already connected'**
+  String get alreadyConnected;
+
   /// No description provided for @aboutBody.
   ///
   /// In en, this message translates to:

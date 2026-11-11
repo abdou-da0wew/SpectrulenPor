@@ -841,6 +841,99 @@ Built at: $_buildDate''';
             buildDate: _buildDate,
             onCopy: _copyFullVersion,
           ),
+
+          // ---------------- WiFi for glasses (UDP video) ----------------
+          _sectionHeader(
+            theme,
+            Icons.wifi_rounded,
+            isAr
+                ? 'إعدادات WiFi للنظارة الذكية'
+                : 'Smart Glasses WiFi Settings',
+          ),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    state.wifiConnected
+                        ? isAr
+                            ? 'متصل عبر WiFi — فيديو SVGA عبر UDP'
+                            : 'Connected via WiFi — SVGA video over UDP'
+                        : isAr
+                            ? 'غير متصل عبر WiFi'
+                            : 'Not connected via WiFi',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13.5,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  if (state.wifiSsid.isNotEmpty)
+                    Text(
+                      'SSID: ${state.wifiSsid}',
+                      style: TextStyle(
+                        color: palette.AppColors.inkSoft,
+                        fontSize: 12,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  if (state.wifiIp.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      'IP: ${state.wifiIp}',
+                      style: TextStyle(
+                        color: palette.AppColors.inkSoft,
+                        fontSize: 12,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: state.requestWifiStatus,
+                          icon: const Icon(Icons.refresh_rounded, size: 16),
+                          label: Text(
+                            isAr ? 'تحديث الحالة' : 'Refresh Status',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: state.restartGlasses,
+                          icon: const Icon(Icons.restart_alt_rounded, size: 16),
+                          label: Text(isAr ? 'إعادة تشغيل' : 'Restart ESP'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: state.shutdownGlasses,
+                          icon: const Icon(Icons.power_settings_new_rounded,
+                              size: 16),
+                          label: Text(isAr ? 'إيقاف التشغيل' : 'Shutdown'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    isAr
+                        ? 'استخدم شاشة المنزل لتكوين WiFi وبدء فيديو UDP عبر الشبكة المحلية.'
+                        : 'Use the Home screen to configure WiFi and start UDP video over LAN.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: palette.AppColors.inkSoft,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
