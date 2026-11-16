@@ -1,0 +1,86 @@
+{
+  "timestamp": "2026-11-16T05:44:10.645698+00:00",
+  "esp_ip": "192.138.1.2",
+  "tests": {
+    "udp_stream": {
+      "ok": false,
+      "error": "'NoneType' object has no attribute 'parent'",
+      "error_type": "AttributeError",
+      "traceback": "Traceback (most recent call last):\n  File \"/home/ababado/Documents/Projects/SpectrulenPor/firmware/test-results/diagnostics/comprehensive_udp_test.py\", line 398, in main\n    result = run_udp_stream(base_dir, frame_count=5)\n  File \"/home/ababado/Documents/Projects/SpectrulenPor/firmware/test-results/diagnostics/comprehensive_udp_test.py\", line 98, in run_udp_stream\n    details, attempt = send_single_frame_with_retry(\n                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^\n        udp, max_attempts=3, per_attempt_timeout=15\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/home/ababado/Documents/Projects/SpectrulenPor/firmware/test-results/diagnostics/comprehensive_udp_test.py\", line 63, in send_single_frame_with_retry\n    details = decode_jpeg(data, (800, 600), output_path)\n  File \"/home/ababado/Documents/Projects/SpectrulenPor/firmware/tests/hardware_helpers.py\", line 78, in decode_jpeg\n    path.parent.mkdir(parents=True, exist_ok=True)\n    ^^^^^^^^^^^\nAttributeError: 'NoneType' object has no attribute 'parent'\n"
+    },
+    "udp_controls": {
+      "ok": true,
+      "result": {
+        "flash_on": true,
+        "flash_on_attempt": 1,
+        "flash_on_luminance": 10.4,
+        "flash_off": true,
+        "flash_off_attempt": 1,
+        "flash_off_luminance": 10.46,
+        "stream_on": true,
+        "stream_on_attempt": 1,
+        "stream_off_pause_verified": true,
+        "single_frame_after_pause": true,
+        "single_after_pause_attempt": 1,
+        "single_frame_luminance": 10.41
+      }
+    },
+    "reset_persistence": {
+      "ok": false,
+      "error": "HIL_WIFI_ONLY_BOOT_MISSING_AFTER_RESET",
+      "error_type": "AssertionError",
+      "traceback": "Traceback (most recent call last):\n  File \"/home/ababado/Documents/Projects/SpectrulenPor/firmware/test-results/diagnostics/comprehensive_udp_test.py\", line 428, in main\n    result = run_reset_persistence(base_dir)\n  File \"/home/ababado/Documents/Projects/SpectrulenPor/firmware/test-results/diagnostics/comprehensive_udp_test.py\", line 242, in run_reset_persistence\n    require(\"operation=boot.mode mode=wifi_only ble=0\" in boot_text,\n    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n            \"HIL_WIFI_ONLY_BOOT_MISSING_AFTER_RESET\")\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/ababado/Documents/Projects/SpectrulenPor/firmware/tests/hardware_helpers.py\", line 57, in require\n    raise AssertionError(code)\nAssertionError: HIL_WIFI_ONLY_BOOT_MISSING_AFTER_RESET\n"
+    },
+    "dashboard_api": {
+      "ok": true,
+      "result": {
+        "dashboard_server_started": true,
+        "port": 40027,
+        "endpoints_tested": [
+          {
+            "path": "/",
+            "status": 200,
+            "bytes": 19512
+          },
+          {
+            "path": "/api/state",
+            "status": 200,
+            "bytes": 379
+          },
+          {
+            "path": "/api/config",
+            "status": 200,
+            "bytes": 187
+          },
+          {
+            "path": "/api/report",
+            "status": 200,
+            "bytes": 541
+          },
+          {
+            "path": "/api/localization?locale=en",
+            "status": 200,
+            "bytes": 12499
+          },
+          {
+            "path": "/api/localization?locale=ar",
+            "status": 200,
+            "bytes": 16782
+          },
+          {
+            "path": "/api/frame.jpg",
+            "status": 204,
+            "bytes": 0,
+            "empty_frame": true
+          }
+        ]
+      }
+    }
+  },
+  "overall_ok": false,
+  "hardware_access_performed": true,
+  "credential_writes": 0,
+  "explicit_erase_operations": 0,
+  "nvs_dump_performed": false,
+  "completed_at": "2026-11-16T05:46:13.986210+00:00"
+}

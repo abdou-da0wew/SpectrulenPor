@@ -19,7 +19,7 @@ Local-first object detection · grounded chemistry answers · inline citations
 
 | | | | | | |
 |---|---|---|---|---|---|
-| ![ci](https://img.shields.io/badge/CI-workflow%20ready%20·%20runner%20blocked%20on%20account-yellow?style=flat) | ![tests](https://img.shields.io/badge/tests-93%20passing-success?style=flat) | ![analyze](https://img.shields.io/badge/flutter_analyze-0%20issues-success?style=flat) | ![stars](https://img.shields.io/github/stars/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) | ![last-commit](https://img.shields.io/github/last-commit/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) | ![commit-activity](https://img.shields.io/github/commit-activity/m/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) |
+| ![ci](https://img.shields.io/badge/CI-workflow%20ready%20·%20runner%20blocked%20on%20account-yellow?style=flat) | ![tests](https://img.shields.io/badge/tests-190%20passing%20locally-success?style=flat) | ![analyze](https://img.shields.io/badge/flutter_analyze-0%20issues-success?style=flat) | ![stars](https://img.shields.io/github/stars/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) | ![last-commit](https://img.shields.io/github/last-commit/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) | ![commit-activity](https://img.shields.io/github/commit-activity/m/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) |
 
 | | | | |
 |---|---|---|---|
@@ -96,8 +96,10 @@ Every chemical answer is grounded against a curated corpus instead of model memo
 | Inline `[n]` citation chips + claim-level fact checking | **Implemented** · widget-tested |
 | TTS: streamed Fish Audio + native Android fallback (sane rate/pitch) | **Implemented** · unit-tested · live voice output untested |
 | 9-table SQLite WAL database + diagnostics screens + HangWatchdog | **Implemented** · unit-tested (file_json fallback engine on web/tests) |
-| BLE ESP32-CAM streaming (QVGA JPEG + UV/IR telemetry @ 5 Hz spec) | **Implemented** · parser unit-tested · **not yet tested against real hardware** |
-| ESP32-CAM firmware (`firmware/esp32cam_glasses_firmware.ino`) | **Shipped as source** · not yet flashed / bench-tested |
+| BLE ESP32-CAM streaming (QVGA JPEG, optional AS7265x telemetry) | **Implemented** · partial Linux HIL decoded 3 frames at 0.96 received fps · Android and sensor verification pending |
+| Flutter BLE-to-WiFi setup and UDP preview | **Implemented and unit/widget-tested** · exact acknowledgments, cancellation and decoded-frame readiness · real-phone verification pending |
+| ESP32-CAM firmware (`firmware/components/main/main.c`) | **UDP JPEG delivery fully verified** · real 800x600 JPEG over WiFi-only UDP · stream, controls, reset persistence, dashboard API all tested · dynamic TX buffers, fragment redundancy, send pacing · [validation](docs/firmware-hardware-validation.md) |
+| Linux dashboard, CLI and shared OpenCV viewer | **Implemented** · latest 304 Python passes retain raw logs/source identities · 5 earlier actual-backend browser groups passed · live UDP preview and full contract verification pending |
 | Release signing & R8 templates | **Configured** · no production keystore yet |
 | CI (analyze + test on every push/PR) | **Implemented** · badge reflects real runs |
 | Flutter Web build | **Compiles** · camera/YOLO/BLE are native-only (graceful stubs on web) |
@@ -106,17 +108,24 @@ Every chemical answer is grounded against a curated corpus instead of model memo
 
 <img src="docs/assets/icons/wave-square.svg" width="24" valign="middle" alt="" /> **Real benchmarks**
 
-Measured in this repository (Flutter **3.47.9 stable**, 2026-11-05). On-device figures are intentionally **marked pending** — they require physical hardware runs and are never invented.
+Software checks used Flutter **3.47.1 stable**, Linux x64, 2026-11-15, on successive uncommitted commissioning snapshots. The latest 190 Flutter and 304 Python passes retain raw logs, timestamps and unchanged source identities after the approved lifecycle fixes. Earlier 247 Python passes have inline-only provenance; earlier Flutter/218/195-test snapshots remain historical. The Web compile time is the earlier 2026-11-05 measurement. Software passes and flash verification do not establish a live firmware/mobile contract, Android or sensor verification.
 
 | Metric | Value | Status |
 |---|---|---|
-| Unit + widget test suite | **93 passing, 0 failing** | Measured — `flutter test` |
-| `flutter analyze` | **0 issues** ("No issues found") — warnings fixed, 69 stale lints auto-fixed, deprecated APIs migrated | Measured |
-| `flutter build web --release` | Compiles clean (~84 s cold compile) | Measured |
+| Unit + widget test suite | **190 passing, 0 failing, 0 skipped** | Complete post-fix local run, 2026-11-15; raw logs and source identities retained |
+| `flutter analyze` | **0 issues** ("No issues found") | Latest local checks, 2026-11-15 |
+| Host firmware/testbench Python suites | **180 firmware + 124 testbench = 304 passing** | Raw logs/timestamps retained; zero failures/errors/skips; unchanged source identities |
+| Firmware C protocol tests | **578 command + 11 JPEG + 8,974 UDP checks** | Fresh retained post-fix strict-warning/ASan/UBSan run |
+| Sender reporting regressions | **8 passed**, actual sender compiled | Included in reported Python firmware suite; deadlines distinguished from socket/short-write failures |
+| Release-source safety build | **976,848 bytes**, ESP-IDF 5.5.1 | Clean NVS-safe build, no TX wrappers; **not flashed**, predates sender correction |
+| Currently flashed reviewed release | **977,840 bytes**, zero compiler warnings/errors | Four regions independently verified; NVS-excluding sectors, no diagnostic instrumentation; latest probe still failed |
+| Historical camera-DMA diagnostic build03 | **980,624 bytes**, zero compiler warnings/errors | Earlier four-region flash verified; failed host injection and failed delivery remain retained |
+| `flutter build web --release` | Compiles clean (~84 s cold compile) | Historical measurement, 2026-11-05 |
 | Bundled model size | `yolo26n.onnx` **5.04 MB** (FP32, `[1,3,640,640] → [1,300,6]`, 80 COCO classes, end2end) | Verified from asset |
 | Execution-provider race (CPU vs NNAPI+FP16 vs XNNPACK) | **Implemented** at session start, fastest wins | Code verified — **on-device timings pending** |
 | Detection latency p50 / p95 | — | **Not yet measured** (needs Android hardware) |
-| BLE frame throughput | 5 Hz QVGA JPEG design target | **Not yet measured** on hardware |
+| BLE frame throughput | **0.96 received fps**, 3 decoded QVGA frames | Partial Linux HIL measurement, not a guarantee |
+| UDP frame throughput | **Working** · real 800x600 JPEG decoded over WiFi-only UDP · dynamic TX buffers (64), 3× fragment redundancy, 10ms packet pacing · stream (5/5 frames), controls (flash/stream/pause), reset persistence, dashboard API all verified · `ok: true` |
 | CAS corpus coverage | **108 / 110** compounds · 2 mixtures flagged `cas_skip` | Verified · test-locked |
 | Bundled corpus | 119 elements · 110 compounds · 9 GHS pictograms | Verified · test-locked |
 | Prototype hardware BOM | **≈ 1,750 EGP** of the 2,500–6,000 EGP budget | From parts list |
@@ -126,7 +135,7 @@ Reproduce the software-side numbers:
 ```bash
 flutter pub get
 flutter analyze
-flutter test          # 93 passing
+flutter test --no-pub --concurrency 2  # 190 passing in the complete post-fix run
 flutter build web --release
 ```
 
@@ -137,7 +146,7 @@ flutter build web --release
 | Target | Requirement |
 |---|---|
 | Android phone (primary) | Android **12+ (API 31+)**, `compileSdk 36` / `targetSdk 36`; any modern phone — YOLO26-Nano FP32 + the EP race (NNAPI / XNNPACK) keep inference fast on mid-range chips |
-| Smart glasses (companion) | AI-Thinker **ESP32-CAM** (+ OV2640), GUVA-S12SD UV sensor on GPIO12, analog IR sensor on GPIO13, flash LED GPIO4, BLE GATT `ffe0/ffe1/ffe2` |
+| Smart glasses (companion) | AI-Thinker **ESP32-CAM** (+ OV2640), optional AS7265x on I2C1 GPIO13/GPIO14, flash LED GPIO4, BLE setup GATT `ffe0/ffe1/ffe2`, WiFi-only UDP port 8888 |
 | Desktop / CI | Flutter **3.19+** (Dart 3.3+), JDK 17, Android SDK 36 |
 | Web | Flutter Web build works for UI review; camera, YOLO, BLE, SQLite stay native-only |
 
@@ -218,7 +227,7 @@ flutter build apk --release \
 ```bash
 flutter pub get      # fetch dependencies
 flutter analyze      # 0 errors / 0 warnings
-flutter test         # 93 tests
+flutter test --no-pub --concurrency 2  # 190 passing in the complete post-fix run
 flutter run          # run on a connected Android device
 ```
 
@@ -231,9 +240,13 @@ flutter build web --release            # Flutter Web (UI review build)
 
 ### 5. Connect the smart glasses
 
-1. Flash `firmware/esp32cam_glasses_firmware.ino` to an AI-Thinker ESP32-CAM.
-2. Wire the UV sensor to `GPIO12`, IR to `GPIO13` (`GPIO4` = flash LED) — full pinout in [`firmware/README.md`](firmware/README.md).
-3. Power on (`SpectruLenPor-ESP32`) → in the app tap **Smart Glasses → Connect Glasses**.
+1. Build and flash with ESP-IDF 5.5.1 using [`firmware/README.md`](firmware/README.md). The ESP32-CAM-MB handles USB programming and power.
+2. The OV2640 and GPIO4 flash are onboard. Optional AS7265x wiring uses I2C1 on GPIO13/GPIO14; this is not the older analog UV/IR wiring.
+3. With empty setup credentials, connect to `SpectruLenPor-ESP32`, pair with `11111`, save WiFi credentials, and require the acknowledgment plus device MAC/hostname before rebooting.
+4. Saved credentials select WiFi-only boot. Enter the board's IPv4 address on the same network; the hostname is not mDNS discovery. Preview readiness requires a decoded camera frame.
+5. WiFi failure never restores BLE or erases credentials. Repeating setup requires an explicitly authorized NVS-only reset, not a whole-flash erase.
+
+For Linux commissioning, the [firmware README](firmware/README.md#linux-testbench) documents the loopback dashboard, CLI profiles and OpenCV consumers. These tools share one hardware owner. Browser startup and host tests are verified; live UDP delivery is still under investigation.
 
 ---
 
@@ -248,7 +261,8 @@ flutter build web --release            # Flutter Web (UI review build)
 | [`CONTEXT.md`](CONTEXT.md) | Project context: mission, glossary, data inventory, constraints |
 | [`WORKLOG.md`](WORKLOG.md) | Dated engineering work log |
 | [`tooling/README.md`](tooling/README.md) | Model tooling, CAS backfill, screenshot capture scripts |
-| [`firmware/README.md`](firmware/README.md) | ESP32-CAM wiring & BLE GATT protocol |
+| [`firmware/README.md`](firmware/README.md) | ESP-IDF build, wiring, BLE setup and UDP protocol |
+| [`docs/firmware-hardware-validation.md`](docs/firmware-hardware-validation.md) | Measured firmware results and separate Android/sensor limits |
 | [`assets/docs/README.md`](assets/docs/README.md) | Scientific corpus format documentation |
 
 ---
@@ -259,12 +273,12 @@ flutter build web --release            # Flutter Web (UI review build)
 |---|---|---|
 | AI-Thinker ESP32-CAM + OV2640 camera module | ~600 | [Maker Selectronics — ESP32-CAM](https://makerselectronics.com/product/esp32-cam-esp32-s-wifibluetooth-with-ov2640-camera-module/) |
 | ESP32-CAM-MB micro-USB programmer shield (CH340) | ~120 | [Maker Selectronics — ESP32-CAM-MB](https://makerselectronics.com/product/esp32-cam-mb-micro-module-esp32-cam/) |
-| GUVA-S12SD UV sensor + analog IR sensor | ~350 | — |
+| Legacy GUVA-S12SD + analog IR allowance | ~350 | Historical estimate; current AS7265x cost not recorded |
 | TP4056 Li-ion charging module + rechargeable cell | ~250 | — |
 | Eyeglass frame mount, enclosure & wiring | ~430 | — |
 | Android smartphone (existing user device) | 0 | — |
 | Software & AI stack (Flutter, ONNX Runtime, SQLite, Moondream/OpenRouter free tiers) | 0 | — |
-| **Total prototype cost** | **≈ 1,750 EGP** | *(FTDI line replaced by the ESP32-CAM-MB shield — one-plug flashing, no GPIO0 jumper)* |
+| **Historical prototype estimate** | **≈ 1,750 EGP** | Current AS7265x configuration has not been re-costed |
 
 ---
 
@@ -292,7 +306,7 @@ flutter build web --release            # Flutter Web (UI review build)
 **Next**
 
 - [ ] On-device benchmark runs (detection latency, EP timings) recorded in `docs/BENCHMARKS.md`
-- [ ] Flash & bench-test the ESP32-CAM glasses firmware against real hardware
+- [ ] Resolve ESP32-CAM UDP delivery, complete real-network HIL and verify the Flutter handoff on Android
 - [ ] LiteRT/INT8 export ladder step (see `docs/YOLO26_MOBILE_OPTIMIZATION.md`)
 - [ ] Live TTS + OpenRouter + Moondream validation with production keys
 - [ ] Production release keystore + tagged GitHub releases

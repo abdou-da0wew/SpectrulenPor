@@ -13,6 +13,7 @@ import '../utils/app_typography.dart';
 import '../widgets/bounding_box_overlay.dart';
 import '../widgets/camera_preview.dart';
 import '../widgets/connection_status_bar.dart';
+import '../widgets/glasses_setup_card.dart';
 import '../widgets/hazard_banner.dart';
 import '../widgets/spectrum_card.dart';
 import 'chat_screen.dart';
@@ -66,15 +67,14 @@ class _HomeScreenState extends State<HomeScreen> {
               onDismiss: state.clearHazard,
             ),
           _buildSourceToggle(context, state, loc),
-          if (state.source == CameraSource.glasses)
+          if (state.source == CameraSource.glasses && !state.udpVideo.isActive)
             ConnectionStatusBar(
               status: state.btStatus,
               deviceName: state.bluetooth.deviceName,
               onConnect: state.connectToGlasses,
               onDisconnect: state.disconnect,
             ),
-          if (state.source == CameraSource.glasses)
-            _buildWifiConfigSection(context, state, loc),
+          if (state.source == CameraSource.glasses) const GlassesSetupCard(),
           Expanded(child: _buildCameraArea(state, loc)),
           _buildCaptureControlBar(context, state),
           if (state.source == CameraSource.glasses && state.lastReading != null)
@@ -125,21 +125,18 @@ class _HomeScreenState extends State<HomeScreen> {
         _AnimatedIconButton(
           icon: Icons.history_edu_rounded,
           color: Colors.white,
-          tooltip: isAr ? 'السجل والموسوعة العلمية' : 'History & Scientific Docs',
-          onTap: () => Navigator.push(
-            context,
-            _createSlideRoute(const HistoryScreen()),
-          ),
+          tooltip:
+              isAr ? 'السجل والموسوعة العلمية' : 'History & Scientific Docs',
+          onTap: () =>
+              Navigator.push(context, _createSlideRoute(const HistoryScreen())),
         ),
         if (state.chatSession != null)
           _AnimatedIconButton(
             icon: Icons.forum_outlined,
             color: Colors.white,
             tooltip: isAr ? 'فتح المحادثة' : 'Open chat',
-            onTap: () => Navigator.push(
-              context,
-              _createSlideRoute(const ChatScreen()),
-            ),
+            onTap: () =>
+                Navigator.push(context, _createSlideRoute(const ChatScreen())),
           ),
         _AnimatedIconButton(
           icon: state.flashOn
@@ -192,9 +189,13 @@ class _HomeScreenState extends State<HomeScreen> {
     RecognitionState state,
     AppLocalizations loc,
   ) {
-    final statusText = state.btStatus == BluetoothStatus.connected
-        ? loc.connected
-        : (state.usingPhoneCamera ? loc.phoneCamera : loc.glassesNotConnected);
+    final statusText = state.useUdpVideo
+        ? loc.wifiConnected
+        : state.btStatus == BluetoothStatus.connected
+            ? loc.connected
+            : (state.usingPhoneCamera
+                ? loc.phoneCamera
+                : loc.glassesNotConnected);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
@@ -202,9 +203,11 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Row(
         children: [
           Icon(
-            state.btStatus == BluetoothStatus.connected
-                ? Icons.bluetooth_connected_rounded
-                : Icons.sensors_rounded,
+            state.useUdpVideo
+                ? Icons.wifi_rounded
+                : state.btStatus == BluetoothStatus.connected
+                    ? Icons.bluetooth_connected_rounded
+                    : Icons.sensors_rounded,
             size: 15,
             color: palette.AppColors.dustyLavender,
           ),
@@ -278,197 +281,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-
-  // ===========================================================================
-  // WIFI CONFIG SECTION (glasses source)
-  // ===========================================================================
-  Widget _buildWifiConfigSection(
-    BuildContext context,
-    RecognitionState state,
-    AppLocalizations loc,
-  ) {
-    final configured = state.wifiSsid.isNotEmpty;
-    final connected = state.wifiConnected;
-
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.wifi_rounded,
-                  size: 18,
-                  color: connected
-                      ? palette.AppColors.success
-                      : palette.AppColors.dustyMauve,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    connected
-                        ? loc.wifiConnected
-                        : configured
-                            ? loc.wifiConfigured
-                            : loc.wifiConfigTitle,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13.5,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                if (connected && state.useUdpVideo)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: palette.AppColors.success.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      'UDP SVGA',
-                      style: GoogleFonts.spaceMono(
-                        color: palette.AppColors.success,
-                        fontSize: 9,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            if (!configured) ...[
-              TextField(
-                decoration: InputDecoration(
-                  labelText: loc.wifiSsidLabel,
-                  border: const OutlineInputBorder(),
-                  isDense: true,
-                ),
-                onChanged: (v) => _wifiSsidCtl.text = v,
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                decoration: InputDecoration(
-                  labelText: loc.wifiPasswordLabel,
-                  border: const OutlineInputBorder(),
-                  isDense: true,
-                ),
-                obscureText: true,
-                onChanged: (v) => _wifiPassCtl.text = v,
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: _wifiSsidCtl.text.isNotEmpty
-                          ? () async {
-                              await state.setWifiConfig(
-                                  _wifiSsidCtl.text, _wifiPassCtl.text);
-                            }
-                          : null,
-                      icon: const Icon(Icons.save_rounded, size: 17),
-                      label: Text(loc.wifiSaveConnect),
-                    ),
-                  ),
-                ],
-              ),
-            ] else ...[
-              if (state.wifiSsid.isNotEmpty)
-                Text(
-                  'SSID: ${state.wifiSsid}',
-                  style: TextStyle(
-                    color: palette.AppColors.inkSoft,
-                    fontSize: 12,
-                    fontFamily: 'monospace',
-                  ),
-                ),
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      decoration: InputDecoration(
-                        labelText: loc.glassesIpLabel,
-                        border: const OutlineInputBorder(),
-                        isDense: true,
-                        hintText: '192.168.1.50',
-                      ),
-                      onChanged: (v) => _wifiIpCtl.text = v,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    onPressed: connected
-                        ? null
-                        : () async {
-                            await state.startUdpVideo(_wifiIpCtl.text);
-                          },
-                    icon: Icon(
-                      connected
-                          ? Icons.check_circle_rounded
-                          : Icons.play_arrow_rounded,
-                      color: connected
-                          ? palette.AppColors.success
-                          : palette.AppColors.dustyLavender,
-                    ),
-                    tooltip: connected
-                        ? loc.alreadyConnected
-                        : loc.startUdpVideo,
-                  ),
-                ],
-              ),
-              if (connected) ...[
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Text(
-                      'IP: ${state.wifiIp}',
-                      style: TextStyle(
-                        color: palette.AppColors.inkSoft,
-                        fontSize: 12,
-                        fontFamily: 'monospace',
-                      ),
-                    ),
-                    const Spacer(),
-                    OutlinedButton.icon(
-                      onPressed: () => state.stopUdpVideo(),
-                      icon: const Icon(Icons.stop_rounded, size: 16),
-                      label: Text(loc.stopVideo),
-                    ),
-                  ],
-                ),
-              ],
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  OutlinedButton.icon(
-                    onPressed: state.requestWifiStatus,
-                    icon: const Icon(Icons.refresh_rounded, size: 16),
-                    label: Text(loc.refreshStatus),
-                  ),
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    onPressed: state.restartGlasses,
-                    icon: const Icon(Icons.restart_alt_rounded, size: 16),
-                    label: Text(loc.restartEsp),
-                  ),
-                ],
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  // WiFi config controllers (lazily initialized)
-  final TextEditingController _wifiSsidCtl = TextEditingController();
-  final TextEditingController _wifiPassCtl = TextEditingController();
-  final TextEditingController _wifiIpCtl = TextEditingController();
 
   Widget _segButton(
     BuildContext context,
@@ -616,11 +428,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 backgroundColor: sel != null
                     ? palette.AppColors.dustyLavender
                     : palette.AppColors.silver,
-                disabledBackgroundColor:
-                    palette.AppColors.dustGrey.withValues(alpha: 0.9),
+                disabledBackgroundColor: palette.AppColors.dustGrey.withValues(
+                  alpha: 0.9,
+                ),
                 disabledForegroundColor: palette.AppColors.inkSoft,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -634,7 +449,8 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: () => state.selectBox(null),
               icon: const Icon(Icons.deselect_rounded, size: 19),
             ),
-          ] else if (state.chatSession != null && !state.isAnalyzingSelected) ...[
+          ] else if (state.chatSession != null &&
+              !state.isAnalyzingSelected) ...[
             const SizedBox(width: 6),
             IconButton.filledTonal(
               tooltip: isAr ? 'متابعة المحادثة' : 'Open active chat',
@@ -728,10 +544,8 @@ class _HomeScreenState extends State<HomeScreen> {
       pageBuilder: (context, animation, secondary) => page,
       transitionsBuilder: (context, animation, secondary, child) {
         return SlideTransition(
-          position: Tween<Offset>(
-            begin: const Offset(1, 0),
-            end: Offset.zero,
-          ).animate(
+          position: Tween<Offset>(begin: const Offset(1, 0), end: Offset.zero)
+              .animate(
             CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
           ),
           child: child,
@@ -829,7 +643,9 @@ class _PermissionCard extends StatelessWidget {
                 width: 76,
                 height: 76,
                 decoration: BoxDecoration(
-                  color: palette.AppColors.dustyLavender.withValues(alpha: 0.18),
+                  color: palette.AppColors.dustyLavender.withValues(
+                    alpha: 0.18,
+                  ),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
@@ -1017,11 +833,7 @@ class _CameraPreviewNative extends StatelessWidget {
             ),
 
           if (state.phoneCamera.isStreaming)
-            const Positioned(
-              top: 10,
-              right: 10,
-              child: _LiveBadge(),
-            ),
+            const Positioned(top: 10, right: 10, child: _LiveBadge()),
 
           Positioned(
             top: 10,
@@ -1050,9 +862,7 @@ class _CameraPreviewNative extends StatelessWidget {
             Positioned.fill(
               child: Container(
                 color: Colors.black54,
-                child: Center(
-                  child: _AnalyzingOverlay(state: state),
-                ),
+                child: Center(child: _AnalyzingOverlay(state: state)),
               ),
             ),
         ],
@@ -1078,8 +888,11 @@ class _LiveBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.fiber_manual_record_rounded,
-              size: 8, color: Colors.white),
+          const Icon(
+            Icons.fiber_manual_record_rounded,
+            size: 8,
+            color: Colors.white,
+          ),
           const SizedBox(width: 4),
           Text(
             'LIVE',
@@ -1099,10 +912,7 @@ class _LiveBadge extends StatelessWidget {
 class _DetectionCountBadge extends StatelessWidget {
   final int count;
   final bool yoloReady;
-  const _DetectionCountBadge({
-    required this.count,
-    this.yoloReady = true,
-  });
+  const _DetectionCountBadge({required this.count, this.yoloReady = true});
 
   @override
   Widget build(BuildContext context) {

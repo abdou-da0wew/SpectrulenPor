@@ -415,7 +415,10 @@ Built at: $_buildDate''';
 
           // ---------------- Moondream3 cloud (primary vision) ----------------
           _sectionHeader(
-              theme, Icons.auto_awesome, 'Moondream3 cloud — primary vision'),
+            theme,
+            Icons.auto_awesome,
+            'Moondream3 cloud — primary vision',
+          ),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(14),
@@ -454,8 +457,9 @@ Built at: $_buildDate''';
                           md.isCloudConfigured
                               ? l.moondreamCloudEnabled
                               : l.moondreamCloudDisabled,
-                          style: theme.textTheme.bodySmall
-                              ?.copyWith(color: palette.AppColors.inkSoft),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: palette.AppColors.inkSoft,
+                          ),
                         ),
                       ),
                     ],
@@ -464,8 +468,9 @@ Built at: $_buildDate''';
                   Text(
                     'Fallbacks when offline / rate-limited (2 req/s): local '
                     'Moondream GGUF → ONNX classifier → ML Kit OCR.',
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: palette.AppColors.inkSoft),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: palette.AppColors.inkSoft,
+                    ),
                   ),
                 ],
               ),
@@ -512,8 +517,9 @@ Built at: $_buildDate''';
                     'Moondream3 produces the factual analysis; the LLM '
                     'grounds it with inline [n] citations and auto-updating '
                     'structured scientific context.',
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: palette.AppColors.inkSoft),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: palette.AppColors.inkSoft,
+                    ),
                   ),
                 ],
               ),
@@ -537,13 +543,12 @@ Built at: $_buildDate''';
                             i++)
                           RadioListTile<int>(
                             title: Text(
-                              switch (i) {
-                                0 => l.modelGemma26,
-                                1 => l.modelInkling,
-                                _ => l.modelNemotron,
-                              },
-                              style: const TextStyle(fontSize: 13.5),
-                            ),
+                                switch (i) {
+                                  0 => l.modelGemma26,
+                                  1 => l.modelInkling,
+                                  _ => l.modelNemotron,
+                                },
+                                style: const TextStyle(fontSize: 13.5)),
                             value: i,
                             activeColor: palette.AppColors.dustyLavender,
                           ),
@@ -717,8 +722,9 @@ Built at: $_buildDate''';
                   Text(
                     '1 fps is the sweet spot for battery AND for the free '
                     'cloud tiers (Moondream allows 2 req/s).',
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: palette.AppColors.inkSoft),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: palette.AppColors.inkSoft,
+                    ),
                   ),
                   const Divider(height: 24),
                   Row(
@@ -786,8 +792,9 @@ Built at: $_buildDate''';
                     'without waiting for the full file). When off, the native '
                     'Android engine narrates per-sentence (lowest latency, '
                     'works offline).',
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: palette.AppColors.inkSoft),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: palette.AppColors.inkSoft,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
@@ -843,13 +850,7 @@ Built at: $_buildDate''';
           ),
 
           // ---------------- WiFi for glasses (UDP video) ----------------
-          _sectionHeader(
-            theme,
-            Icons.wifi_rounded,
-            isAr
-                ? 'إعدادات WiFi للنظارة الذكية'
-                : 'Smart Glasses WiFi Settings',
-          ),
+          _sectionHeader(theme, Icons.wifi_rounded, l.wifiConfigTitle),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(14),
@@ -858,12 +859,10 @@ Built at: $_buildDate''';
                 children: [
                   Text(
                     state.wifiConnected
-                        ? isAr
-                            ? 'متصل عبر WiFi — فيديو SVGA عبر UDP'
-                            : 'Connected via WiFi — SVGA video over UDP'
-                        : isAr
-                            ? 'غير متصل عبر WiFi'
-                            : 'Not connected via WiFi',
+                        ? (state.udpVideo.isStreaming
+                            ? l.wifiConnected
+                            : l.videoPaused)
+                        : l.wifiDisconnected,
                     style: const TextStyle(
                       fontWeight: FontWeight.w700,
                       fontSize: 13.5,
@@ -872,8 +871,8 @@ Built at: $_buildDate''';
                   const SizedBox(height: 6),
                   if (state.wifiSsid.isNotEmpty)
                     Text(
-                      'SSID: ${state.wifiSsid}',
-                      style: TextStyle(
+                      l.setupNetwork(state.wifiSsid),
+                      style: const TextStyle(
                         color: palette.AppColors.inkSoft,
                         fontSize: 12,
                         fontFamily: 'monospace',
@@ -882,8 +881,8 @@ Built at: $_buildDate''';
                   if (state.wifiIp.isNotEmpty) ...[
                     const SizedBox(height: 6),
                     Text(
-                      'IP: ${state.wifiIp}',
-                      style: TextStyle(
+                      l.setupEndpoint(state.wifiIp),
+                      style: const TextStyle(
                         color: palette.AppColors.inkSoft,
                         fontSize: 12,
                         fontFamily: 'monospace',
@@ -891,41 +890,40 @@ Built at: $_buildDate''';
                     ),
                   ],
                   const SizedBox(height: 10),
-                  Row(
+                  Wrap(
+                    spacing: 8,
                     children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: state.requestWifiStatus,
-                          icon: const Icon(Icons.refresh_rounded, size: 16),
-                          label: Text(
-                            isAr ? 'تحديث الحالة' : 'Refresh Status',
-                          ),
-                        ),
+                      OutlinedButton.icon(
+                        onPressed: state.canUseBleControls
+                            ? state.requestWifiStatus
+                            : null,
+                        icon: const Icon(Icons.refresh_rounded, size: 16),
+                        label: Text(l.refreshStatus),
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: state.restartGlasses,
-                          icon: const Icon(Icons.restart_alt_rounded, size: 16),
-                          label: Text(isAr ? 'إعادة تشغيل' : 'Restart ESP'),
-                        ),
+                      OutlinedButton.icon(
+                        onPressed: state.canUseBleControls
+                            ? state.restartGlasses
+                            : null,
+                        icon: const Icon(Icons.restart_alt_rounded, size: 16),
+                        label: Text(l.restartEsp),
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: state.shutdownGlasses,
-                          icon: const Icon(Icons.power_settings_new_rounded,
-                              size: 16),
-                          label: Text(isAr ? 'إيقاف التشغيل' : 'Shutdown'),
+                      OutlinedButton.icon(
+                        onPressed: state.canUseBleControls
+                            ? state.shutdownGlasses
+                            : null,
+                        icon: const Icon(
+                          Icons.power_settings_new_rounded,
+                          size: 16,
                         ),
+                        label: Text(l.shutdownGlasses),
                       ),
                     ],
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    isAr
-                        ? 'استخدم شاشة المنزل لتكوين WiFi وبدء فيديو UDP عبر الشبكة المحلية.'
-                        : 'Use the Home screen to configure WiFi and start UDP video over LAN.',
+                    state.canUseBleControls
+                        ? l.setupManualIpHint
+                        : l.wifiOnlyControlsUnavailable,
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: palette.AppColors.inkSoft,
                     ),
@@ -987,8 +985,10 @@ Built at: $_buildDate''';
         Expanded(
           child: Text(
             ready ? readyText : missingText,
-            style: theme.textTheme.bodySmall
-                ?.copyWith(color: palette.AppColors.inkSoft, height: 1.4),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: palette.AppColors.inkSoft,
+              height: 1.4,
+            ),
           ),
         ),
       ],
@@ -1045,9 +1045,8 @@ class _VersionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final shortFull = gitShaFull.length > 16
-        ? '${gitShaFull.substring(0, 16)}…'
-        : gitShaFull;
+    final shortFull =
+        gitShaFull.length > 16 ? '${gitShaFull.substring(0, 16)}…' : gitShaFull;
 
     return Card(
       child: InkWell(
@@ -1060,11 +1059,7 @@ class _VersionCard extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Icon(
-                    Icons.tag,
-                    size: 18,
-                    color: theme.colorScheme.primary,
-                  ),
+                  Icon(Icons.tag, size: 18, color: theme.colorScheme.primary),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -1095,8 +1090,9 @@ class _VersionCard extends StatelessWidget {
               const SizedBox(height: 8),
               Text(
                 'Tap to copy full version string to clipboard',
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: theme.colorScheme.outline),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.outline,
+                ),
               ),
             ],
           ),
@@ -1114,10 +1110,8 @@ class _VersionCard extends StatelessWidget {
               width: 135,
               child: Text(
                 k,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w500,
-                  fontSize: 12,
-                ),
+                style:
+                    const TextStyle(fontWeight: FontWeight.w500, fontSize: 12),
               ),
             ),
             Expanded(

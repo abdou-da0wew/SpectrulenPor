@@ -1,0 +1,102 @@
+{
+  "timestamp": "2026-11-16T05:49:09.344195+00:00",
+  "esp_ip": "192.138.1.2",
+  "tests": {
+    "udp_stream": {
+      "ok": true,
+      "result": {
+        "decoded_frames": 5,
+        "requested_frames": 5,
+        "attempts_used": 5,
+        "all_dimensions_800x600": true,
+        "stream_paused_verified": true,
+        "link_good": true,
+        "link_loss_percent": 0
+      }
+    },
+    "udp_controls": {
+      "ok": true,
+      "result": {
+        "flash_on": true,
+        "flash_on_attempt": 1,
+        "flash_on_luminance": 14.26,
+        "flash_off": true,
+        "flash_off_attempt": 1,
+        "flash_off_luminance": 14.08,
+        "stream_on": true,
+        "stream_on_attempt": 1,
+        "stream_off_pause_verified": false,
+        "single_frame_after_pause": true,
+        "single_after_pause_attempt": 1,
+        "single_frame_luminance": 14.25
+      }
+    },
+    "reset_persistence": {
+      "ok": true,
+      "result": {
+        "hardware_reset_observed": true,
+        "wifi_credentials_persisted": true,
+        "wifi_connected": true,
+        "ble_initialized": false,
+        "ip": "192.138.1.2",
+        "udp_image_decoded": true,
+        "image_bytes": 11674,
+        "image_width": 800,
+        "image_height": 600,
+        "reset_attempt": 1,
+        "link_good_after_reset": true
+      }
+    },
+    "dashboard_api": {
+      "ok": true,
+      "result": {
+        "dashboard_server_started": true,
+        "port": 39487,
+        "endpoints_tested": [
+          {
+            "path": "/",
+            "status": 200,
+            "bytes": 19512
+          },
+          {
+            "path": "/api/state",
+            "status": 200,
+            "bytes": 379
+          },
+          {
+            "path": "/api/config",
+            "status": 200,
+            "bytes": 187
+          },
+          {
+            "path": "/api/report",
+            "status": 200,
+            "bytes": 541
+          },
+          {
+            "path": "/api/localization?locale=en",
+            "status": 200,
+            "bytes": 12499
+          },
+          {
+            "path": "/api/localization?locale=ar",
+            "status": 200,
+            "bytes": 16782
+          },
+          {
+            "path": "/api/frame.jpg",
+            "status": 204,
+            "bytes": 0,
+            "empty_frame": true
+          }
+        ]
+      }
+    }
+  },
+  "overall_ok": true,
+  "hardware_access_performed": true,
+  "credential_writes": 0,
+  "explicit_erase_operations": 0,
+  "nvs_dump_performed": false,
+  "completed_at": "2026-11-16T05:51:13.375120+00:00"
+}

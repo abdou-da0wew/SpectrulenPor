@@ -1,8 +1,13 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:smart_glass_app/l10n/app_localizations.dart';
 import 'package:smart_glass_app/l10n/app_localizations_ar.dart';
 import 'package:smart_glass_app/l10n/app_localizations_en.dart';
+import 'package:smart_glass_app/l10n/glasses_messages.dart';
+import 'package:smart_glass_app/models/glasses_setup.dart';
 
 AppLocalizations get _en => AppLocalizationsEn();
 AppLocalizations get _ar => AppLocalizationsAr();
@@ -116,5 +121,75 @@ void main() {
     expect(AppLocalizations.localizationsDelegates, isNotEmpty);
     expect(AppLocalizations.delegate.isSupported(const Locale('ar')), isTrue);
     expect(AppLocalizations.delegate.isSupported(const Locale('de')), isFalse);
+  });
+
+  test('ARB keys have bilingual parity and every setup translation is real',
+      () {
+    final en = jsonDecode(File('lib/l10n/app_en.arb').readAsStringSync())
+        as Map<String, dynamic>;
+    final ar = jsonDecode(File('lib/l10n/app_ar.arb').readAsStringSync())
+        as Map<String, dynamic>;
+    final enKeys = en.keys.where((key) => !key.startsWith('@')).toSet();
+    final arKeys = ar.keys.where((key) => !key.startsWith('@')).toSet();
+    expect(arKeys, enKeys);
+    for (final key in enKeys) {
+      expect(en[key], isA<String>());
+      expect(ar[key], isA<String>());
+      expect((en[key] as String).trim(), isNotEmpty, reason: 'en.$key');
+      expect((ar[key] as String).trim(), isNotEmpty, reason: 'ar.$key');
+      if (key.startsWith('setup') ||
+          key.startsWith('wifi') ||
+          key.startsWith('tb') ||
+          const {
+            'glassesIpLabel',
+            'startUdpVideo',
+            'stopVideo',
+            'refreshStatus',
+            'restartEsp',
+            'alreadyConnected',
+            'shutdownGlasses',
+            'pauseVideo',
+            'resumeVideo',
+            'requestOneFrame',
+            'videoPaused',
+          }.contains(key)) {
+        expect(ar[key], isNot(en[key]), reason: 'untranslated $key');
+      }
+    }
+  });
+
+  test('all setup stages and failures resolve to localized safe messages', () {
+    for (final stage in GlassesSetupStage.values) {
+      expect(_en.setupProgress(stage).trim(), isNotEmpty);
+      expect(_ar.setupProgress(stage).trim(), isNotEmpty);
+      expect(_ar.setupProgress(stage), isNot(_en.setupProgress(stage)));
+    }
+    for (final failure in GlassesFailure.values) {
+      expect(_en.setupFailure(failure).trim(), isNotEmpty);
+      expect(_ar.setupFailure(failure).trim(), isNotEmpty);
+      expect(_ar.setupFailure(failure), isNot(_en.setupFailure(failure)));
+      expect(_en.setupFailure(failure), isNot(contains('GlassesException')));
+    }
+    expect(
+        _en.setupProgress(GlassesSetupStage.awaitingIp), _en.setupAwaitingIp);
+    expect(_ar.setupProgress(GlassesSetupStage.waitingForFrame),
+        _ar.setupWaitingFrame);
+    expect(
+        _en.setupFailure(GlassesFailure.udpStalled), _en.setupErrorUdpStalled);
+    expect(_ar.setupFailure(GlassesFailure.unsupportedControl),
+        _ar.setupErrorUnsupported);
+  });
+
+  test('identity, network and endpoint interpolation preserve exact values',
+      () {
+    const hostname = 'spectrulenpor-esp32';
+    const mac = '02:12:34:56:78:90';
+    const ip = '192.0.2.10';
+    for (final l in [_en, _ar]) {
+      expect(l.setupIdentity(hostname, mac),
+          allOf(contains(hostname), contains(mac)));
+      expect(l.setupNetwork('Lab'), contains('Lab'));
+      expect(l.setupEndpoint(ip), contains(ip));
+    }
   });
 }

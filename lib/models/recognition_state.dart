@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -29,8 +28,10 @@ import '../services/wifi_udp_video_service.dart';
 import '../services/yolo_detector.dart';
 import 'bounding_box.dart';
 import 'captured_frames.dart';
+import 'glasses_setup.dart';
 
 export '../models/bluetooth_status.dart';
+export 'glasses_setup.dart';
 
 /// Where the current description came from.
 enum VisionSource {
@@ -65,15 +66,44 @@ class RecognitionState extends ChangeNotifier {
   StreamSubscription<SpectrumReading>? _btSensorSub;
   StreamSubscription<FrameData>? _udpFrameSub;
   StreamSubscription<String>? _btStatusMessageSub;
+  StreamSubscription<String>? _udpStatusSub;
 
   // UDP video service (SVGA over WiFi when glasses are on LAN)
-  final WifiUdpVideoService _udpVideo = WifiUdpVideoService();
+  final WifiUdpVideoService _udpVideo;
 
-  // WiFi config state (sent to ESP over BLE; used for UDP video discovery)
+  // Confirmed BLE profile and the explicitly entered UDP endpoint.
   String _wifiSsid = '';
-  String _wifiPass = '';
   String _wifiStatus = 'disconnected'; // disconnected | connecting | connected
   String _wifiIp = '';
+  GlassesSetupStage _setupStage = GlassesSetupStage.idle;
+  GlassesFailure? _glassesFailure;
+  bool _credentialsSaved = false;
+  bool _configurationUncertain = false;
+  int _setupGeneration = 0;
+  int _udpGeneration = 0;
+
+  GlassesSetupStage get setupStage => _setupStage;
+  GlassesFailure? get glassesFailure => _glassesFailure;
+  bool get credentialsSaved => _credentialsSaved;
+  bool get configurationUncertain => _configurationUncertain;
+  bool get setupBusy => switch (_setupStage) {
+        GlassesSetupStage.connecting ||
+        GlassesSetupStage.pairing ||
+        GlassesSetupStage.provisioning ||
+        GlassesSetupStage.rebooting ||
+        GlassesSetupStage.waitingForFrame =>
+          true,
+        _ => false,
+      };
+  bool get canProvision =>
+      !_disposed &&
+      bluetooth.isConnected &&
+      !setupBusy &&
+      !_credentialsSaved &&
+      !_configurationUncertain &&
+      !_udpVideo.isActive;
+  bool get canUseBleControls =>
+      !_disposed && bluetooth.isConnected && !setupBusy && !_udpVideo.isActive;
 
   RecognitionState({
     required this.bluetooth,
@@ -84,7 +114,11 @@ class RecognitionState extends ChangeNotifier {
     required this.nativeTts,
     required this.prefs,
     this.onLocaleChanged,
-  }) {
+    WifiUdpVideoService? udpVideo,
+  }) : _udpVideo = udpVideo ?? WifiUdpVideoService() {
+    _btStatus = bluetooth.isConnected
+        ? BluetoothStatus.connected
+        : BluetoothStatus.disconnected;
     _wireSources();
     _loadSettings();
   }
@@ -92,7 +126,8 @@ class RecognitionState extends ChangeNotifier {
   // ----------------------------- Settings -----------------------------
   bool _liveSpeak = true;
   bool _deepReasonEnabled = true;
-  bool _useOpenRouterTts = true; // Fish Audio cloud TTS is the preferred narrator
+  bool _useOpenRouterTts =
+      true; // Fish Audio cloud TTS is the preferred narrator
   bool _captureReasoningTokens = true;
   int _fps = 2;
   int _upstreamStartModel = 0;
@@ -113,11 +148,13 @@ class RecognitionState extends ChangeNotifier {
     _searchMode = m;
     prefs.setString('docs_search_mode', m.name);
     _chatSession?.searchMode = m;
-    unawaited(InternalDatabaseService.instance.putUserData(
-      'docs_search_mode',
-      m.name,
-      category: 'settings',
-    ));
+    unawaited(
+      InternalDatabaseService.instance.putUserData(
+        'docs_search_mode',
+        m.name,
+        category: 'settings',
+      ),
+    );
     notifyListeners();
   }
 
@@ -167,22 +204,32 @@ class RecognitionState extends ChangeNotifier {
     await prefs.setString('locale', code);
     await nativeTts.setLanguage(code.startsWith('ar') ? 'ar-EG' : 'en-US');
     onLocaleChanged?.call(code);
-    unawaited(InternalDatabaseService.instance.recordActivity(
-      'locale_changed',
-      target: code,
-    ));
+    unawaited(
+      InternalDatabaseService.instance.recordActivity(
+        'locale_changed',
+        target: code,
+      ),
+    );
     notifyListeners();
   }
 
   void _loadSettings() {
+    _credentialsSaved = prefs.getBool('glasses_wifi_configured') ?? false;
+    _wifiSsid = prefs.getString('glasses_wifi_ssid') ?? '';
+    _wifiIp = prefs.getString('glasses_wifi_ip') ?? '';
+    bluetooth.espMacAddress = prefs.getString('glasses_mac');
+    bluetooth.espHostname = prefs.getString('glasses_hostname');
+    if (_credentialsSaved) _setupStage = GlassesSetupStage.awaitingIp;
     _cloudOnly = prefs.getBool('cloud_only') ?? false;
     _liveSpeak = prefs.getBool('live_speak') ?? true;
     _deepReasonEnabled = prefs.getBool('deep_reason') ?? true;
     _useOpenRouterTts = prefs.getBool('use_or_tts') ?? true;
     _captureReasoningTokens = prefs.getBool('capture_reasoning') ?? true;
     _fps = (prefs.getInt('fps') ?? 2).clamp(1, 4);
-    _upstreamStartModel = (prefs.getInt('upstream_start_model') ?? 0)
-        .clamp(0, OpenRouterService.modelChain.length - 1);
+    _upstreamStartModel = (prefs.getInt('upstream_start_model') ?? 0).clamp(
+      0,
+      OpenRouterService.modelChain.length - 1,
+    );
     _localeCode = prefs.getString('locale') ?? 'en';
 
     final savedMode = prefs.getString('docs_search_mode');
@@ -221,12 +268,14 @@ class RecognitionState extends ChangeNotifier {
       debugPrint('[RecognitionState] permission_handler unavailable here.');
     } catch (e, st) {
       debugPrint('[RecognitionState] requestCameraPermission failed: $e');
-      unawaited(InternalDatabaseService.instance.logError(
-        'CameraPermission',
-        'requestCameraPermission failed',
-        error: e,
-        stackTrace: st,
-      ));
+      unawaited(
+        InternalDatabaseService.instance.logError(
+          'CameraPermission',
+          'requestCameraPermission failed',
+          error: e,
+          stackTrace: st,
+        ),
+      );
     }
     notifyListeners();
   }
@@ -248,12 +297,12 @@ class RecognitionState extends ChangeNotifier {
   }
 
   Future<void> switchSource(CameraSource s) async {
-    if (s == _source) return;
+    if (s == _source || setupBusy) return;
     _source = s;
     await phoneCamera.stop();
     await stopUdpVideo();
     if (s == CameraSource.phone) {
-      await bluetooth.pauseStream();
+      if (bluetooth.isConnected) await pauseGlassesStream();
       if (_cameraPermission.isGranted) {
         try {
           await phoneCamera.start();
@@ -262,18 +311,18 @@ class RecognitionState extends ChangeNotifier {
         }
       }
     } else {
-      if (_btStatus == BluetoothStatus.connected) {
-        await bluetooth.resumeStream();
-        // If we have a known glasses IP, switch to UDP video (SVGA).
-        if (_wifiIp.isNotEmpty) {
-          await startUdpVideo(_wifiIp);
-        }
+      if (_wifiIp.isNotEmpty) {
+        await startUdpVideo(_wifiIp);
+      } else if (bluetooth.isConnected) {
+        await resumeGlassesStream();
       }
     }
-    unawaited(InternalDatabaseService.instance.recordActivity(
-      'camera_source_switch',
-      target: s.name,
-    ));
+    unawaited(
+      InternalDatabaseService.instance.recordActivity(
+        'camera_source_switch',
+        target: s.name,
+      ),
+    );
     notifyListeners();
   }
 
@@ -283,106 +332,283 @@ class RecognitionState extends ChangeNotifier {
         await phoneCamera.start();
       } catch (e, st) {
         _lastLabel = 'Phone camera error: $e';
-        unawaited(InternalDatabaseService.instance.logError(
-          'PhoneCamera',
-          'startPhoneCamera failed',
-          error: e,
-          stackTrace: st,
-        ));
+        unawaited(
+          InternalDatabaseService.instance.logError(
+            'PhoneCamera',
+            'startPhoneCamera failed',
+            error: e,
+            stackTrace: st,
+          ),
+        );
       }
       notifyListeners();
     }
   }
 
   Future<void> connectToGlasses() async {
+    if (_disposed || setupBusy || _udpVideo.isActive) return;
+    final generation = ++_setupGeneration;
+    _setupStage = GlassesSetupStage.connecting;
+    _glassesFailure = null;
+    notifyListeners();
     try {
       await bluetooth.scanAndConnect();
+      if (!_currentSetup(generation)) return;
+      _setupStage = _credentialsSaved
+          ? GlassesSetupStage.awaitingIp
+          : GlassesSetupStage.idle;
     } catch (e, st) {
-      _lastLabel = 'Bluetooth error: $e';
-      unawaited(InternalDatabaseService.instance.logError(
-        'Bluetooth',
-        'connectToGlasses failed',
-        error: e,
-        stackTrace: st,
-      ));
-      notifyListeners();
+      if (!_currentSetup(generation)) return;
+      _failGlasses(e, fallback: GlassesFailure.bleUnavailable);
+      unawaited(
+        InternalDatabaseService.instance.logError(
+          'Bluetooth',
+          'connectToGlasses failed',
+          error: e,
+          stackTrace: st,
+        ),
+      );
     }
+    if (!_disposed) notifyListeners();
   }
 
   Future<void> disconnect() async {
+    ++_setupGeneration;
+    await stopUdpVideo();
     await bluetooth.disconnect();
   }
 
   Future<void> setFlashlight(bool on) async {
+    if (_disposed || setupBusy) return;
     _autoFlashOn = false;
-    _flashOn = on;
     if (_source == CameraSource.glasses) {
-      await bluetooth.setFlashlight(on);
+      try {
+        if (_udpVideo.isActive) {
+          _udpVideo.sendCommand(
+            on
+                ? WifiUdpVideoService.cmdFlashOn
+                : WifiUdpVideoService.cmdFlashOff,
+          );
+        } else {
+          await bluetooth.setFlashlight(on);
+        }
+        _flashOn = on;
+      } catch (e) {
+        _failGlasses(e);
+      }
     } else {
       await FlashlightService.instance.setTorch(on);
+      _flashOn = on;
     }
-    notifyListeners();
+    if (!_disposed) notifyListeners();
   }
 
   // ----------------------------- WiFi config (glasses LAN) -----------------------------
 
-  /// Send WiFi credentials to the glasses over BLE. The ESP connects to the
-  /// network and mDNS-broadcasts itself; the app then finds it on the LAN and
-  /// switches video to UDP (SVGA).
+  /// Pair, save a profile, verify identity, then confirm reboot/disconnection.
+  /// WiFi-only firmware has no mDNS: a manual IPv4 address is required next.
   Future<void> setWifiConfig(String ssid, String pass) async {
-    _wifiSsid = ssid;
-    _wifiPass = pass;
+    if (!canProvision) return;
+    if (!BluetoothCameraService.validCredentials(ssid, pass)) {
+      _failGlasses(const GlassesException(GlassesFailure.invalidCredentials));
+      notifyListeners();
+      return;
+    }
+    _glassesFailure = null;
+    final generation = ++_setupGeneration;
+    _setupStage = GlassesSetupStage.pairing;
     notifyListeners();
-    await bluetooth.wifiConfigPut(ssid, pass);
-    _wifiStatus = 'connecting';
+    try {
+      await bluetooth.blePair(BluetoothCameraService.blePairingCode);
+      if (!_currentSetup(generation)) return;
+      _setupStage = GlassesSetupStage.provisioning;
+      notifyListeners();
+      if (!_currentSetup(generation)) return;
+      // A cancelled ATT write may already have saved NVS. Keep this guard even
+      // when disconnect invalidates the setup generation before its reply.
+      _configurationUncertain = true;
+      await bluetooth.wifiConfigPut(ssid, pass);
+      if (!_currentSetup(generation)) return;
+      _configurationUncertain = false;
+      _credentialsSaved = true;
+      _wifiSsid = ssid;
+      // No password is retained in state, preferences, database or logs.
+      await prefs.setString('glasses_wifi_ssid', ssid);
+      if (!_currentSetup(generation)) return;
+      await prefs.setString('glasses_mac', bluetooth.espMacAddress!);
+      if (!_currentSetup(generation)) return;
+      await prefs.setString('glasses_hostname', bluetooth.espHostname!);
+      if (!_currentSetup(generation)) return;
+      await prefs.setBool('glasses_wifi_configured', true);
+      if (!_currentSetup(generation)) return;
+      await _rebootProvisionedGlasses(generation);
+    } catch (e) {
+      if (!_currentSetup(generation)) return;
+      _failGlasses(e);
+      if (!_disposed) notifyListeners();
+    }
+  }
+
+  Future<void> rebootProvisionedGlasses() async {
+    if (_disposed ||
+        setupBusy ||
+        !_credentialsSaved ||
+        !bluetooth.isWifiConfigured ||
+        !bluetooth.isConnected) {
+      return;
+    }
+    await _rebootProvisionedGlasses(++_setupGeneration);
+  }
+
+  bool _currentSetup(int generation) =>
+      !_disposed && generation == _setupGeneration;
+
+  Future<void> _rebootProvisionedGlasses(int generation) async {
+    if (!bluetooth.isConnected || !bluetooth.isWifiConfigured) {
+      throw const GlassesException(GlassesFailure.connectionLost);
+    }
+    _setupStage = GlassesSetupStage.rebooting;
+    _glassesFailure = null;
     notifyListeners();
+    try {
+      await bluetooth.reboot();
+      if (!_currentSetup(generation)) return;
+      _setupStage = GlassesSetupStage.awaitingIp;
+      _wifiStatus = 'disconnected';
+    } catch (e) {
+      if (!_currentSetup(generation)) return;
+      _failGlasses(e);
+    }
+    if (!_disposed) notifyListeners();
   }
 
   /// Request current WiFi config + status from the glasses over BLE.
   Future<void> requestWifiStatus() async {
-    await bluetooth.wifiConfigGet();
-    await bluetooth.connectionStatusGet();
+    if (_disposed || setupBusy) return;
+    if (!canUseBleControls) {
+      _failGlasses(const GlassesException(GlassesFailure.unsupportedControl));
+    } else {
+      try {
+        await bluetooth.wifiConfigGet();
+        await bluetooth.connectionStatusGet();
+      } catch (e) {
+        _failGlasses(e);
+      }
+    }
+    if (!_disposed) notifyListeners();
   }
 
   /// Restart the ESP32-CAM (0x05).
   Future<void> restartGlasses() async {
-    await bluetooth.restart();
-    _wifiStatus = 'disconnected';
-    _wifiIp = '';
-    notifyListeners();
+    if (_disposed || setupBusy) return;
+    if (!canUseBleControls) {
+      _failGlasses(const GlassesException(GlassesFailure.unsupportedControl));
+    } else {
+      try {
+        await bluetooth.restart();
+      } catch (e) {
+        _failGlasses(e);
+      }
+    }
+    if (!_disposed) notifyListeners();
   }
 
   /// Shut down the ESP32-CAM (0x06).
   Future<void> shutdownGlasses() async {
-    await bluetooth.shutdown();
-    await _udpVideo.stop();
-    _wifiStatus = 'disconnected';
-    _wifiIp = '';
-    notifyListeners();
+    if (_disposed || setupBusy) return;
+    if (!canUseBleControls) {
+      _failGlasses(const GlassesException(GlassesFailure.unsupportedControl));
+    } else {
+      try {
+        await bluetooth.shutdown();
+      } catch (e) {
+        _failGlasses(e);
+      }
+    }
+    if (!_disposed) notifyListeners();
   }
 
   /// Start UDP video to the glasses (requires WiFi IP known).
   Future<void> startUdpVideo(String ip) async {
-    if (wifiConnected) return;
-    try {
-      final addr = InternetAddress(ip);
-      await _udpVideo.start(espIp: addr);
-      _wifiStatus = 'connected';
-      _wifiIp = ip;
+    if (_disposed || _udpVideo.isActive || setupBusy) return;
+    final addr = WifiUdpVideoService.parsePeerAddress(ip.trim());
+    if (addr == null) {
+      _failGlasses(const GlassesException(GlassesFailure.invalidIp));
       notifyListeners();
-    } catch (e) {
-      debugPrint('[UDP] start failed: $e');
-      _wifiStatus = 'disconnected';
-      notifyListeners();
+      return;
     }
+    _setupStage = GlassesSetupStage.waitingForFrame;
+    final generation = ++_udpGeneration;
+    _wifiStatus = 'connecting';
+    _glassesFailure = null;
+    notifyListeners();
+    try {
+      await _udpVideo.start(espIp: addr);
+      if (_disposed || generation != _udpGeneration || !_udpVideo.isReady) {
+        return;
+      }
+      _wifiIp = addr.address;
+      await prefs.setString('glasses_wifi_ip', _wifiIp);
+      if (_disposed || generation != _udpGeneration || !_udpVideo.isReady) {
+        return;
+      }
+      _setupStage = GlassesSetupStage.ready;
+    } catch (e) {
+      if (_disposed || generation != _udpGeneration) return;
+      _wifiStatus = 'disconnected';
+      _failGlasses(e, fallback: GlassesFailure.udpUnavailable);
+    }
+    if (!_disposed) notifyListeners();
   }
 
   /// Stop UDP video.
   Future<void> stopUdpVideo() async {
-    await _udpVideo.stop();
+    ++_udpGeneration;
+    try {
+      await _udpVideo.stop();
+    } catch (e) {
+      _failGlasses(e, fallback: GlassesFailure.udpUnavailable);
+    }
     _wifiStatus = 'disconnected';
-    _wifiIp = '';
-    notifyListeners();
+    if (_glassesFailure == null) {
+      _setupStage = _credentialsSaved
+          ? GlassesSetupStage.awaitingIp
+          : GlassesSetupStage.idle;
+    }
+    if (!_disposed) notifyListeners();
+  }
+
+  Future<void> pauseGlassesStream() =>
+      _controlGlasses(WifiUdpVideoService.cmdStreamOff, bluetooth.pauseStream);
+
+  Future<void> resumeGlassesStream() =>
+      _controlGlasses(WifiUdpVideoService.cmdStreamOn, bluetooth.resumeStream);
+
+  Future<void> requestGlassesFrame() => _controlGlasses(
+        WifiUdpVideoService.cmdSingleFrame,
+        bluetooth.requestOneFrame,
+      );
+
+  Future<void> _controlGlasses(int command, Future<void> Function() ble) async {
+    if (_disposed || setupBusy) return;
+    try {
+      if (_udpVideo.isActive) {
+        _udpVideo.sendCommand(command);
+      } else {
+        await ble();
+      }
+    } catch (e) {
+      _failGlasses(e);
+    }
+    if (!_disposed) notifyListeners();
+  }
+
+  void _failGlasses(
+    Object error, {
+    GlassesFailure fallback = GlassesFailure.bleWriteFailed,
+  }) {
+    _glassesFailure = error is GlassesException ? error.code : fallback;
+    _setupStage = GlassesSetupStage.failed;
   }
 
   bool _flashOn = false;
@@ -438,11 +664,13 @@ class RecognitionState extends ChangeNotifier {
   set cloudOnly(bool v) {
     _cloudOnly = v;
     prefs.setBool('cloud_only', v);
-    unawaited(InternalDatabaseService.instance.recordActivity(
-      'settings_changed',
-      target: 'cloud_only',
-      details: {'enabled': v},
-    ));
+    unawaited(
+      InternalDatabaseService.instance.recordActivity(
+        'settings_changed',
+        target: 'cloud_only',
+        details: {'enabled': v},
+      ),
+    );
     notifyListeners();
   }
 
@@ -458,6 +686,7 @@ class RecognitionState extends ChangeNotifier {
 
   void _wireSources() {
     _btStatusSub = bluetooth.statusStream.listen((s) {
+      if (_disposed) return;
       _btStatus = s;
       notifyListeners();
     });
@@ -472,7 +701,23 @@ class RecognitionState extends ChangeNotifier {
       }
     });
     _btSensorSub = bluetooth.sensorStream.listen(_onSensor);
-    _btStatusMessageSub = bluetooth.statusMessageStream.listen(_handleBtStatusMessage);
+    _btStatusMessageSub = bluetooth.statusMessageStream.listen(
+      _handleBtStatusMessage,
+    );
+    _udpStatusSub = _udpVideo.statusStream.listen((status) {
+      if (_disposed) return;
+      _wifiStatus = status;
+      if (status == 'connected' || status == 'paused') {
+        _setupStage = GlassesSetupStage.ready;
+      } else if (status == 'failed') {
+        _failGlasses(
+          GlassesException(
+            _udpVideo.lastFailure ?? GlassesFailure.udpUnavailable,
+          ),
+        );
+      }
+      notifyListeners();
+    });
     _udpFrameSub = _udpVideo.frameStream.listen((frame) {
       if (useUdpVideo) {
         _onFrame(frame);
@@ -491,54 +736,27 @@ class RecognitionState extends ChangeNotifier {
         now.difference(_lastSensorLogAt!).inSeconds >= 5 ||
         reading.anyHazard) {
       _lastSensorLogAt = now;
-      unawaited(InternalDatabaseService.instance.recordTelemetry(
-        channel: 'ble_spectrum',
-        reading: reading,
-        hazard: reading.anyHazard,
-      ));
+      unawaited(
+        InternalDatabaseService.instance.recordTelemetry(
+          channel: 'ble_spectrum',
+          reading: reading,
+          hazard: reading.anyHazard,
+        ),
+      );
     }
     notifyListeners();
   }
 
   /// Handle status / WiFi / command-ack messages from the ESP over BLE TX.
   void _handleBtStatusMessage(String msg) {
+    if (_disposed) return;
     if (msg.startsWith(r'$WIFI_CFG:')) {
-      final ssid = msg.substring(r'$WIFI_CFG:'.length);
-      _wifiSsid = ssid;
+      const prefix = r'$WIFI_CFG:ssid=';
+      if (msg.startsWith(prefix)) _wifiSsid = msg.substring(prefix.length);
       notifyListeners();
-    } else if (msg.startsWith(r'$STATUS:')) {
-      _parseStatusMessage(msg);
-    } else if (msg == r'$WIFI:connected') {
-      _wifiStatus = 'connected';
-      notifyListeners();
-    } else if (msg == r'$WIFI:disconnected') {
-      _wifiStatus = 'disconnected';
-      _wifiIp = '';
-      notifyListeners();
-    } else if (msg == r'$CMD:wifi_config_received') {
-      debugPrint('[GLASSES] WiFi config acknowledged by ESP');
-    } else if (msg.startsWith(r'$CMD:')) {
-      debugPrint('[GLASSES] cmd ack: $msg');
-    } else {
-      debugPrint('[GLASSES] status msg: $msg');
     }
-  }
-
-  /// Parse $STATUS:bt=...,wifi=...,ip=...,flash=...,stream=...
-  void _parseStatusMessage(String msg) {
-    // $STATUS:bt=1,wifi=connected,ip=192.168.1.50,flash=0,stream=1
-    final fields = <String, String>{};
-    for (final pair in msg.substring(r'$STATUS:'.length).split(',')) {
-      final kv = pair.split('=');
-      if (kv.length == 2) {
-        fields[kv[0].trim()] = kv[1].trim();
-      }
-    }
-    final wifi = fields['wifi'] ?? '';
-    final ip = fields['ip'] ?? '0.0.0.0';
-    _wifiStatus = wifi == 'connected' ? 'connected' : 'disconnected';
-    if (ip != '0.0.0.0') _wifiIp = ip;
-    notifyListeners();
+    // Setup-mode status is not evidence of a post-reboot LAN stream. Only
+    // the UDP receiver's decoded-image event can mark WiFi as ready.
   }
 
   // ----------------------------- Bluetooth & Sensors -----------------------------
@@ -551,10 +769,13 @@ class RecognitionState extends ChangeNotifier {
   // --- WiFi / UDP video state ---
   WifiUdpVideoService get udpVideo => _udpVideo;
   String get wifiSsid => _wifiSsid;
-  String get wifiPass => _wifiPass;
+
+  /// Kept for callers of the previous API; credentials are never retained.
+  String get wifiPass => '';
   String get wifiStatus => _wifiStatus;
   String get wifiIp => _wifiIp;
-  bool get wifiConnected => _wifiStatus == 'connected';
+  bool get wifiConnected => _udpVideo.isReady;
+
   /// Prefer UDP video (SVGA) when on the same LAN as the glasses, else fall
   /// back to BLE video (QVGA).
   bool get useUdpVideo => _source == CameraSource.glasses && wifiConnected;
@@ -619,7 +840,9 @@ class RecognitionState extends ChangeNotifier {
       // when frames are CLEARLY bright again (>= kAutoTorchOffBrightness).
       // The wide gap between the two thresholds prevents on/off flicker when
       // the scene sits right at the darkness boundary.
-      if (_autoFlashOn && _flashOn && gate.brightness >= kAutoTorchOffBrightness) {
+      if (_autoFlashOn &&
+          _flashOn &&
+          gate.brightness >= kAutoTorchOffBrightness) {
         await phoneCamera.setTorch(false);
         if (_disposed) return;
         _autoFlashOn = false;
@@ -683,12 +906,14 @@ class RecognitionState extends ChangeNotifier {
     } catch (e, st) {
       _visionSource = VisionSource.error;
       debugPrint('[RecognitionState] gated pipeline error: $e');
-      unawaited(InternalDatabaseService.instance.logError(
-        'VisionPipeline',
-        'Gated pipeline failed',
-        error: e,
-        stackTrace: st,
-      ));
+      unawaited(
+        InternalDatabaseService.instance.logError(
+          'VisionPipeline',
+          'Gated pipeline failed',
+          error: e,
+          stackTrace: st,
+        ),
+      );
       if (!_disposed) notifyListeners();
     }
   }
@@ -761,8 +986,7 @@ class RecognitionState extends ChangeNotifier {
 
     try {
       final buffer = StringBuffer();
-      final telemetry =
-          _lastReading?.telemetryLine(_localeCode);
+      final telemetry = _lastReading?.telemetryLine(_localeCode);
 
       await for (final chunk in openRouter.streamAnalysis(
         labelSentence: localDescription,
@@ -804,8 +1028,9 @@ class RecognitionState extends ChangeNotifier {
       final preferCloudTts =
           _useOpenRouterTts || (_cloudOnly && openRouterTts.isConfigured);
       if (_liveSpeak && preferCloudTts) {
-        final spoken =
-            await openRouterTts.speakMarkdown(_deepReasoningMarkdown);
+        final spoken = await openRouterTts.speakMarkdown(
+          _deepReasoningMarkdown,
+        );
         if (!spoken) {
           await nativeTts.speak(_cleanForSpeech(_deepReasoningMarkdown));
         }
@@ -864,17 +1089,21 @@ class RecognitionState extends ChangeNotifier {
           ? 'تحذير! تم اكتشاف مادة خطرة. تراجع بحذر.'
           : 'Warning! Hazardous material detected. Step back carefully.';
       if (_cloudOnly && openRouterTts.isConfigured) {
-        unawaited(openRouterTts.speakMarkdown(msg).then((spoken) {
-          if (!spoken) unawaited(nativeTts.speak(msg));
-        }));
+        unawaited(
+          openRouterTts.speakMarkdown(msg).then((spoken) {
+            if (!spoken) unawaited(nativeTts.speak(msg));
+          }),
+        );
       } else {
         unawaited(nativeTts.speak(msg));
       }
     }
-    unawaited(InternalDatabaseService.instance.recordActivity(
-      'hazard_triggered',
-      target: about,
-    ));
+    unawaited(
+      InternalDatabaseService.instance.recordActivity(
+        'hazard_triggered',
+        target: about,
+      ),
+    );
     notifyListeners();
   }
 
@@ -969,11 +1198,13 @@ class RecognitionState extends ChangeNotifier {
     _selectedBox = box;
     _hasUnanalyzedSelection = box != null;
     if (box != null) {
-      unawaited(InternalDatabaseService.instance.recordActivity(
-        'box_selected',
-        target: box.label,
-        details: {'confidence': box.confidence},
-      ));
+      unawaited(
+        InternalDatabaseService.instance.recordActivity(
+          'box_selected',
+          target: box.label,
+          details: {'confidence': box.confidence},
+        ),
+      );
     }
     notifyListeners();
   }
@@ -1070,12 +1301,14 @@ class RecognitionState extends ChangeNotifier {
           traceId: traceId,
         );
       } catch (e, st) {
-        unawaited(InternalDatabaseService.instance.logError(
-          'OpenRouter',
-          'writeScientificContextWithCitations failed',
-          error: e,
-          stackTrace: st,
-        ));
+        unawaited(
+          InternalDatabaseService.instance.logError(
+            'OpenRouter',
+            'writeScientificContextWithCitations failed',
+            error: e,
+            stackTrace: st,
+          ),
+        );
         annotated = AnnotatedMessage(body: '(LLM context error: $e)');
       }
 
@@ -1123,17 +1356,19 @@ class RecognitionState extends ChangeNotifier {
       _hasUnanalyzedSelection = false;
       _isAnalyzingSelected = false;
       _analyzingStage = '';
-      unawaited(InternalDatabaseService.instance.recordActivity(
-        'capture_analyze',
-        target: box.label,
-        details: {
-          'sessionId': _chatSession!.sessionId,
-          'durationMs': sw.elapsedMilliseconds,
-          'citations': annotated.citations.length,
-          'verified': annotated.verifiedCount,
-          'cloudOnly': _cloudOnly,
-        },
-      ));
+      unawaited(
+        InternalDatabaseService.instance.recordActivity(
+          'capture_analyze',
+          target: box.label,
+          details: {
+            'sessionId': _chatSession!.sessionId,
+            'durationMs': sw.elapsedMilliseconds,
+            'citations': annotated.citations.length,
+            'verified': annotated.verifiedCount,
+            'cloudOnly': _cloudOnly,
+          },
+        ),
+      );
       notifyListeners();
 
       if (_liveSpeak && annotated.body.trim().isNotEmpty) {
@@ -1142,9 +1377,11 @@ class RecognitionState extends ChangeNotifier {
         // its key is configured; native Android TTS is the automatic fallback
         // when the cloud stream fails or is unavailable.
         if (openRouterTts.isConfigured && (_useOpenRouterTts || _cloudOnly)) {
-          unawaited(openRouterTts.speakMarkdown(annotated.body).then((spoken) {
-            if (!spoken) unawaited(nativeTts.speak(cleanSpeech));
-          }));
+          unawaited(
+            openRouterTts.speakMarkdown(annotated.body).then((spoken) {
+              if (!spoken) unawaited(nativeTts.speak(cleanSpeech));
+            }),
+          );
         } else {
           unawaited(nativeTts.speak(cleanSpeech));
         }
@@ -1152,12 +1389,14 @@ class RecognitionState extends ChangeNotifier {
       return true;
     } catch (e, st) {
       debugPrint('[RecognitionState] captureAndAnalyzeSelected error: $e');
-      unawaited(InternalDatabaseService.instance.logError(
-        'RecognitionState',
-        'captureAndAnalyzeSelected failed',
-        error: e,
-        stackTrace: st,
-      ));
+      unawaited(
+        InternalDatabaseService.instance.logError(
+          'RecognitionState',
+          'captureAndAnalyzeSelected failed',
+          error: e,
+          stackTrace: st,
+        ),
+      );
       _upstreamStatus = UpstreamStatus.error;
       _isAnalyzingSelected = false;
       _analyzingStage = '';
@@ -1171,8 +1410,9 @@ class RecognitionState extends ChangeNotifier {
   /// Hydrates a saved session from [InternalDatabaseService] as the active
   /// [chatSession] so the user can view and continue past conversations.
   Future<bool> resumeSavedChatSession(String sessionId) async {
-    final record =
-        await InternalDatabaseService.instance.loadChatSession(sessionId);
+    final record = await InternalDatabaseService.instance.loadChatSession(
+      sessionId,
+    );
     if (record == null) return false;
 
     _capturedFrames = record.frames;
@@ -1187,11 +1427,13 @@ class RecognitionState extends ChangeNotifier {
       openRouter: openRouter,
       searchMode: _searchMode,
     );
-    unawaited(InternalDatabaseService.instance.recordActivity(
-      'chat_session_resumed',
-      target: record.summary.title,
-      details: {'sessionId': sessionId},
-    ));
+    unawaited(
+      InternalDatabaseService.instance.recordActivity(
+        'chat_session_resumed',
+        target: record.summary.title,
+        details: {'sessionId': sessionId},
+      ),
+    );
     notifyListeners();
     return true;
   }
@@ -1239,10 +1481,7 @@ class RecognitionState extends ChangeNotifier {
     List<BoundingBox> boxes,
     BoundingBox selected,
   ) async {
-    return compute(
-      _paintBoxesIsolate,
-      _PaintBoxesArgs(jpeg, boxes, selected),
-    );
+    return compute(_paintBoxesIsolate, _PaintBoxesArgs(jpeg, boxes, selected));
   }
 
   Future<void> initV5Services() async {
@@ -1256,12 +1495,15 @@ class RecognitionState extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    ++_setupGeneration;
+    ++_udpGeneration;
     _btStatusSub?.cancel();
     _btFrameSub?.cancel();
     _phoneFrameSub?.cancel();
     _btSensorSub?.cancel();
     _udpFrameSub?.cancel();
     _btStatusMessageSub?.cancel();
+    _udpStatusSub?.cancel();
     _udpVideo.dispose();
     _chatSession?.dispose();
     super.dispose();
@@ -1390,14 +1632,78 @@ Uint8List _paintBoxesIsolate(_PaintBoxesArgs args) {
       // Corner target brackets
       final minSide = (x2 - x1) < (y2 - y1) ? (x2 - x1) : (y2 - y1);
       final bracket = (minSide * 0.22).round().clamp(8, 42);
-      img.drawLine(canvas, x1: x1, y1: y1, x2: x1 + bracket, y2: y1, color: white, thickness: 4);
-      img.drawLine(canvas, x1: x1, y1: y1, x2: x1, y2: y1 + bracket, color: white, thickness: 4);
-      img.drawLine(canvas, x1: x2, y1: y1, x2: x2 - bracket, y2: y1, color: white, thickness: 4);
-      img.drawLine(canvas, x1: x2, y1: y1, x2: x2, y2: y1 + bracket, color: white, thickness: 4);
-      img.drawLine(canvas, x1: x1, y1: y2, x2: x1 + bracket, y2: y2, color: white, thickness: 4);
-      img.drawLine(canvas, x1: x1, y1: y2, x2: x1, y2: y2 - bracket, color: white, thickness: 4);
-      img.drawLine(canvas, x1: x2, y1: y2, x2: x2 - bracket, y2: y2, color: white, thickness: 4);
-      img.drawLine(canvas, x1: x2, y1: y2, x2: x2, y2: y2 - bracket, color: white, thickness: 4);
+      img.drawLine(
+        canvas,
+        x1: x1,
+        y1: y1,
+        x2: x1 + bracket,
+        y2: y1,
+        color: white,
+        thickness: 4,
+      );
+      img.drawLine(
+        canvas,
+        x1: x1,
+        y1: y1,
+        x2: x1,
+        y2: y1 + bracket,
+        color: white,
+        thickness: 4,
+      );
+      img.drawLine(
+        canvas,
+        x1: x2,
+        y1: y1,
+        x2: x2 - bracket,
+        y2: y1,
+        color: white,
+        thickness: 4,
+      );
+      img.drawLine(
+        canvas,
+        x1: x2,
+        y1: y1,
+        x2: x2,
+        y2: y1 + bracket,
+        color: white,
+        thickness: 4,
+      );
+      img.drawLine(
+        canvas,
+        x1: x1,
+        y1: y2,
+        x2: x1 + bracket,
+        y2: y2,
+        color: white,
+        thickness: 4,
+      );
+      img.drawLine(
+        canvas,
+        x1: x1,
+        y1: y2,
+        x2: x1,
+        y2: y2 - bracket,
+        color: white,
+        thickness: 4,
+      );
+      img.drawLine(
+        canvas,
+        x1: x2,
+        y1: y2,
+        x2: x2 - bracket,
+        y2: y2,
+        color: white,
+        thickness: 4,
+      );
+      img.drawLine(
+        canvas,
+        x1: x2,
+        y1: y2,
+        x2: x2,
+        y2: y2 - bracket,
+        color: white,
+        thickness: 4,
+      );
 
       // Center target marker reticle
       final cx = ((x1 + x2) ~/ 2).clamp(0, w - 1);

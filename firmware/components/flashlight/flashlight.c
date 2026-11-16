@@ -1,9 +1,10 @@
 #include "driver/gpio.h"
+#include "esp_log.h"
 #include "flashlight.h"
 
 static bool s_flash_on = false;
 
-void flashlight_init(void)
+esp_err_t flashlight_init(void)
 {
     gpio_config_t io_conf = {
         .pin_bit_mask = (1ULL << PIN_FLASH_LED),
@@ -12,14 +13,19 @@ void flashlight_init(void)
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type    = GPIO_INTR_DISABLE,
     };
-    gpio_config(&io_conf);
-    flashlight_set(false);
+    esp_err_t err = gpio_config(&io_conf);
+    return err == ESP_OK ? flashlight_set(false) : err;
 }
 
-void flashlight_set(bool on)
+esp_err_t flashlight_set(bool on)
 {
-    gpio_set_level(PIN_FLASH_LED, on ? 1 : 0);
-    s_flash_on = on;
+    esp_err_t err = gpio_set_level(PIN_FLASH_LED, on ? 1 : 0);
+    if (err == ESP_OK) {
+        s_flash_on = on;
+        ESP_LOGI("FLASH", "operation=flash.set gpio=%d level=%d outcome=success",
+                 PIN_FLASH_LED, on ? 1 : 0);
+    }
+    return err;
 }
 
 bool flashlight_is_on(void)

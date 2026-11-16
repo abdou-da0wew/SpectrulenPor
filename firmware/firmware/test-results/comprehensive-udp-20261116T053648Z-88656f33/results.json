@@ -1,0 +1,81 @@
+{
+  "timestamp": "2026-11-16T05:36:48.404255+00:00",
+  "esp_ip": "192.138.1.2",
+  "tests": {
+    "udp_stream": {
+      "ok": true,
+      "result": {
+        "decoded_frames": 0,
+        "requested_frames": 5,
+        "attempts_used": 0,
+        "all_dimensions_800x600": true,
+        "stream_paused_verified": true,
+        "link_good": false,
+        "link_loss_percent": 100
+      }
+    },
+    "udp_controls": {
+      "ok": false,
+      "error": "HIL_UDP_FRAME_TIMEOUT after 3 attempts",
+      "error_type": "TimeoutError",
+      "traceback": "Traceback (most recent call last):\n  File \"/home/ababado/Documents/Projects/SpectrulenPor/firmware/test-results/diagnostics/comprehensive_udp_test.py\", line 413, in main\n    result = run_udp_controls(base_dir)\n  File \"/home/ababado/Documents/Projects/SpectrulenPor/firmware/test-results/diagnostics/comprehensive_udp_test.py\", line 154, in run_udp_controls\n    details, attempt = send_single_frame_with_retry(udp, max_attempts=3,\n                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^\n                                                    output_path=output_dir / \"flash-on.jpg\")\n                                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/ababado/Documents/Projects/SpectrulenPor/firmware/test-results/diagnostics/comprehensive_udp_test.py\", line 73, in send_single_frame_with_retry\n    raise TimeoutError(f\"HIL_UDP_FRAME_TIMEOUT after {max_attempts} attempts\")\nTimeoutError: HIL_UDP_FRAME_TIMEOUT after 3 attempts\n"
+    },
+    "reset_persistence": {
+      "ok": false,
+      "error": "HIL_WIFI_ONLY_BOOT_MISSING_AFTER_RESET",
+      "error_type": "AssertionError",
+      "traceback": "Traceback (most recent call last):\n  File \"/home/ababado/Documents/Projects/SpectrulenPor/firmware/test-results/diagnostics/comprehensive_udp_test.py\", line 428, in main\n    result = run_reset_persistence(base_dir)\n  File \"/home/ababado/Documents/Projects/SpectrulenPor/firmware/test-results/diagnostics/comprehensive_udp_test.py\", line 242, in run_reset_persistence\n    require(\"operation=boot.mode mode=wifi_only ble=0\" in boot_text,\n    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n            \"HIL_WIFI_ONLY_BOOT_MISSING_AFTER_RESET\")\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/ababado/Documents/Projects/SpectrulenPor/firmware/tests/hardware_helpers.py\", line 57, in require\n    raise AssertionError(code)\nAssertionError: HIL_WIFI_ONLY_BOOT_MISSING_AFTER_RESET\n"
+    },
+    "dashboard_api": {
+      "ok": true,
+      "result": {
+        "dashboard_server_started": true,
+        "port": 39355,
+        "endpoints_tested": [
+          {
+            "path": "/",
+            "status": 200,
+            "bytes": 19512
+          },
+          {
+            "path": "/api/state",
+            "status": 200,
+            "bytes": 379
+          },
+          {
+            "path": "/api/config",
+            "status": 200,
+            "bytes": 187
+          },
+          {
+            "path": "/api/report",
+            "status": 200,
+            "bytes": 541
+          },
+          {
+            "path": "/api/localization?locale=en",
+            "status": 200,
+            "bytes": 12499
+          },
+          {
+            "path": "/api/localization?locale=ar",
+            "status": 200,
+            "bytes": 16782
+          },
+          {
+            "path": "/api/frame.jpg",
+            "status": 204,
+            "bytes": 0,
+            "empty_frame": true
+          }
+        ]
+      }
+    }
+  },
+  "overall_ok": false,
+  "hardware_access_performed": true,
+  "credential_writes": 0,
+  "explicit_erase_operations": 0,
+  "nvs_dump_performed": false,
+  "completed_at": "2026-11-16T05:42:26.462354+00:00"
+}

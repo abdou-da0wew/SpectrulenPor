@@ -1,0 +1,38 @@
+{
+  "timestamp": "2026-11-16T05:25:22.899633+00:00",
+  "esp_ip": "192.138.1.2",
+  "tests": {
+    "udp_stream": {
+      "ok": true,
+      "result": {
+        "decoded_frames": 0,
+        "requested_frames": 10,
+        "received_fps": 0,
+        "frame_sizes": [],
+        "all_dimensions_800x600": true,
+        "stream_paused_verified": true
+      }
+    },
+    "udp_controls": {
+      "ok": false,
+      "error": "HIL_UDP_FRAME_TIMEOUT",
+      "error_type": "TimeoutError"
+    },
+    "reset_persistence": {
+      "ok": false,
+      "error": "HIL_WIFI_ONLY_BOOT_MISSING_AFTER_RESET",
+      "error_type": "AssertionError"
+    },
+    "dashboard_api": {
+      "ok": false,
+      "error": "[Errno 2] No such file or directory: PosixPath('/home/ababado/Documents/Projects/SpectrulenPor/firmware/test-results/firmware')",
+      "error_type": "FileNotFoundError"
+    }
+  },
+  "overall_ok": false,
+  "hardware_access_performed": true,
+  "credential_writes": 0,
+  "explicit_erase_operations": 0,
+  "nvs_dump_performed": false,
+  "completed_at": "2026-11-16T05:27:35.821362+00:00"
+}

@@ -30,7 +30,7 @@ Everything else (camera capture, ML Kit fallbacks, TTS, speech input) runs throu
 ## 1. End-to-End Pipeline & Cloud-Only Execution Policy
 
 ### Live Detection Loop (Continuous, Local-Only)
-1. **Frame Acquisition**: `PhoneCameraService` (`ResolutionPreset.high`, background isolate YUV420 → upright JPEG) or `BluetoothCameraService` (BLE `FFD8…FFD9` JPEG reassembly — O(chunk) with SOI/EOI split-across-chunk carry — plus automatic reconnection with 1→16 s exponential backoff from `SpectruLenPor-ESP32`).
+1. **Frame Acquisition**: `PhoneCameraService` (`ResolutionPreset.high`, background isolate YUV420 → upright JPEG), `BluetoothCameraService` (setup-mode QVGA JPEG reassembly and 1 to 16 s reconnect backoff), or `WifiUdpVideoService` (decoded SVGA JPEGs after WiFi-only handoff). Intentional reboot suppresses BLE reconnection; the UDP service does not discover devices through mDNS.
 2. **VisionGate (`lib/services/vision_gate.dart`)**: Computes mean luminance and pixel standard deviation; auto-torch with hysteresis (ON below 38 mean luma, OFF at ≥ 70 so the boundary never flickers) and drops obstructed/lens-cap frames.
 3. **Local YOLO26-Nano (`lib/services/yolo_detector.dart` → `YoloInferenceChannel.kt`)**: Runs strictly on-device on every gated frame and updates `RecognitionState.currentBoxes`. At session creation the channel benchmarks execution providers (CPU vs NNAPI+FP16 vs XNNPACK) and keeps the fastest working one; `imgsz` is parsed from the ONNX graph. Frames are pipelined latest-wins (a slow inference never queues stale frames), and an 8×8 luma-signature scene-change detector instantly clears boxes on fast camera sweeps (plus a 2.5 s staleness guard). **No cloud calls or dual-image captures happen automatically during live preview.**
 
@@ -122,3 +122,53 @@ Implemented natively in `AppDatabaseChannel.kt` (`SQLiteOpenHelper` with `PRAGMA
 **Column-name rule:** `chat_sessions` / `chat_messages` / `response_cache` use `created_at`; every other timestamped table uses **`ts`** (and `pipeline_traces` uses `started_at`, `user_data` uses `updated_at`). Readers must match these names — the v5.5.0 diagnostics/history screens read `created_at` everywhere and displayed empty timestamps.
 
 **whereArgs binding rule:** `android.database.sqlite` binds ALL whereArgs as TEXT (the channel passes them through as strings). Numeric comparisons against INTEGER columns must wrap the placeholder in `CAST(? AS INTEGER)` — before v5.5.1 `expires_at <= '1770000000000'` matched every row and silently wiped the response cache on each launch.
+
+## 6. ESP32-CAM firmware 3.2.0
+
+The firmware uses ESP-IDF 5.5.1. `firmware/components/main/main.c` owns command execution, camera capture, stream scheduling and GPIO state; NimBLE callbacks validate and queue commands without performing NVS, WiFi or camera work.
+
+Queued BLE commands retain their source session through dequeue. Main reconciles session changes before execution and capture, revalidates commands at execution entry, and binds command replies and image chunks to that session. Reset/connect and notification submission share a task mutex without holding a port critical section around NimBLE calls. A command already current at execution entry can finish after disconnect, but its replies cannot migrate to the replacement connection.
+
+WiFi timeout and GOT_IP acceptance compete under the same state lock. IP acceptance requires the current started, associated netif; a claimed timeout rejects late success. A successful disconnect request waits for STA_DISCONNECTED before another attempt. Host regressions cover controlled ordering, not real driver event delivery or FreeRTOS scheduling.
+
+- NVS initialization failure stops boot without erasing or retrying initialization. Recovering the NVS partition requires an explicit operator action.
+- No valid credential blob in NVS: initialize BLE setup only, advertising `SpectruLenPor-ESP32` with service `ffe0`, notify characteristic `ffe1` and write characteristic `ffe2`.
+- A valid `0x0A + 11111` authorizes only the current connection. `0x07` saves an SSID/password pair offline and notifies the station MAC and hostname. Disconnect clears authorization.
+- Paired `0x0B` requires saved credentials and reboots. The next boot initializes WiFi, not BLE. Bounded connection failure leaves credentials intact and never falls back to BLE.
+- Setup-mode JPEGs use QVGA; WiFi/UDP uses SVGA when PSRAM is available. UDP keeps its four little-endian uint32 header fields and 512-byte payload fragments. Its command range remains `0x00..0x04`; pause keeps the listener open.
+- Sender failures distinguish frame-wide deadline expiry from socket errors and short writes, with per-fragment attempt counts and the last actual socket result. A deadline reached before any send is not reported as an attempted socket failure.
+- Reconfiguration after a WiFi-only boot requires an authorized NVS reset. The fixed setup code and UDP controls are not encrypted authentication.
+
+The optional AS7265x uses I2C1 on GPIO13/GPIO14. No spectral readings are emitted when unavailable. The legacy UV field is its 410 nm channel, not a calibrated UV measurement. Linux hardware results are not Android integration results. Static TX buffers, legacy PHY and the latest acquisition-pause comparison have not established decoded UDP delivery; tracing and camera-DMA wrappers are diagnostic only.
+
+See the [firmware README](../firmware/README.md) for the command contract and [hardware validation](firmware-hardware-validation.md) for measured results and limits.
+
+## 7. Flutter glasses handoff
+
+`RecognitionState` coordinates `GlassesSetupStage` from BLE connection through pairing, provisioning, reboot, manual IPv4 entry and decoded-frame readiness. `GlassesSetupCard` exposes the flow in the home/settings UI; messages come from the English/Arabic ARBs through `glasses_messages.dart`.
+
+- `BluetoothCameraService` matches complete acknowledgments from normalized notifications. Provisioning requires its acknowledgment and fresh MAC/hostname; reboot requires its acknowledgment and observed disconnection. Late replies cannot complete a different session.
+- BLE acquisition owns its device/subscriptions per session. Cancellation and physical disconnect run independently; failed releases remain owned for explicit close, disposal or retry admission. Generation checks reject late acquisition, old callbacks cannot alter a newer session, and pending acquisition/teardown blocks reuse. Manual close/disposal is not evidence of the ESP's reboot. These paths are covered by plugin-boundary stubs, not real Android scheduling or scans.
+- The coordinator marks configuration uncertain before awaiting the credential write. Cancellation leaves that guard set because NVS may already contain the profile. Confirmed current-session success clears it. No automatic resubmission or erase follows a timeout or cancellation.
+- Preferences retain the SSID, device identity, configured flag and a successfully used IPv4 address, never the password. The hostname is informational, not mDNS discovery.
+- `WifiUdpVideoService` binds an exclusive ephemeral IPv4 socket and accepts only the configured peer/port. It bounds header fields and JPEG allocation, anchors frames at sequence zero, rejects gaps/conflicting duplicates, and requires JPEG decoding before readiness. Bind/readiness/stall deadlines and generation guards close stale sessions and sockets.
+- Pause keeps the UDP listener active; a single request while paused does not resume streaming. UDP controls stay within `0x00..0x04`; BLE-only controls are unavailable after handoff.
+- The camera placeholder scrolls under tight height constraints rather than shrinking or hiding accessible setup text.
+
+The unchanged UDP wire has no frame ID. Ordered assembly reduces mixing risk but cannot prove rejection of every possible mixed-frame sequence. Unit/socket/widget checks do not establish real Android transport performance.
+
+## 8. Linux testbench ownership and evidence
+
+`firmware/testbench/engine.py` runs one hardware worker. It owns BlueZ, UART and the UDP receiver; HTTP threads only enqueue actions or read snapshots and the latest decoded JPEG. Dashboard, CLI and OpenCV never create competing UDP peers.
+
+- `HardwareLock` uses per-user Linux locks for the adapter and canonical UART path. Standalone HIL and boot checks retain the same lease through media cleanup, UART closure and BLE disconnect. `HardwareSuite.run` relies on its caller's lease rather than acquiring a nested one.
+- `MemoryUART` captures bounded evidence on the worker without a credential log or reader thread. Standalone `UARTLog` has a finite read timeout and joins its reader before closing UART/output. Partial entry and either reset-line failure still attempt all acquired-resource closes.
+- Cleanup-only failures produce failed jobs/reports and clear aggregate flags. Original operation failures remain primary, with cleanup errors reported separately. CLI results and exit status are chosen only after worker shutdown and ownership release.
+- A receive failure after a passed job invalidates final report health and firmware/mobile-contract flags without rewriting the historical job result. Sanitized reports are saved after receive-failure cleanup and again after worker shutdown.
+- Process shutdown is persistent and separate from resettable job cancellation. Admission and worker acquisition reject shutdown; credential retrieval and the actual BlueZ write boundary check cancellation. A credential write remains uncertain until current-run decoded UDP readiness, with no automatic resend or erase.
+- Dashboard, profile CLI and standalone HIL/boot entrypoints handle SIGINT/SIGTERM cooperatively and restore handlers after shutdown. Standalone handlers only record a request; checkpoints cancel waits and operations while protected teardown retains ownership. Repeated signals cannot interrupt that teardown. Native D-Bus calls must return before cancellation is observed; signal-driven live hardware teardown remains unverified.
+- The loopback HTTP server validates Host/origin and `X-Testbench-Token` before mutations, bounds requests, uses safe error codes, and serves bundled fonts and ARB localization without external requests. `/api/frame.jpg` returns 204 when there is no image; an accepted send or job is not camera readiness.
+- All 206 dashboard keys per locale come directly from `lib/l10n/app_en.arb` and `app_ar.arb`. There is no second translation dictionary.
+- `profiles.py` reuses the HIL suites in-process. Firmware/mobile-contract flags require complete current-run UART-backed boot, persistence, decoded BLE/UDP, stream/pause, controls and integrity evidence. Smoke, soak, missing-AP and no-UART mobile-flow passes cannot establish those aggregates. Linux reports always leave Android and sensor verification pending.
+
+`--opencv` reads the worker's frame store; `view --url` consumes loopback HTTP only. Neither owns UART, BLE or a UDP socket. Reports redact credentials/raw UART text; saved JPEG evidence still needs private handling. Live UDP/dashboard/OpenCV verification remains pending, as recorded in [hardware validation](firmware-hardware-validation.md).

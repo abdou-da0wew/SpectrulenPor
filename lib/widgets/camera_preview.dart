@@ -81,7 +81,8 @@ class CameraPreviewWidget extends StatelessWidget {
                     color: palette.AppColors.inkDark.withValues(alpha: 0.84),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: palette.AppColors.dustyMauve.withValues(alpha: 0.75),
+                      color:
+                          palette.AppColors.dustyMauve.withValues(alpha: 0.75),
                     ),
                   ),
                   child: Row(
@@ -157,7 +158,7 @@ class _Placeholder extends StatelessWidget {
     };
 
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,

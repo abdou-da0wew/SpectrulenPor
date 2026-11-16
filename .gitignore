@@ -60,3 +60,9 @@ android/local.properties
 
 # API keys (never commit real keys — see assets/config/secrets.example.json)
 assets/config/secrets.json
+
+# ESP-IDF generated output and local hardware-test captures
+/firmware/build*/
+/firmware/managed_components/
+/firmware/sdkconfig.old
+/firmware/test-results/

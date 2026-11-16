@@ -1,115 +1,187 @@
+#include <string.h>
+#include "driver/i2c_master.h"
 #include "esp_log.h"
-#include "driver/i2c.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "sensors.h"
 #include "config.h"
+#include "as7265x_registers.h"
 
 static const char *TAG = AS7265x_TAG;
 
-/* AS7265x register map (typical; adjust to exact datasheet revision) */
-#define REG_DEVICE_ID   0x00
-#define REG_CONTROL     0x01
-#define REG_CH_UV_DATA  0x10   /* UV channel data (2 bytes, big-endian) */
-#define REG_CH_IR_DATA  0x12   /* IR channel data (2 bytes, big-endian) */
-#define REG_ENABLE_UV   0x20
-#define REG_ENABLE_IR   0x21
+static i2c_master_bus_handle_t s_bus;
+static i2c_master_dev_handle_t s_device;
+static bool s_available;
+as7265x_reading_t g_last_sensor_reading;
 
-#define CHIP_ID_EXPECTED 0x55   /* placeholder — verify per variant     */
+bool sensors_available(void) { return s_available; }
 
-static as7265x_reading_t g_reading = {0, 0, false};
-as7265x_reading_t g_last_sensor_reading = {0, 0, false};
-
-/* -----------------------------------------------------------------------
- *  Low-level I2C helpers (I2C bus 1 = GPIO13 SDA / GPIO14 SCL)
- * --------------------------------------------------------------------- */
-static esp_err_t i2c_write_reg(uint8_t reg, uint8_t val)
+static esp_err_t physical_write(uint8_t reg, uint8_t value)
 {
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (AS7265x_I2C_ADDR << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, reg, true);
-    i2c_master_write_byte(cmd, val, true);
-    i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(AS7265x_I2C_NUM, cmd, pdMS_TO_TICKS(100));
-    i2c_cmd_link_delete(cmd);
-    return ret;
+    const uint8_t data[] = {reg, value};
+    return i2c_master_transmit(s_device, data, sizeof(data), SENSOR_I2C_TIMEOUT_MS);
 }
 
-static esp_err_t i2c_read_regs(uint8_t reg, uint8_t *buf, size_t len)
+static esp_err_t physical_read(uint8_t reg, uint8_t *value)
 {
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (AS7265x_I2C_ADDR << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, reg, true);
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (AS7265x_I2C_ADDR << 1) | I2C_MASTER_READ, true);
-    if (len > 1) {
-        i2c_master_read(cmd, buf, len - 1, I2C_MASTER_ACK);
-    }
-    i2c_master_read_byte(cmd, buf + len - 1, I2C_MASTER_NACK);
-    i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(AS7265x_I2C_NUM, cmd, pdMS_TO_TICKS(100));
-    i2c_cmd_link_delete(cmd);
-    return ret;
+    return i2c_master_transmit_receive(s_device, &reg, sizeof(reg), value,
+                                        sizeof(*value), SENSOR_I2C_TIMEOUT_MS);
 }
 
-static uint16_t read_channel(uint8_t channel_reg)
+static esp_err_t wait_mailbox(uint8_t mask, bool set)
 {
-    uint8_t buf[2] = {0, 0};
-    if (i2c_read_regs(channel_reg, buf, 2) != ESP_OK) {
-        return 0;
+    int64_t deadline = esp_timer_get_time() + SENSOR_VIRTUAL_TIMEOUT_MS * 1000LL;
+    while (esp_timer_get_time() < deadline) {
+        uint8_t status;
+        esp_err_t err = physical_read(AS7265X_STATUS, &status);
+        if (err != ESP_OK) {
+            return err;
+        }
+        if (((status & mask) != 0) == set) {
+            return ESP_OK;
+        }
+        vTaskDelay(pdMS_TO_TICKS(SENSOR_POLL_INTERVAL_MS));
     }
-    return ((uint16_t)buf[0] << 8) | buf[1];
+    return ESP_ERR_TIMEOUT;
+}
+
+static esp_err_t virtual_write(uint8_t reg, uint8_t value)
+{
+    esp_err_t err = wait_mailbox(AS7265X_TX_VALID, false);
+    if (err == ESP_OK) {
+        err = physical_write(AS7265X_WRITE, reg | AS7265X_VIRTUAL_WRITE_FLAG);
+    }
+    if (err == ESP_OK) {
+        err = wait_mailbox(AS7265X_TX_VALID, false);
+    }
+    if (err == ESP_OK) {
+        err = physical_write(AS7265X_WRITE, value);
+    }
+    return err;
+}
+
+static esp_err_t virtual_read(uint8_t reg, uint8_t *value)
+{
+    uint8_t status;
+    esp_err_t err = physical_read(AS7265X_STATUS, &status);
+    if (err == ESP_OK && (status & AS7265X_RX_VALID) != 0) {
+        uint8_t discarded;
+        err = physical_read(AS7265X_READ, &discarded);
+    }
+    if (err == ESP_OK) {
+        err = wait_mailbox(AS7265X_TX_VALID, false);
+    }
+    if (err == ESP_OK) {
+        err = physical_write(AS7265X_WRITE, reg);
+    }
+    if (err == ESP_OK) {
+        err = wait_mailbox(AS7265X_RX_VALID, true);
+    }
+    if (err == ESP_OK) {
+        err = physical_read(AS7265X_READ, value);
+    }
+    return err;
+}
+
+static esp_err_t read_channel(uint8_t device, uint8_t reg, uint16_t *out)
+{
+    uint8_t high, low;
+    esp_err_t err = virtual_write(AS7265X_DEVICE_SELECT, device);
+    if (err == ESP_OK) {
+        err = virtual_read(reg, &high);
+    }
+    if (err == ESP_OK) {
+        err = virtual_read(reg + 1U, &low);
+    }
+    if (err == ESP_OK) {
+        *out = (uint16_t)(((uint16_t)high << 8U) | low);
+    }
+    return err;
 }
 
 esp_err_t sensors_init(void)
 {
-    i2c_config_t i2c_conf = {
-        .mode             = I2C_MODE_MASTER,
-        .sda_io_num       = PIN_AS7265x_SDA,
-        .scl_io_num       = PIN_AS7265x_SCL,
-        .sda_pullup_en    = GPIO_PULLUP_ENABLE,
-        .scl_pullup_en    = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = AS7265x_I2C_FREQ,
+    i2c_master_bus_config_t bus_config = {
+        .i2c_port = AS7265x_I2C_NUM,
+        .sda_io_num = PIN_AS72655_SDA,
+        .scl_io_num = PIN_AS72655_SCL,
+        .clk_source = I2C_CLK_SRC_DEFAULT,
+        .glitch_ignore_cnt = 7,
+        .flags.enable_internal_pullup = true,
     };
-    esp_err_t ret = i2c_param_config(AS7265x_I2C_NUM, &i2c_conf);
-    if (ret != ESP_OK) return ret;
-
-    ret = i2c_driver_install(AS7265x_I2C_NUM, I2C_MODE_MASTER, 0, 0, 0);
-    if (ret != ESP_OK) return ret;
-
-    /* Probe: read device ID. */
-    uint8_t id = 0;
-    if (i2c_read_regs(REG_DEVICE_ID, &id, 1) != ESP_OK) {
-        ESP_LOGE(TAG, "AS7265x not found on I2C1 (GPIO13/14)");
-        return ESP_FAIL;
+    esp_err_t err = i2c_new_master_bus(&bus_config, &s_bus);
+    if (err != ESP_OK) {
+        return err;
     }
-    if (id != CHIP_ID_EXPECTED) {
-        ESP_LOGW(TAG, "AS7265x ID 0x%02X (expected 0x%02X)", id, CHIP_ID_EXPECTED);
+    err = i2c_master_probe(s_bus, AS7265x_I2C_ADDR, SENSOR_I2C_TIMEOUT_MS);
+    if (err != ESP_OK) {
+        i2c_del_master_bus(s_bus);
+        s_bus = NULL;
+        ESP_LOGW(TAG, "operation=sensor.probe outcome=unavailable code=SENSOR_NOT_FOUND");
+        return err;
     }
-
-    /* Enable UV and IR channels. */
-    i2c_write_reg(REG_ENABLE_UV, 0x01);
-    i2c_write_reg(REG_ENABLE_IR, 0x01);
-
-    g_reading.available = true;
-    g_last_sensor_reading.available = true;
-    ESP_LOGI(TAG, "AS7265x initialized (UV + IR) on I2C1");
-    return ESP_OK;
+    i2c_device_config_t device_config = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = AS7265x_I2C_ADDR,
+        .scl_speed_hz = AS7265x_I2C_FREQ,
+    };
+    err = i2c_master_bus_add_device(s_bus, &device_config, &s_device);
+    uint8_t devices = 0;
+    if (err == ESP_OK) {
+        err = virtual_read(AS7265X_DEVICE_SELECT, &devices);
+    }
+    if (err == ESP_OK && (devices & AS7265X_SLAVES_PRESENT) != AS7265X_SLAVES_PRESENT) {
+        err = ESP_ERR_NOT_FOUND;
+    }
+    if (err == ESP_OK) {
+        err = virtual_write(AS7265X_INTEGRATION, SENSOR_INTEGRATION_CYCLES);
+    }
+    if (err == ESP_OK) {
+        err = virtual_write(AS7265X_CONFIG,
+                             AS7265X_GAIN_64X | AS7265X_ALL_CHANNELS_CONTINUOUS);
+    }
+    if (err != ESP_OK) {
+        if (s_device != NULL) {
+            i2c_master_bus_rm_device(s_device);
+            s_device = NULL;
+        }
+        i2c_del_master_bus(s_bus);
+        s_bus = NULL;
+        return err;
+    }
+    s_available = true;
+    ESP_LOGI(TAG, "operation=sensor.init A_nm=410 W_nm=940 outcome=success");
+    return err;
 }
 
 esp_err_t sensors_read_uv_ir(as7265x_reading_t *out)
 {
-    if (!g_reading.available) {
-        out->uv_raw = 0;
-        out->ir_raw = 0;
-        out->available = false;
-        return ESP_FAIL;
+    if (out == NULL) {
+        return ESP_ERR_INVALID_ARG;
     }
-
-    out->uv_raw = read_channel(REG_CH_UV_DATA);
-    out->ir_raw = read_channel(REG_CH_IR_DATA);
-    out->available = true;
-
-    g_last_sensor_reading = *out;
+    memset(out, 0, sizeof(*out));
+    if (!s_available) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    uint8_t config;
+    esp_err_t err = virtual_read(AS7265X_CONFIG, &config);
+    if (err != ESP_OK) {
+        return err;
+    }
+    if ((config & AS7265X_DATA_READY) == 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    as7265x_reading_t reading = {0};
+    err = read_channel(AS7265X_DEVICE_SHORTWAVE, AS7265X_RAW_A, &reading.uv_raw);
+    if (err == ESP_OK) {
+        err = read_channel(AS7265X_DEVICE_NIR, AS7265X_RAW_W, &reading.ir_raw);
+    }
+    if (err != ESP_OK) {
+        return err;
+    }
+    reading.available = true;
+    *out = reading;
+    g_last_sensor_reading = reading;
     return ESP_OK;
 }

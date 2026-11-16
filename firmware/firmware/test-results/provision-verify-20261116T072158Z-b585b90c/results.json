@@ -1,0 +1,15 @@
+{
+  "timestamp": "2026-11-16T07:21:58.008626+00:00",
+  "ssid": "Airbox-AD39",
+  "credential_writes": 1,
+  "explicit_erase_operations": 0,
+  "tests": {
+    "provision": {
+      "ok": false,
+      "error": "'NoneType' object has no attribute 'dtr' and no __dict__ for setting new attributes"
+    }
+  },
+  "overall_ok": false,
+  "hardware_access_performed": true,
+  "completed_at": "2026-11-16T07:22:01.566088+00:00"
+}

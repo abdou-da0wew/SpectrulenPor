@@ -1,0 +1,15 @@
+{
+  "timestamp": "2026-11-16T07:20:23.903964+00:00",
+  "ssid": "Airbox-AD39",
+  "credential_writes": 1,
+  "explicit_erase_operations": 0,
+  "tests": {
+    "provision": {
+      "ok": false,
+      "error": "HIL_WIFI_CONFIG_MISMATCH"
+    }
+  },
+  "overall_ok": false,
+  "hardware_access_performed": true,
+  "completed_at": "2026-11-16T07:20:29.242071+00:00"
+}

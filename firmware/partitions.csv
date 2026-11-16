@@ -1,7 +1,7 @@
-# Partitions for AI-Thinker ESP32-CAM (ESP32-S, 4MB flash, PSRAM camera)
-# Format: name,   type, subtype, offset,   size, flags
-nvs,      data, nvs,     ,       0x4000,
-otadata,  data, ota,     ,       0x2000,
-phy_init, data, phy,     ,       0x1000,
-factory,  app,  factory, ,       1M,
-esp_http_server, data, fat, , 0x10000, 0x40000,
+# 4MB flash. Keep the existing NVS, PHY and application offsets.
+# Name,          Type, SubType, Offset,   Size,     Flags
+nvs,             data, nvs,     0x9000,   0x6000,
+phy_init,        data, phy,     0xf000,   0x1000,
+factory,         app,  factory, 0x10000,  0x300000,
+otadata,         data, ota,     0x310000, 0x2000,
+esp_http_server, data, fat,     0x312000, 0x40000,

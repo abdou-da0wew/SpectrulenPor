@@ -1,409 +1,416 @@
 #include <string.h>
-#include <stdio.h>
+#include <inttypes.h>
 #include "esp_log.h"
-#include "esp_bt.h"
-#include "esp_nimble_hci.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "nimble/nimble_port.h"
-#include "nimble/nimble_port_freertos.h"
 #include "host/ble_hs.h"
-#include "host/ble_uuid.h"
-#include "host/ble_gatt.h"
+#include "host/ble_hs_mbuf.h"
 #include "host/ble_gap.h"
 #include "host/ble_att.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 #include "ble.h"
 #include "wifi.h"
-#include "flashlight.h"
 
 static const char *TAG = "BLE";
 
-/* -----------------------------------------------------------------------
- *  Shared state (defined here; declared extern in config.h)
- * --------------------------------------------------------------------- */
-volatile bool g_client_connected      = false;
-volatile bool g_streaming             = false;
-volatile bool g_flash_on              = false;
-volatile bool g_restart_requested     = false;
-volatile bool g_shutdown_requested    = false;
-volatile bool g_wifi_config_get       = false;
-volatile bool g_connection_status_get = false;
-volatile bool g_wifi_config_pending   = false;
-char          g_wifi_ssid[32]         = {0};
-char          g_wifi_pass[64]         = {0};
+typedef struct {
+    uint16_t handle;
+    uint16_t mtu;
+    bool connected;
+    bool notify_enabled;
+    bool paired;
+    uint32_t session;
+    uint32_t notification_errors;
+} ble_link_t;
 
-/* Current BLE connection handle (for notifications). */
-static uint16_t g_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+static ble_link_t s_link = {
+    .handle = BLE_HS_CONN_HANDLE_NONE,
+    .mtu = BLE_ATT_MTU_DFLT,
+};
+static portMUX_TYPE s_link_lock = portMUX_INITIALIZER_UNLOCKED;
+/* A task mutex, never a spinlock around NimBLE calls. GAP callbacks run without
+ * the NimBLE host lock; NOTIFY_TX does not take this mutex in our callback. */
+static SemaphoreHandle_t s_tx_lock;
+static QueueHandle_t s_commands;
+static uint16_t s_tx_handle;
+static uint8_t s_own_addr_type;
 
-/* TX CCCD notifications enabled flag. */
-static bool g_tx_notify_enabled = false;
-
-/* -----------------------------------------------------------------------
- *  UUIDs
- * --------------------------------------------------------------------- */
-static ble_uuid128_t s_svc_uuid;
-static ble_uuid128_t s_tx_uuid;
-static ble_uuid128_t s_rx_uuid;
-
-/* -----------------------------------------------------------------------
- *  Attribute handles (resolved after service registration)
- * --------------------------------------------------------------------- */
-static uint16_t h_tx_val;
-static uint16_t h_rx_val;
-
-/* -----------------------------------------------------------------------
- *  GATT access callback
- * --------------------------------------------------------------------- */
-static int gatt_svc_access(uint16_t conn_handle, uint16_t attr_handle,
-                           struct ble_gatt_access_ctxt *ctxt, void *arg)
+static ble_link_t link_snapshot(void)
 {
-    int chr_idx = (int)(uintptr_t)arg;
-
-    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
-        return 0;
-    }
-
-    if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
-        if (chr_idx == 1) { /* RX characteristic */
-            if (ctxt->om != NULL && ctxt->om->om_len > 0) {
-                uint8_t *data = ctxt->om->om_data;
-                uint16_t len = ctxt->om->om_len;
-                ble_handle_command(data[0], data + 1, len - 1);
-            }
-            return 0;
-        }
-        return BLE_ATT_ERR_UNLIKELY;
-    }
-
-    if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_DSC) {
-        /* CCCD write on TX characteristic. */
-        if (chr_idx == 2 && ctxt->om != NULL && ctxt->om->om_len >= 2) {
-            uint16_t cccd = ctxt->om->om_data[0] | (ctxt->om->om_data[1] << 8);
-            g_tx_notify_enabled = (cccd & 0x0001) != 0;
-            if (!g_tx_notify_enabled) {
-                g_streaming = false;
-            }
-        }
-        return 0;
-    }
-
-    return BLE_ATT_ERR_UNLIKELY;
+    portENTER_CRITICAL(&s_link_lock);
+    ble_link_t link = s_link;
+    portEXIT_CRITICAL(&s_link_lock);
+    return link;
 }
 
-/* -----------------------------------------------------------------------
- *  Service definition
- * --------------------------------------------------------------------- */
-#define CHR_TX  0
-#define CHR_RX  1
-#define DESC_TX_CCCD 2
+bool ble_is_connected(void) { return link_snapshot().connected; }
+bool ble_can_notify(void)
+{
+    ble_link_t link = link_snapshot();
+    return link.connected && link.notify_enabled;
+}
+bool ble_is_paired(void) { return link_snapshot().paired; }
+uint32_t ble_session_id(void) { return link_snapshot().session; }
+uint32_t ble_notification_errors(void)
+{
+    return link_snapshot().notification_errors;
+}
 
-static struct ble_gatt_svc_def g_gatt_svc_defs[] = {
-    {
-        .type = BLE_GATT_SVC_TYPE_PRIMARY,
-        .uuid = &s_svc_uuid.u,
-        .characteristics = (struct ble_gatt_chr_def[]) {
-            {
-                /* TX — notify */
-                .uuid = &s_tx_uuid.u,
-                .flags = BLE_GATT_CHR_F_NOTIFY,
-                .access_cb = gatt_svc_access,
-                .arg = (void *)(uintptr_t)CHR_TX,
-                .descriptors = (struct ble_gatt_dsc_def[]) {
-                    {
-                        .uuid = BLE_UUID16_DECLARE(BLE_GATT_DSC_CLT_CFG_UUID16),
-                        .flags = BLE_GATT_DSC_F_READ | BLE_GATT_DSC_F_WRITE,
-                        .access_cb = gatt_svc_access,
-                        .arg = (void *)(uintptr_t)DESC_TX_CCCD,
-                    },
-                    { 0 },
-                },
-            },
-            {
-                /* RX — write */
-                .uuid = &s_rx_uuid.u,
-                .flags = BLE_GATT_CHR_F_WRITE,
-                .access_cb = gatt_svc_access,
-                .arg = (void *)(uintptr_t)CHR_RX,
-            },
-            { 0 },
-        },
-    },
-    { 0 },
-};
+bool ble_session_is_current(uint32_t session)
+{
+    ble_link_t link = link_snapshot();
+    return link.connected && link.session == session;
+}
 
-/* -----------------------------------------------------------------------
- *  GAP event callback
- * --------------------------------------------------------------------- */
+bool ble_next_command(ble_command_t *out)
+{
+    if (out == NULL || s_commands == NULL) {
+        return false;
+    }
+    ble_command_t queued;
+    while (xQueueReceive(s_commands, &queued, 0) == pdTRUE) {
+        ble_link_t link = link_snapshot();
+        if (link.connected && queued.session == link.session) {
+            *out = queued;
+            return true;
+        }
+    }
+    return false;
+}
+
+static void link_reset(void)
+{
+    xSemaphoreTake(s_tx_lock, portMAX_DELAY);
+    portENTER_CRITICAL(&s_link_lock);
+    s_link.connected = false;
+    s_link.notify_enabled = false;
+    s_link.paired = false;
+    s_link.handle = BLE_HS_CONN_HANDLE_NONE;
+    s_link.mtu = BLE_ATT_MTU_DFLT;
+    ++s_link.session;
+    portEXIT_CRITICAL(&s_link_lock);
+    xSemaphoreGive(s_tx_lock);
+}
+
+static void ble_advertise(void);
+
 static int gap_event_cb(struct ble_gap_event *event, void *arg)
 {
+    (void)arg;
     switch (event->type) {
     case BLE_GAP_EVENT_CONNECT:
         if (event->connect.status == 0) {
-            g_conn_handle = event->connect.conn_handle;
-            g_client_connected = true;
-            g_tx_notify_enabled = false;
-            ESP_LOGI(TAG, "BLE client connected (conn_handle=%d)", g_conn_handle);
+            xSemaphoreTake(s_tx_lock, portMAX_DELAY);
+            portENTER_CRITICAL(&s_link_lock);
+            s_link.handle = event->connect.conn_handle;
+            s_link.connected = true;
+            s_link.notify_enabled = false;
+            s_link.paired = false;
+            s_link.mtu = BLE_ATT_MTU_DFLT;
+            ++s_link.session;
+            portEXIT_CRITICAL(&s_link_lock);
+            xSemaphoreGive(s_tx_lock);
+            ESP_LOGI(TAG, "operation=ble.connect handle=%u outcome=success",
+                     event->connect.conn_handle);
         } else {
-            ble_gap_adv_start(0, NULL, NULL, &gap_event_cb, NULL);
+            ble_advertise();
         }
         break;
-
     case BLE_GAP_EVENT_DISCONNECT:
-        g_client_connected = false;
-        g_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-        g_streaming = false;
-        g_flash_on = false;
-        g_tx_notify_enabled = false;
-        flashlight_set(false);
-        ESP_LOGI(TAG, "BLE disconnected — restarting advertising");
-        ble_gap_adv_start(0, NULL, NULL, &gap_event_cb, NULL);
+        link_reset();
+        ESP_LOGI(TAG, "operation=ble.disconnect reason=%d",
+                 event->disconnect.reason);
+        ble_advertise();
         break;
-
     case BLE_GAP_EVENT_ADV_COMPLETE:
-        ble_gap_adv_start(0, NULL, NULL, &gap_event_cb, NULL);
+        ble_advertise();
         break;
-
     case BLE_GAP_EVENT_SUBSCRIBE:
-        ESP_LOGI(TAG, "Subscribe event: attr_handle=%d reason=%d",
-                 event->subscribe.attr_handle, event->subscribe.reason);
+        if (event->subscribe.attr_handle == s_tx_handle) {
+            portENTER_CRITICAL(&s_link_lock);
+            if (s_link.connected && s_link.handle == event->subscribe.conn_handle) {
+                s_link.notify_enabled = event->subscribe.cur_notify != 0;
+            }
+            portEXIT_CRITICAL(&s_link_lock);
+            ESP_LOGI(TAG, "operation=ble.subscribe enabled=%u",
+                     event->subscribe.cur_notify);
+        }
         break;
-
+    case BLE_GAP_EVENT_MTU:
+        portENTER_CRITICAL(&s_link_lock);
+        if (s_link.connected && s_link.handle == event->mtu.conn_handle) {
+            s_link.mtu = event->mtu.value;
+        }
+        portEXIT_CRITICAL(&s_link_lock);
+        ESP_LOGI(TAG, "operation=ble.mtu value=%u", event->mtu.value);
+        break;
     default:
         break;
     }
     return 0;
 }
 
-/* -----------------------------------------------------------------------
- *  BLE send helpers
- * --------------------------------------------------------------------- */
-void ble_send_text(const char *text)
+static int gatt_svr_chr_access(uint16_t conn_handle, uint16_t attr_handle,
+                               struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
-    if (!g_client_connected || !g_tx_notify_enabled) return;
-    ble_send_bytes((const uint8_t *)text, strlen(text));
-}
+    (void)attr_handle;
+    (void)arg;
 
-void ble_send_bytes(const uint8_t *data, size_t len)
-{
-    if (!g_client_connected || !g_tx_notify_enabled || h_tx_val == 0) return;
+    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR || ctxt->om == NULL) {
+        return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
+    }
 
-    for (size_t off = 0; off < len; off += BLE_CHUNK_SIZE) {
-        size_t n = (off + BLE_CHUNK_SIZE <= len) ? BLE_CHUNK_SIZE : (len - off);
-        struct os_mbuf *om = ble_hs_mbuf_from_flat(data + off, n);
-        if (om == NULL) continue;
-        int rc = ble_gattc_notify(g_conn_handle, h_tx_val, om);
-        if (rc != 0) {
-            ESP_LOGW(TAG, "BLE notify rc=%d", rc);
+    uint16_t length = OS_MBUF_PKTLEN(ctxt->om);
+    if (length == 0 || length > COMMAND_MAX_BYTES) {
+        return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    }
+
+    uint8_t data[COMMAND_MAX_BYTES];
+    uint16_t copied = 0;
+    if (ble_hs_mbuf_to_flat(ctxt->om, data, sizeof(data), &copied) != 0) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+
+    ble_command_t queued = {0};
+    protocol_result_t result = protocol_parse_command(data, copied, &queued.command);
+    if (result != PROTOCOL_OK) {
+        return result == PROTOCOL_INVALID_LENGTH
+            ? BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN : BLE_ATT_ERR_VALUE_NOT_ALLOWED;
+    }
+
+    ble_link_t link = link_snapshot();
+    if (!link.connected || link.handle != conn_handle) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    if ((queued.command.code == CMD_WIFI_CONFIG_PUT ||
+         queued.command.code == CMD_REBOOT) && !link.paired) {
+        /* This is application authorization, not SMP security pairing.
+         * Authentication errors make BlueZ negotiate link security and retry. */
+        ESP_LOGW(TAG, "operation=ble.reject command=0x%02x code=PAIR_REQUIRED",
+                 queued.command.code);
+        return BLE_ATT_ERR_VALUE_NOT_ALLOWED;
+    }
+    queued.session = link.session;
+    if (xQueueSend(s_commands, &queued, 0) != pdTRUE) {
+        return BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    if (queued.command.code == CMD_BLE_PAIR) {
+        portENTER_CRITICAL(&s_link_lock);
+        if (s_link.connected && s_link.session == queued.session) {
+            s_link.paired = true;
         }
-        vTaskDelay(pdMS_TO_TICKS(3));
+        portEXIT_CRITICAL(&s_link_lock);
     }
+    /* GPIO, NVS, WiFi and camera operations run on the application task. */
+    return 0;
 }
 
-/* -----------------------------------------------------------------------
- *  Command handler
- * --------------------------------------------------------------------- */
-void ble_handle_command(uint8_t cmd, const uint8_t *payload, size_t payload_len)
+static const struct ble_gatt_chr_def gatt_svr_chrs[] = {
+    {
+        .uuid = BLE_UUID16_DECLARE(BLE_TX_UUID16),
+        .flags = BLE_GATT_CHR_F_NOTIFY,
+        .access_cb = gatt_svr_chr_access,
+        .val_handle = &s_tx_handle,
+    },
+    {
+        .uuid = BLE_UUID16_DECLARE(BLE_RX_UUID16),
+        .flags = BLE_GATT_CHR_F_WRITE,
+        .access_cb = gatt_svr_chr_access,
+    },
+    { 0 },
+};
+
+static const struct ble_gatt_svc_def gatt_svr_svcs[] = {
+    {
+        .type = BLE_GATT_SVC_TYPE_PRIMARY,
+        .uuid = BLE_UUID16_DECLARE(BLE_SVC_UUID16),
+        .characteristics = gatt_svr_chrs,
+    },
+    { 0 },
+};
+
+esp_err_t ble_send_text(const char *text)
 {
-    switch (cmd) {
-    case CMD_STREAM_ON:
-        g_streaming = true;
-        ESP_LOGI(TAG, "CMD: stream ON");
-        ble_send_text("$CMD:stream_on\n");
-        break;
-
-    case CMD_STREAM_OFF:
-        g_streaming = false;
-        ESP_LOGI(TAG, "CMD: stream OFF");
-        ble_send_text("$CMD:stream_off\n");
-        break;
-
-    case CMD_SINGLE_FRAME:
-        ESP_LOGI(TAG, "CMD: single frame requested");
-        ble_send_text("$CMD:single_frame\n");
-        g_streaming = true;
-        break;
-
-    case CMD_FLASH_ON:
-        g_flash_on = true;
-        flashlight_set(true);
-        ESP_LOGI(TAG, "CMD: flashlight ON");
-        ble_send_text("$CMD:flash_on\n");
-        break;
-
-    case CMD_FLASH_OFF:
-        g_flash_on = false;
-        flashlight_set(false);
-        ESP_LOGI(TAG, "CMD: flashlight OFF");
-        ble_send_text("$CMD:flash_off\n");
-        break;
-
-    case CMD_RESTART:
-        g_restart_requested = true;
-        ESP_LOGI(TAG, "CMD: restart queued");
-        ble_send_text("$CMD:restart\n");
-        break;
-
-    case CMD_SHUTDOWN:
-        g_shutdown_requested = true;
-        ESP_LOGI(TAG, "CMD: shutdown queued");
-        ble_send_text("$CMD:shutdown\n");
-        break;
-
-    case CMD_WIFI_CONFIG_PUT: {
-        const char *ssid = (const char *)payload;
-        size_t ssid_len = strlen(ssid);
-        const char *pass = (ssid_len + 1 < payload_len)
-            ? (const char *)(payload + ssid_len + 1) : "";
-        strncpy(g_wifi_ssid, ssid, sizeof(g_wifi_ssid) - 1);
-        g_wifi_ssid[sizeof(g_wifi_ssid) - 1] = '\0';
-        strncpy(g_wifi_pass, pass, sizeof(g_wifi_pass) - 1);
-        g_wifi_pass[sizeof(g_wifi_pass) - 1] = '\0';
-        g_wifi_config_pending = true;
-        ESP_LOGI(TAG, "CMD: wifi config put (SSID=%.31s)", g_wifi_ssid);
-        ble_send_text("$CMD:wifi_config_received\n");
-        break;
-    }
-
-    case CMD_WIFI_CONFIG_GET:
-        g_wifi_config_get = true;
-        ESP_LOGI(TAG, "CMD: wifi config get");
-        break;
-
-    case CMD_CONNECTION_STATUS:
-        g_connection_status_get = true;
-        ESP_LOGI(TAG, "CMD: connection status");
-        break;
-
-    default:
-        break;
-    }
+    return ble_send_text_for_session(ble_session_id(), text);
 }
 
-/* -----------------------------------------------------------------------
- *  Advertising
- * --------------------------------------------------------------------- */
+esp_err_t ble_send_text_for_session(uint32_t session, const char *text)
+{
+    return text == NULL ? ESP_ERR_INVALID_ARG
+        : ble_send_bytes_for_session(session, (const uint8_t *)text, strlen(text));
+}
+
+esp_err_t ble_send_bytes(const uint8_t *data, size_t len)
+{
+    return ble_send_bytes_for_session(ble_session_id(), data, len);
+}
+
+esp_err_t ble_send_bytes_for_session(uint32_t session, const uint8_t *data, size_t len)
+{
+    if (data == NULL || len == 0 || len > MAX_FRAME_BYTES) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (s_tx_lock == NULL || s_tx_handle == 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    size_t offset = 0;
+    while (offset < len) {
+        int64_t deadline = esp_timer_get_time() + BLE_NOTIFY_TIMEOUT_MS * 1000LL;
+        bool sent = false;
+        while (!sent) {
+            /* Serialize identity validation and submission with reset/connect,
+             * including reuse of a controller connection handle. */
+            xSemaphoreTake(s_tx_lock, portMAX_DELAY);
+            ble_link_t link = link_snapshot();
+            if (!link.connected || !link.notify_enabled ||
+                link.session != session || link.mtu <= 3) {
+                xSemaphoreGive(s_tx_lock);
+                return ESP_ERR_INVALID_STATE;
+            }
+            size_t chunk = len - offset;
+            size_t limit = link.mtu - 3U;
+            if (limit > BLE_CHUNK_SIZE) {
+                limit = BLE_CHUNK_SIZE;
+            }
+            if (chunk > limit) {
+                chunk = limit;
+            }
+            struct os_mbuf *om = ble_hs_mbuf_from_flat(data + offset, (uint16_t)chunk);
+            int rc = om == NULL ? BLE_HS_ENOMEM
+                                : ble_gatts_notify_custom(link.handle, s_tx_handle, om);
+            xSemaphoreGive(s_tx_lock);
+            if (rc == 0) {
+                offset += chunk;
+                sent = true;
+            } else if ((rc != BLE_HS_ENOMEM && rc != BLE_HS_EBUSY) ||
+                       esp_timer_get_time() >= deadline) {
+                portENTER_CRITICAL(&s_link_lock);
+                ++s_link.notification_errors;
+                portEXIT_CRITICAL(&s_link_lock);
+                ESP_LOGW(TAG, "operation=ble.notify outcome=failure rc=%d", rc);
+                return ESP_FAIL;
+            } else {
+                vTaskDelay(pdMS_TO_TICKS(BLE_NOTIFY_RETRY_MS));
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(BLE_NOTIFY_PACE_MS));
+    }
+    return ESP_OK;
+}
+
 static void ble_advertise(void)
 {
-    struct ble_gap_adv_params adv_params = {0};
-    adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
-    adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
-    adv_params.channel_map = BLE_GAP_ADV_CHANNEL_MAP_ALL;
-    adv_params.filter_policy = 0;
-    adv_params.itvl_min = 0x0020;
-    adv_params.itvl_max = 0x0040;
-
-    ble_svc_gap_device_name_set(BLE_DEV_NAME);
-
-    int rc = ble_gap_adv_start(&adv_params, NULL, BLE_HS_FOREVER,
-                               &gap_event_cb, NULL);
+    struct ble_hs_adv_fields fields = {0};
+    static const ble_uuid16_t service_uuid = BLE_UUID16_INIT(BLE_SVC_UUID16);
+    fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
+    fields.name = (const uint8_t *)BLE_DEV_NAME;
+    fields.name_len = strlen(BLE_DEV_NAME);
+    fields.name_is_complete = 1;
+    fields.uuids16 = &service_uuid;
+    fields.num_uuids16 = 1;
+    fields.uuids16_is_complete = 1;
+    int rc = ble_gap_adv_set_fields(&fields);
     if (rc != 0) {
-        ESP_LOGE(TAG, "Advertising start failed: %d", rc);
+        ESP_LOGE(TAG, "operation=ble.advertisement outcome=failure rc=%d", rc);
+        return;
+    }
+    struct ble_gap_adv_params params = {0};
+    params.conn_mode = BLE_GAP_CONN_MODE_UND;
+    params.disc_mode = BLE_GAP_DISC_MODE_GEN;
+    rc = ble_gap_adv_start(s_own_addr_type, NULL, BLE_HS_FOREVER,
+                           &params, gap_event_cb, NULL);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "operation=ble.advertise outcome=failure rc=%d", rc);
     } else {
-        ESP_LOGI(TAG, "Advertising as %s", BLE_DEV_NAME);
+        ESP_LOGI(TAG, "operation=ble.advertise name=%s outcome=success", BLE_DEV_NAME);
     }
 }
 
-/* -----------------------------------------------------------------------
- *  Sync callback — called when NimBLE host + controller are synced
- * --------------------------------------------------------------------- */
 static void on_sync(void)
 {
-    int rc = ble_svc_gap_device_name_set(BLE_DEV_NAME);
+    int rc = ble_hs_id_infer_auto(0, &s_own_addr_type);
     if (rc != 0) {
-        ESP_LOGE(TAG, "ble_svc_gap_device_name_set failed: %d", rc);
+        ESP_LOGE(TAG, "operation=ble.address_type outcome=failure rc=%d", rc);
         return;
     }
-
-    rc = ble_gatts_count_svc(g_gatt_svc_defs);
-    if (rc != 0) {
-        ESP_LOGE(TAG, "ble_gatts_count_svc failed: %d", rc);
-        return;
-    }
-
-    rc = ble_gatts_add_svcs(g_gatt_svc_defs);
-    if (rc != 0) {
-        ESP_LOGE(TAG, "ble_gatts_add_svcs failed: %d", rc);
-        return;
-    }
-
-    /* Resolve TX / RX characteristic handles. */
-    struct ble_gatt_svc *svc;
-    rc = ble_gatts_find_svc(&s_svc_uuid.u, &svc);
-    if (rc != 0) {
-        ESP_LOGE(TAG, "find svc failed: %d", rc);
-        return;
-    }
-
-    struct ble_gatt_chr *chr;
-    rc = ble_gatts_find_chr(svc, &s_tx_uuid.u, &chr);
-    if (rc != 0) {
-        ESP_LOGE(TAG, "find TX chr failed: %d", rc);
-        return;
-    }
-    h_tx_val = chr->def_handle;
-
-    rc = ble_gatts_find_chr(svc, &s_rx_uuid.u, &chr);
-    if (rc != 0) {
-        ESP_LOGE(TAG, "find RX chr failed: %d", rc);
-        return;
-    }
-    h_rx_val = chr->def_handle;
-
-    /* Register GAP event listener. */
-    struct ble_gap_event_listener listener = {
-        .cb = gap_event_cb,
-        .arg = NULL,
-    };
-    ble_gap_event_listener_register(&listener);
-
     ble_advertise();
-    ESP_LOGI(TAG, "BLE initialized, advertising as %s", BLE_DEV_NAME);
 }
 
-/* -----------------------------------------------------------------------
- *  NimBLE host task
- * --------------------------------------------------------------------- */
+static void on_reset(int reason)
+{
+    link_reset();
+    ESP_LOGE(TAG, "operation=ble.host_reset reason=%d", reason);
+}
+
 static void nimble_host_task(void *param)
 {
+    (void)param;
     nimble_port_run();
     vTaskDelete(NULL);
 }
 
-/* -----------------------------------------------------------------------
- *  Public init
- * --------------------------------------------------------------------- */
 esp_err_t ble_init(void)
 {
-    esp_err_t ret;
-
-    ret = esp_nimble_hci_and_controller_init();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "esp_nimble_hci_and_controller_init failed: %s",
-                 esp_err_to_name(ret));
-        return ret;
+    s_tx_lock = xSemaphoreCreateMutex();
+    if (s_tx_lock == NULL) {
+        return ESP_ERR_NO_MEM;
     }
-
-    ret = nimble_port_init();
+    s_commands = xQueueCreate(BLE_COMMAND_QUEUE_LENGTH, sizeof(ble_command_t));
+    if (s_commands == NULL) {
+        vSemaphoreDelete(s_tx_lock);
+        s_tx_lock = NULL;
+        return ESP_ERR_NO_MEM;
+    }
+    esp_err_t ret = nimble_port_init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "nimble_port_init failed: %s", esp_err_to_name(ret));
+        vQueueDelete(s_commands);
+        s_commands = NULL;
+        vSemaphoreDelete(s_tx_lock);
+        s_tx_lock = NULL;
         return ret;
     }
 
-    /* Set sync callback so we init GATT after host/controller sync. */
     ble_hs_cfg.sync_cb = on_sync;
+    ble_hs_cfg.reset_cb = on_reset;
     ble_hs_cfg.store_status_cb = NULL;
 
-    /* UUIDs. */
-    ble_uuid128_from_string(BLE_SVC_UUID,  &s_svc_uuid);
-    ble_uuid128_from_string(BLE_TX_CHAR_UUID, &s_tx_uuid);
-    ble_uuid128_from_string(BLE_RX_CHAR_UUID, &s_rx_uuid);
-
-    /* GATT server init. */
-    ble_gatts_init();
-
-    /* Start host task. */
-    xTaskCreate(nimble_host_task, "nimble_host", 4096, NULL, 5, NULL);
-
-    ESP_LOGI(TAG, "BLE init called, waiting for sync...");
+    ble_svc_gap_init();
+    ble_svc_gatt_init();
+    int rc = ble_svc_gap_device_name_set(BLE_DEV_NAME);
+    if (rc == 0) {
+        rc = ble_att_set_preferred_mtu(BLE_PREFERRED_MTU);
+    }
+    if (rc == 0) {
+        rc = ble_gatts_count_cfg(gatt_svr_svcs);
+    }
+    if (rc == 0) {
+        rc = ble_gatts_add_svcs(gatt_svr_svcs);
+    }
+    if (rc != 0) {
+        ESP_LOGE(TAG, "operation=ble.gap_device_name outcome=failure rc=%d", rc);
+        nimble_port_deinit();
+        vQueueDelete(s_commands);
+        s_commands = NULL;
+        vSemaphoreDelete(s_tx_lock);
+        s_tx_lock = NULL;
+        return ESP_FAIL;
+    }
+    if (xTaskCreatePinnedToCore(nimble_host_task, "nimble_host", BLE_HOST_STACK_BYTES,
+                                NULL, BLE_HOST_PRIORITY, NULL,
+                                CONFIG_BT_NIMBLE_PINNED_TO_CORE) != pdPASS) {
+        nimble_port_deinit();
+        vQueueDelete(s_commands);
+        s_commands = NULL;
+        vSemaphoreDelete(s_tx_lock);
+        s_tx_lock = NULL;
+        return ESP_ERR_NO_MEM;
+    }
+    ESP_LOGI(TAG, "operation=ble.init outcome=success");
     return ESP_OK;
 }

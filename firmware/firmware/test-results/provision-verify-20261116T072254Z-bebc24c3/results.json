@@ -1,0 +1,15 @@
+{
+  "timestamp": "2026-11-16T07:22:54.272879+00:00",
+  "ssid": "Airbox-AD39",
+  "credential_writes": 0,
+  "explicit_erase_operations": 0,
+  "tests": {
+    "provision": {
+      "ok": false,
+      "error": "HIL_BLE_ADVERTISEMENT_NOT_FOUND"
+    }
+  },
+  "overall_ok": false,
+  "hardware_access_performed": true,
+  "completed_at": "2026-11-16T07:23:09.587955+00:00"
+}

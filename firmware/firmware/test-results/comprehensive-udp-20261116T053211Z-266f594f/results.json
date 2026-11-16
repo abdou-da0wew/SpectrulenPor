@@ -1,0 +1,34 @@
+{
+  "timestamp": "2026-11-16T05:32:11.153215+00:00",
+  "esp_ip": "192.138.1.2",
+  "tests": {
+    "udp_stream": {
+      "ok": false,
+      "error": "'NoneType' object has no attribute 'parent'",
+      "error_type": "AttributeError"
+    },
+    "udp_controls": {
+      "ok": false,
+      "error": "'NoneType' object has no attribute 'parent'",
+      "error_type": "AttributeError"
+    },
+    "reset_persistence": {
+      "ok": false,
+      "error": "HIL_WIFI_ONLY_BOOT_MISSING_AFTER_RESET",
+      "error_type": "AssertionError"
+    },
+    "dashboard_api": {
+      "ok": false,
+      "result": {
+        "dashboard_server_started": false,
+        "error": "Could not discover testbench server port"
+      }
+    }
+  },
+  "overall_ok": false,
+  "hardware_access_performed": true,
+  "credential_writes": 0,
+  "explicit_erase_operations": 0,
+  "nvs_dump_performed": false,
+  "completed_at": "2026-11-16T05:35:06.860731+00:00"
+}

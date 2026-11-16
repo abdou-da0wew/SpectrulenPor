@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <meta name="referrer" content="no-referrer">
+    <title>SpectruLenPor</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#workspace" data-i18n="tbSkipToWorkspace"></a>
+    <svg class="symbol-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <symbol id="icon-device" viewBox="0 0 24 24"><path d="M3 9h18v9H3zM7 9V6h10v3M8 13h8M8 16h3M6 18v3m12-3v3M9 3v3m6-3v3"/></symbol>
+      <symbol id="icon-link" viewBox="0 0 24 24"><path d="m12 3 6 5-12 8 6 5V3Zm0 9L6 8m6 4 6 4"/></symbol>
+      <symbol id="icon-camera" viewBox="0 0 24 24"><path d="M3 7h4l2-3h6l2 3h4v13H3z"/><circle cx="12" cy="13" r="4"/></symbol>
+      <symbol id="icon-network" viewBox="0 0 24 24"><path d="M3 8a15 15 0 0 1 18 0M6 12a10 10 0 0 1 12 0m-9 4a5 5 0 0 1 6 0"/><circle cx="12" cy="20" r=".6"/></symbol>
+      <symbol id="icon-play" viewBox="0 0 24 24"><path d="m8 4 12 8-12 8z"/></symbol>
+      <symbol id="icon-pause" viewBox="0 0 24 24"><path d="M7 4v16M17 4v16"/></symbol>
+      <symbol id="icon-flash" viewBox="0 0 24 24"><path d="m13 2-9 12h7l-1 8 10-13h-7z"/></symbol>
+      <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></symbol>
+      <symbol id="icon-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
+      <symbol id="icon-shield" viewBox="0 0 24 24"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6zM8 12l3 3 5-6"/></symbol>
+      <symbol id="icon-alert" viewBox="0 0 24 24"><path d="m12 3 10 18H2zM12 9v5m0 3v1"/></symbol>
+      <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 10a8 8 0 1 0 0 6M20 4v6h-6"/></symbol>
+      <symbol id="icon-stop" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></symbol>
+      <symbol id="icon-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+      <symbol id="icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+    </svg>
+
+    <header class="masthead">
+      <div class="brand">
+        <span class="brand-mark"><svg class="icon" aria-hidden="true"><use href="#icon-device"/></svg></span>
+        <div><span class="brand-name" dir="ltr">SpectruLenPor</span><p data-i18n="tbInstrumentSubtitle"></p></div>
+      </div>
+      <div class="masthead-state">
+        <span class="status-dot" id="connection-dot"></span>
+        <span id="connection-status" role="status" aria-live="polite"></span>
+        <span class="header-separator" aria-hidden="true"></span>
+        <span class="protocol" dir="ltr">ESP32-CAM / BLE + UDP</span>
+      </div>
+      <div class="language-switch" role="group" data-i18n-aria="tbLanguage">
+        <button type="button" data-locale="en" aria-pressed="true" data-i18n="tbLanguageEnglish"></button>
+        <button type="button" data-locale="ar" aria-pressed="false" data-i18n="tbLanguageArabic"></button>
+      </div>
+    </header>
+
+    <main class="instrument" id="workspace" tabindex="-1">
+      <div class="page-heading">
+        <div><p class="eyebrow" data-i18n="tbLocalWorkbench"></p><h1 data-i18n="tbDashboardTitle"></h1></div>
+        <div class="session-state"><span class="status-chip" id="phase-status"></span><span id="busy-status" class="busy-state" role="status" hidden><span class="spinner" aria-hidden="true"></span><span data-i18n="tbOperationInProgress"></span></span></div>
+      </div>
+
+      <div id="offline-banner" class="notice notice-error" role="alert" hidden>
+        <svg class="icon" aria-hidden="true"><use href="#icon-alert"/></svg>
+        <div><strong data-i18n="tbBackendUnavailable"></strong><p data-i18n="tbBackendUnavailableHint"></p></div>
+      </div>
+      <div id="notice" class="notice" role="alert" hidden>
+        <svg class="icon" aria-hidden="true"><use href="#icon-alert"/></svg>
+        <div><strong id="notice-message"></strong><code id="notice-code" dir="ltr"></code></div>
+        <button id="dismiss-notice" type="button" class="icon-button" data-i18n-aria="tbDismiss"><svg class="icon" aria-hidden="true"><use href="#icon-close"/></svg></button>
+      </div>
+
+      <div class="workspace-grid">
+        <aside class="phase-rail" aria-labelledby="workflow-title">
+          <div class="section-kicker"><span class="small-rule" aria-hidden="true"></span><h2 id="workflow-title" data-i18n="tbGuidedWorkflow"></h2></div>
+          <ol class="phase-list">
+            <li data-step="0"><span class="phase-number" dir="ltr">01</span><div><strong data-i18n="tbStepConnect"></strong><p data-i18n="tbStepConnectHint"></p></div></li>
+            <li data-step="1"><span class="phase-number" dir="ltr">02</span><div><strong data-i18n="tbStepProvision"></strong><p data-i18n="tbStepProvisionHint"></p></div></li>
+            <li data-step="2"><span class="phase-number" dir="ltr">03</span><div><strong data-i18n="tbStepReboot"></strong><p data-i18n="tbStepRebootHint"></p></div></li>
+            <li data-step="3"><span class="phase-number" dir="ltr">04</span><div><strong data-i18n="tbStepAttach"></strong><p data-i18n="tbStepAttachHint"></p></div></li>
+            <li data-step="4"><span class="phase-number" dir="ltr">05</span><div><strong data-i18n="tbStepVerify"></strong><p data-i18n="tbStepVerifyHint"></p></div></li>
+          </ol>
+          <div class="rail-guidance"><svg class="icon" aria-hidden="true"><use href="#icon-arrow"/></svg><p id="phase-guidance" aria-live="polite"></p></div>
+          <div class="privacy-note"><svg class="icon" aria-hidden="true"><use href="#icon-shield"/></svg><strong data-i18n="tbLocalOnly"></strong><p data-i18n="tbLocalOnlyHint"></p></div>
+        </aside>
+
+        <section class="panel preview-panel" aria-labelledby="preview-title">
+          <div class="panel-heading"><div><p class="eyebrow" data-i18n="tbCameraChannel"></p><h2 id="preview-title" data-i18n="tbPreviewTitle"></h2></div><span id="preview-status" class="status-chip"></span></div>
+          <div class="viewfinder" id="viewfinder">
+            <img id="preview-image" data-i18n-alt="tbFrameAlt" hidden>
+            <span class="reticle reticle-top" aria-hidden="true"></span><span class="reticle reticle-bottom" aria-hidden="true"></span>
+            <div class="preview-empty" id="preview-empty"><span class="empty-icon"><svg class="icon" aria-hidden="true"><use href="#icon-camera"/></svg></span><h3 data-i18n="tbWaitingForFrame"></h3><p data-i18n="tbWaitingForFrameHint"></p><span class="instrument-code" dir="ltr">JPEG / UDP</span></div>
+            <div class="stale-overlay" id="stale-overlay" hidden><svg class="icon" aria-hidden="true"><use href="#icon-alert"/></svg><span id="stale-message"></span></div>
+            <div class="frame-overlay" id="frame-overlay" hidden><span id="frame-resolution" dir="ltr"></span><span><span data-i18n="tbFrameSequence"></span> <b id="frame-sequence" dir="ltr"></b></span></div>
+          </div>
+          <div class="preview-toolbar">
+            <div class="transport-readout"><span data-i18n="tbTransport"></span><strong id="transport-value" dir="ltr"></strong></div>
+            <div class="camera-actions">
+              <button type="button" id="stream-button" class="button button-primary" data-mutation><svg class="icon" aria-hidden="true"><use id="stream-icon" href="#icon-play"/></svg><span id="stream-label"></span></button>
+              <button type="button" id="single-button" class="button button-quiet" data-mutation><svg class="icon" aria-hidden="true"><use href="#icon-camera"/></svg><span data-i18n="tbSingleFrame"></span></button>
+              <button type="button" id="flash-button" class="button button-quiet" aria-pressed="false" data-mutation><svg class="icon" aria-hidden="true"><use href="#icon-flash"/></svg><span id="flash-label"></span></button>
+            </div>
+          </div>
+          <dl class="metrics-strip">
+            <div><dt data-i18n="tbReceivedFps"></dt><dd><strong id="metric-fps" dir="ltr"></strong><span data-i18n="tbFpsUnit"></span></dd></div>
+            <div><dt data-i18n="tbFramesReceived"></dt><dd id="metric-frames" dir="ltr"></dd></div>
+            <div><dt data-i18n="tbIncompleteFrames"></dt><dd id="metric-incomplete" dir="ltr"></dd></div>
+            <div><dt data-i18n="tbDatagrams"></dt><dd id="metric-datagrams" dir="ltr"></dd></div>
+          </dl>
+          <div class="frame-readout"><span><span data-i18n="tbFrameAge"></span> <b id="frame-age" dir="ltr"></b> <span data-i18n="tbSecondsUnit"></span></span><span><span data-i18n="tbFrameBytes"></span> <b id="frame-bytes" dir="ltr"></b> <span data-i18n="tbBytesUnit"></span></span></div>
+        </section>
+
+        <aside class="panel control-panel" aria-labelledby="controls-title">
+          <div class="panel-heading"><div><p class="eyebrow" data-i18n="tbFixtureControls"></p><h2 id="controls-title" data-i18n="tbConnectionTitle"></h2></div><svg class="icon muted-icon" aria-hidden="true"><use href="#icon-link"/></svg></div>
+          <section class="control-section" aria-labelledby="ble-title">
+            <h3 id="ble-title"><span class="section-index" dir="ltr">01</span><span data-i18n="tbBleLink"></span></h3>
+            <form id="connect-form" novalidate autocomplete="off">
+              <label for="adapter" data-i18n="tbAdapterLabel"></label><input id="adapter" name="adapter" type="text" dir="ltr" spellcheck="false" data-mutation aria-describedby="adapter-hint">
+              <p class="field-hint" id="adapter-hint" data-i18n="tbAdapterHint"></p>
+              <button type="submit" id="connect-button" class="button button-primary button-full" data-mutation><svg class="icon" aria-hidden="true"><use href="#icon-link"/></svg><span data-i18n="tbConnect"></span></button>
+            </form>
+            <dl class="device-identity"><div><dt data-i18n="tbDeviceMac"></dt><dd id="device-mac" dir="ltr"></dd></div><div><dt data-i18n="tbDeviceHostname"></dt><dd id="device-hostname" dir="ltr"></dd></div></dl>
+          </section>
+          <section class="control-section" aria-labelledby="wifi-title">
+            <h3 id="wifi-title"><span class="section-index" dir="ltr">02</span><span data-i18n="tbWifiProvisioning"></span></h3>
+            <form id="setup-form" novalidate autocomplete="off">
+              <label class="check-row" for="wifi-from-nm"><input type="checkbox" id="wifi-from-nm" checked data-mutation><span data-i18n="tbUseNetworkManager"></span></label>
+              <p class="field-hint" data-i18n="tbNetworkManagerHint"></p>
+              <div id="manual-wifi" hidden>
+                <label for="ssid" data-i18n="tbSsidLabel"></label><input id="ssid" name="ssid" type="text" spellcheck="false" autocomplete="off" dir="ltr" data-mutation>
+                <label for="password" data-i18n="tbPasswordLabel"></label><input id="password" name="password" type="password" autocomplete="new-password" dir="ltr" data-mutation aria-describedby="password-hint">
+                <p class="field-hint" id="password-hint" data-i18n="tbPasswordHint"></p>
+              </div>
+              <button type="submit" id="setup-button" class="button button-primary button-full" data-mutation><svg class="icon" aria-hidden="true"><use href="#icon-network"/></svg><span data-i18n="tbSaveAndReboot"></span></button>
+              <p class="field-hint" data-i18n="tbSetupHint"></p>
+            </form>
+            <button type="button" id="reboot-button" class="button button-quiet button-full" data-mutation><svg class="icon" aria-hidden="true"><use href="#icon-refresh"/></svg><span data-i18n="tbRebootOnly"></span></button>
+            <p class="field-hint" data-i18n="tbRebootHint"></p>
+          </section>
+          <section class="control-section" aria-labelledby="udp-title">
+            <h3 id="udp-title"><span class="section-index" dir="ltr">03</span><span data-i18n="tbUdpAttach"></span></h3>
+            <form id="attach-form" novalidate autocomplete="off">
+              <label for="device-ip" data-i18n="tbIpLabel"></label><input id="device-ip" name="ip" type="text" inputmode="decimal" dir="ltr" spellcheck="false" aria-describedby="ip-hint" data-mutation>
+              <p class="field-hint" id="ip-hint" data-i18n="tbIpHint"></p>
+              <button type="submit" id="attach-button" class="button button-primary button-full" data-mutation><svg class="icon" aria-hidden="true"><use href="#icon-network"/></svg><span data-i18n="tbAttach"></span></button>
+            </form>
+            <dl class="device-identity"><div><dt data-i18n="tbActiveIp"></dt><dd id="active-ip" dir="ltr"></dd></div><div><dt data-i18n="tbLocalListener"></dt><dd id="local-listener" dir="ltr"></dd></div></dl>
+            <label for="uart" data-i18n="tbUartLabel"></label><input id="uart" type="text" dir="ltr" readonly aria-describedby="uart-hint"><p class="field-hint" id="uart-hint" data-i18n="tbUartHint"></p><span class="uart-status" id="uart-status"></span>
+          </section>
+          <div class="control-footer"><button type="button" id="disconnect-button" class="button button-danger-outline button-full" data-mutation><svg class="icon" aria-hidden="true"><use href="#icon-stop"/></svg><span data-i18n="tbDisconnect"></span></button><p class="field-hint" data-i18n="tbDisconnectHint"></p></div>
+        </aside>
+
+        <section class="panel tests-panel" aria-labelledby="tests-title">
+          <div class="panel-heading"><div><p class="eyebrow" data-i18n="tbVerificationChannel"></p><h2 id="tests-title" data-i18n="tbTestTitle"></h2></div><span class="status-chip" id="job-status"></span></div>
+          <form class="test-form" id="test-form" novalidate>
+            <div class="profile-field"><label for="test-profile" data-i18n="tbProfileLabel"></label><select id="test-profile" data-mutation><option value="smoke" data-i18n="tbProfileSmoke"></option><option value="full" data-i18n="tbProfileFull"></option><option value="mobile-flow" data-i18n="tbProfileMobileFlow"></option><option value="missing-ap" data-i18n="tbProfileMissingAp"></option><option value="soak" data-i18n="tbProfileSoak"></option></select></div>
+            <div class="duration-field" id="duration-field" hidden><label for="soak-duration" data-i18n="tbDurationLabel"></label><input type="number" id="soak-duration" min="1" step="1" inputmode="numeric" dir="ltr" data-mutation></div>
+            <button type="submit" id="run-button" class="button button-primary" data-mutation><svg class="icon" aria-hidden="true"><use href="#icon-play"/></svg><span data-i18n="tbRunTests"></span></button>
+            <button type="button" id="cancel-button" class="button button-danger-outline" disabled><svg class="icon" aria-hidden="true"><use href="#icon-stop"/></svg><span data-i18n="tbCancelRun"></span></button>
+          </form>
+          <p class="profile-description" id="profile-description"></p>
+          <div class="profile-warning" id="profile-warning" hidden><svg class="icon" aria-hidden="true"><use href="#icon-alert"/></svg><span data-i18n="tbDestructiveProfileWarning"></span></div>
+          <div class="run-progress" id="run-progress" hidden><div class="progress-caption"><span id="job-profile"></span><span><b id="record-count" dir="ltr"></b> <span data-i18n="tbChecksRecorded"></span></span></div><progress id="job-progress" data-i18n-aria="tbRunProgress"></progress><div class="job-identity"><span data-i18n="tbJobId"></span><code id="job-id" dir="ltr"></code></div></div>
+          <div class="results-empty" id="results-empty"><svg class="icon" aria-hidden="true"><use href="#icon-check"/></svg><div><strong data-i18n="tbNoTestResults"></strong><p data-i18n="tbNoTestResultsHint"></p></div></div>
+          <div class="table-scroll" id="results-wrap" hidden><table class="results-table"><caption class="sr-only" data-i18n="tbTestResults"></caption><thead><tr><th scope="col" data-i18n="tbCheckName"></th><th scope="col" data-i18n="tbOutcome"></th><th scope="col" data-i18n="tbDuration"></th><th scope="col" data-i18n="tbDetails"></th></tr></thead><tbody id="results-body"></tbody></table></div>
+          <div class="job-error" id="job-error" role="alert" hidden><strong id="job-error-message"></strong><code id="job-error-code" dir="ltr"></code></div>
+        </section>
+
+        <section class="panel report-panel" aria-labelledby="report-title">
+          <div class="panel-heading"><div><p class="eyebrow" data-i18n="tbEvidenceChannel"></p><h2 id="report-title" data-i18n="tbReportTitle"></h2></div><button type="button" id="download-report" class="button button-quiet"><svg class="icon" aria-hidden="true"><use href="#icon-download"/></svg><span data-i18n="tbDownloadReport"></span></button></div>
+          <div class="report-summary"><span class="report-format" dir="ltr">JSON</span><p data-i18n="tbReportHint"></p><button id="view-report" type="button" class="text-button" data-i18n="tbViewReport"></button></div>
+          <div class="report-content" id="report-content" hidden><div class="report-content-heading"><h3 data-i18n="tbCurrentReport"></h3><button id="close-report" class="icon-button" type="button" data-i18n-aria="tbCloseReport"><svg class="icon" aria-hidden="true"><use href="#icon-close"/></svg></button></div><pre id="report-json" tabindex="0" dir="ltr" data-i18n-aria="tbCurrentReport"></pre></div>
+          <div class="event-heading"><h3 data-i18n="tbEventLog"></h3><span class="event-count"><b id="event-count" dir="ltr"></b><span data-i18n="tbEvents"></span></span></div>
+          <div class="events-empty" id="events-empty" data-i18n="tbNoEvents"></div>
+          <ol class="event-list" id="event-list"></ol>
+        </section>
+      </div>
+      <footer class="page-footer"><span data-i18n="tbFooterLocal"></span><span data-i18n="tbFooterEvidence"></span></footer>
+    </main>
+
+    <dialog id="confirmation-dialog" aria-labelledby="confirmation-title" aria-describedby="confirmation-description">
+      <form id="confirmation-form" novalidate>
+        <div class="dialog-heading"><span class="warning-icon"><svg class="icon" aria-hidden="true"><use href="#icon-alert"/></svg></span><button id="close-confirmation" class="icon-button" type="button" data-i18n-aria="tbCloseConfirmation"><svg class="icon" aria-hidden="true"><use href="#icon-close"/></svg></button></div>
+        <p class="eyebrow" data-i18n="tbConfigurationChange"></p><h2 id="confirmation-title" data-i18n="tbConfirmTestTitle"></h2><p id="confirmation-description" data-i18n="tbConfirmTestDescription"></p>
+        <span class="confirm-profile" id="confirm-profile"></span>
+        <label class="check-row confirmation-check" for="confirm-fresh"><input type="checkbox" id="confirm-fresh"><span data-i18n="tbConfirmFreshSetup"></span></label>
+        <label class="check-row confirmation-check" for="confirm-configuration"><input type="checkbox" id="confirm-configuration"><span data-i18n="tbConfirmConfiguration"></span></label>
+        <p class="dialog-note" data-i18n="tbNoAutomaticErase"></p>
+        <div class="dialog-actions"><button type="button" id="cancel-confirmation" class="button button-quiet" data-i18n="tbGoBack"></button><button type="submit" id="confirm-run" class="button button-warning" disabled data-i18n="tbConfirmAndRun"></button></div>
+      </form>
+    </dialog>
+    <noscript><p class="notice notice-error">tbJavaScriptRequired</p></noscript>
+  </body>
+</html>
