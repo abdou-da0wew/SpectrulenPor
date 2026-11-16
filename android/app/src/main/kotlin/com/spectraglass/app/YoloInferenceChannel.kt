@@ -214,7 +214,7 @@ object YoloInferenceChannel {
 
         try {
             val nnapiOpts = OrtSession.SessionOptions().apply {
-                addNnapi(EnumSet.of(OrtSession.SessionOptions.NNAPIFlags.USE_FP16))
+                addNnapi()
                 setIntraOpNumThreads(4) // CPU partition fallback inside the NNAPI graph
                 setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
             }
