@@ -800,9 +800,23 @@ class RecognitionState extends ChangeNotifier {
 
   DateTime? _lastProcessAt;
 
+  /// Whether the camera preview is actually visible on screen.
+  /// YOLO analysis is skipped when the preview is hidden (settings, history,
+  /// diagnostics, etc.) to avoid wasting compute.
+  bool _cameraPreviewVisible = false;
+  bool get cameraPreviewVisible => _cameraPreviewVisible;
+
   void _onFrame(FrameData frame) {
     if (_disposed) return;
     _lastFrame = frame;
+
+    // Skip processing if camera preview isn't actively streaming.
+    // Prevents over-computation when user is in settings/history/etc.
+    final isStreaming =
+        (_source == CameraSource.phone && phoneCamera.isStreaming) ||
+        (_source == CameraSource.glasses && _udpVideo.isActive);
+    if (!isStreaming) return;
+
     notifyListeners();
 
     final throttleMs = 1000 ~/ _fps;

@@ -14,10 +14,10 @@ import 'internal_db_service.dart';
 
 /// OpenRouter text + reasoning presentation tier.
 ///
-/// Fallback chain:
-///   1. `nvidia/nemotron-3.5-super-vl:free`   (native image / vision / video)
-///   2. `google/gemma-4-26b-a4b-it:free`
-///   3. `liquid/inkling-small:free`
+/// Fallback chain for chemistry-aware analysis:
+///   1. `nvidia/nemotron-3.5-super-vl:free`   (native image / vision / video - PRIMARY)
+///   2. `google/gemma-4-26b-a4b-it:free`      (fallback 1)
+///   3. `liquid/inkling-small:free`           (fallback 2)
 class OpenRouterService {
   OpenRouterService({
     String? apiKey,
@@ -41,13 +41,18 @@ class OpenRouterService {
   String apiKey;
   final http.Client Function() _clientFactory;
 
-  int lastChainIndex = 0;
+  int _lastChainIndex = 0;
   String get lastModelUsed =>
-      modelChain[lastChainIndex.clamp(0, modelChain.length - 1)];
+      modelChain[_lastChainIndex.clamp(0, modelChain.length - 1)];
+
+  /// Index of the last successfully working model (for retry optimization).
+  int get lastChainIndex => _lastChainIndex;
 
   int? lastReasoningTokens;
   bool get isConfigured => apiKey.trim().isNotEmpty;
 
+  /// Returns the model chain starting at [startModel], cycling through all
+  /// models so every model gets a turn before repeating.
   List<String> _orderedChain(int startModel) {
     final safeStart = startModel.clamp(0, modelChain.length - 1);
     return <String>[
@@ -94,7 +99,7 @@ class OpenRouterService {
           userPrompt: userPrompt,
         )) {
           emitted = true;
-          lastChainIndex = modelChain.indexOf(model);
+          _lastChainIndex = modelChain.indexOf(model);
           yield chunk;
         }
         if (emitted) return;
@@ -299,29 +304,59 @@ class OpenRouterService {
     return [
       '## MANDATORY CORE RULES (SpectruLenPor)',
       '1) TARGET-LOCKED SCOPE: discuss ONLY the selected target object defined in '
-          'the Visual Capture Anchor and the accumulated scientific context. NEVER '
-          'describe the table, the background, other tools, or anything else in the '
-          'scene that was not identified as the target — unless it directly acts on '
-          'the target itself (e.g. a burner flame under a test tube).',
+      'the Visual Capture Anchor and the accumulated scientific context. NEVER '
+      'describe the table, the background, other tools, or anything else in the '
+      'scene that was not identified as the target — unless it directly acts on '
+      'the target itself (e.g. a burner flame under a test tube).',
       '2) GUESSING IS PROHIBITED: never invent numbers, chemical formulas, substance '
-          'names, properties, or citations. Every statement must come from: the '
-          'provided visual analysis, the accumulated context, or the [n] sources of '
-          'this turn. If none of them covers a detail, explicitly write "not '
-          'determined from the available sources" — and suggest re-capturing a '
-          'clearer frame or searching when useful.',
+      'names, properties, or citations. Every statement must come from: the '
+      'provided visual analysis, the accumulated context, or the [n] sources of '
+      'this turn. If none of them covers a detail, explicitly write "not '
+      'determined from the available sources" — and suggest re-capturing a '
+      'clearer frame or searching when useful.',
       '3) CITATION DISCIPLINE: append [n] at the end of each scientific sentence '
-          'backed by THIS turn\'s sources only. Never use a reference number that was '
-          'not passed to you in this turn, and never present earlier turns\' '
-          'citations as current sources.',
+      'backed by THIS turn's sources only. Never use a reference number that was '
+      'not passed to you in this turn, and never present earlier turns' '
+      'citations as current sources.',
       '4) SAFETY FIRST: if the target is a hazardous substance, start with a short, '
-          'clear warning before anything else.',
+      'clear warning before anything else.',
       '5) OUT-OF-SCOPE QUESTIONS: if the user asks about something unrelated to the '
-          'target, answer very briefly from grounded knowledge only, then steer the '
-          'conversation back to the target.',
-    ].join('\n');
-  }
-
-  /// Streaming chat mode — embeds the CORE RULES + BOTH [anchor] AND
+      'target, answer very briefly from grounded knowledge only, then steer the '
+      'conversation back to the target.',
+      '',
+      '## CHEMISTRY ANALYSIS PROTOCOL',
+      'When describing a chemical element or compound, structure the answer as:',
+      '  a) IDENTITY: What it is (name, CAS registry number if known).',
+      '  b) STATE OF MATTER: Solid / liquid / gas / plasma at room temperature, '
+      '     phase-transition temperatures.',
+      '  c) COMPOSITION: Chemical formula, elements present, molecular structure '
+      '     (bonding, geometry if known).',
+      '  d) PHYSICAL PROPERTIES: Density, color, appearance, solubility, conductivity, '
+      '     refractive index (only if certain).',
+      '  e) CHEMICAL PROPERTIES: Reactivity, pH, oxidation state, hazard class.',
+      '  f) SAFETY: GHS hazard pictograms if known, handling precautions.',
+      '',
+      'EXAMPLE — WATER (H₂O):',
+      '  "Water (H₂O, CAS 7732-18-5) is a liquid at room temperature. It is a polar '
+      '  molecule with an oxygen atom covalently bonded to two hydrogen atoms in a '
+      '  bent molecular geometry (~104.5° bond angle). Density ≈ 1.0 g/cm³, '
+      '  melting point 0°C, boiling point 100°C (1 atm). Water is a universal '
+      '  solvent and is essential for life. It is non-flammable and non-toxic in '
+      '  normal amounts."',
+      '',
+      'EXAMPLE — WATER BOTTLE (PLASTIC CONTAINER + WATER):',
+      '  "This is a PET plastic water bottle containing liquid water. The container '
+      '  is polyethylene terephthalate (PET, CAS 25038-54-4), a solid thermoplastic '
+      '  polymer. The water inside is H₂O (CAS 7732-18-5), a colorless liquid at '
+      '  room temperature (density ≈ 1.0 g/cm³, melting point 0°C, boiling point '
+      '  100°C at 1 atm). Water is a polar molecule (bent H-O-H geometry, '
+      '  ~104.5° bond angle) and is the universal solvent for biological systems."',
+      '',
+      'NEVER guess an element, formula, or property. If uncertain, state '
+      '"not determined" and suggest re-capturing the object with better lighting '
+      'or focus. Keep answers concise — no more than 4-5 sentences unless the user '
+      'asks for more detail.',
+    ].join('\n'); — embeds the CORE RULES + BOTH [anchor] AND
   /// [runningContext] into EVERY system prompt, plus optional retrieved
   /// [turnCitations] for inline `[n]` Google-AI-Overviews-style grounding.
   Stream<String> streamChat({
@@ -381,7 +416,7 @@ class OpenRouterService {
         var emitted = false;
         await for (final chunk in _streamRawOne(model, messages)) {
           emitted = true;
-          lastChainIndex = modelChain.indexOf(model);
+          _lastChainIndex = modelChain.indexOf(model);
           yield chunk;
         }
         if (emitted) return;
