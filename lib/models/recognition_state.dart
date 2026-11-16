@@ -403,6 +403,11 @@ class RecognitionState extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   }
 
+  /// Toggle flashlight on/off — idempotent, safe to call repeatedly.
+  Future<void> toggleFlashlight() async {
+    await setFlashlight(!_flashOn);
+  }
+
   // ----------------------------- WiFi config (glasses LAN) -----------------------------
 
   /// Pair, save a profile, verify identity, then confirm reboot/disconnection.
@@ -799,12 +804,6 @@ class RecognitionState extends ChangeNotifier {
   VisionSource get visionSource => _visionSource;
 
   DateTime? _lastProcessAt;
-
-  /// Whether the camera preview is actually visible on screen.
-  /// YOLO analysis is skipped when the preview is hidden (settings, history,
-  /// diagnostics, etc.) to avoid wasting compute.
-  bool _cameraPreviewVisible = false;
-  bool get cameraPreviewVisible => _cameraPreviewVisible;
 
   void _onFrame(FrameData frame) {
     if (_disposed) return;
