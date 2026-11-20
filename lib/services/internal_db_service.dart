@@ -125,7 +125,8 @@ class InternalDatabaseService {
   bool get isInitialized => _initialized;
   bool get usesNativeSqlite => _useNativeSqlite;
   String get databasePath => _dbPath;
-  String get engineName => _useNativeSqlite ? 'android_sqlite_wal' : 'file_json';
+  String get engineName =>
+      _useNativeSqlite ? 'android_sqlite_wal' : 'file_json';
 
   String _nextId(String prefix) {
     _seqCounter = (_seqCounter + 1) & 0x7FFFFFFF;
@@ -145,8 +146,7 @@ class InternalDatabaseService {
 
     if (!_forceLocalFallback && !kIsWeb) {
       try {
-        final info =
-            await _channel.invokeMapMethod<String, dynamic>('init');
+        final info = await _channel.invokeMapMethod<String, dynamic>('init');
         if (info != null && info['backend'] == 'android_sqlite_wal') {
           _useNativeSqlite = true;
           _dbPath = (info['path'] as String?) ?? 'spectrulenpor_internal.db';
@@ -158,7 +158,8 @@ class InternalDatabaseService {
       } on MissingPluginException {
         _useNativeSqlite = false;
       } catch (e) {
-        debugPrint('[InternalDB] Native SQLite unavailable, using file store: $e');
+        debugPrint(
+            '[InternalDB] Native SQLite unavailable, using file store: $e');
         _useNativeSqlite = false;
       }
     }
@@ -201,7 +202,8 @@ class InternalDatabaseService {
     _flushTimer = null;
     if (_useNativeSqlite || !_initialized) return;
     final payload = <String, dynamic>{
-      for (final t in allTables) t: _memTables[t]!.values.toList(growable: false),
+      for (final t in allTables)
+        t: _memTables[t]!.values.toList(growable: false),
     };
     await _fileStore.writeText(_fallbackFile, jsonEncode(payload));
   }
@@ -395,10 +397,11 @@ class InternalDatabaseService {
         'seq': i,
         'role': m.role,
         'content': m.content,
-        'citations_json':
-            jsonEncode(m.citations.map(_citationToJson).toList()),
-        'verified_count': m.verifiedCount,
-        'unverified_count': m.unverifiedCount,
+        'citations_json': jsonEncode(m.citations.map(_citationToJson).toList()),
+        // Legacy SQLite names remain for existing on-device databases.
+        // Values now represent lexical source matches, not verification.
+        'verified_count': m.sourceMatchCount,
+        'unverified_count': m.noSourceMatchCount,
         'model_used': null,
         'latency_ms': null,
         'created_at': m.at.millisecondsSinceEpoch,
@@ -425,8 +428,9 @@ class InternalDatabaseService {
       'content': message.content,
       'citations_json':
           jsonEncode(message.citations.map(_citationToJson).toList()),
-      'verified_count': message.verifiedCount,
-      'unverified_count': message.unverifiedCount,
+      // Legacy SQLite column names remain for existing on-device databases.
+      'verified_count': message.sourceMatchCount,
+      'unverified_count': message.noSourceMatchCount,
       'model_used': modelUsed,
       'latency_ms': latencyMs,
       'created_at': message.at.millisecondsSinceEpoch,
@@ -664,12 +668,16 @@ class InternalDatabaseService {
       _writeLog('INFO', tag, message, metadata: metadata);
 
   Future<void> logWarn(String tag, String message,
-          {Object? error, StackTrace? stackTrace, Map<String, dynamic>? metadata}) =>
+          {Object? error,
+          StackTrace? stackTrace,
+          Map<String, dynamic>? metadata}) =>
       _writeLog('WARN', tag, message,
           error: error, stackTrace: stackTrace, metadata: metadata);
 
   Future<void> logError(String tag, String message,
-          {Object? error, StackTrace? stackTrace, Map<String, dynamic>? metadata}) =>
+          {Object? error,
+          StackTrace? stackTrace,
+          Map<String, dynamic>? metadata}) =>
       _writeLog('ERROR', tag, message,
           error: error, stackTrace: stackTrace, metadata: metadata);
 
@@ -712,7 +720,8 @@ class InternalDatabaseService {
     );
   }
 
-  Future<List<Map<String, dynamic>>> getLogs({String? level, int limit = 50}) async =>
+  Future<List<Map<String, dynamic>>> getLogs(
+          {String? level, int limit = 50}) async =>
       listLogs(level: level, limit: limit);
 
   // ===========================================================================
@@ -740,7 +749,8 @@ class InternalDatabaseService {
     unawaited(_prune('crash_hang_reports', 200, 'ts'));
   }
 
-  Future<List<Map<String, dynamic>>> getCrashHangReports({int limit = 100}) async =>
+  Future<List<Map<String, dynamic>>> getCrashHangReports(
+          {int limit = 100}) async =>
       listCrashesAndHangs(limit: limit);
 
   Future<List<Map<String, dynamic>>> listCrashesAndHangs({int limit = 100}) {
@@ -778,7 +788,8 @@ class InternalDatabaseService {
     unawaited(_prune('telemetry_events', 800, 'ts'));
   }
 
-  Future<List<Map<String, dynamic>>> getRecentTelemetry({int limit = 150}) async =>
+  Future<List<Map<String, dynamic>>> getRecentTelemetry(
+          {int limit = 150}) async =>
       listTelemetry(limit: limit);
 
   Future<List<Map<String, dynamic>>> listTelemetry({int limit = 150}) {
@@ -939,7 +950,8 @@ class InternalDatabaseService {
     unawaited(_prune('user_activity', 600, 'ts'));
   }
 
-  Future<List<Map<String, dynamic>>> getRecentActivities({int limit = 150}) async =>
+  Future<List<Map<String, dynamic>>> getRecentActivities(
+          {int limit = 150}) async =>
       listActivities(limit: limit);
 
   Future<List<Map<String, dynamic>>> listActivities({int limit = 150}) {
@@ -1094,8 +1106,7 @@ class InternalDatabaseService {
       ),
       title: (r['title'] as String?) ?? 'Object Analysis',
       selectedLabel: (r['selected_label'] as String?) ?? 'object',
-      selectedConfidence:
-          (r['selected_confidence'] as num?)?.toDouble() ?? 1.0,
+      selectedConfidence: (r['selected_confidence'] as num?)?.toDouble() ?? 1.0,
       selectedBox: boxMap.isNotEmpty
           ? BoundingBox.fromJson(boxMap)
           : BoundingBox(
@@ -1104,8 +1115,7 @@ class InternalDatabaseService {
               w: 0.6,
               h: 0.6,
               label: (r['selected_label'] as String?) ?? 'object',
-              confidence:
-                  (r['selected_confidence'] as num?)?.toDouble() ?? 1.0,
+              confidence: (r['selected_confidence'] as num?)?.toDouble() ?? 1.0,
             ),
       cleanJpegPath: r['clean_jpeg_path'] as String?,
       boxedJpegPath: r['boxed_jpeg_path'] as String?,
@@ -1136,8 +1146,8 @@ class InternalDatabaseService {
         (r['created_at'] as num?)?.toInt() ?? 0,
       ),
       citations: citations,
-      verifiedCount: (r['verified_count'] as num?)?.toInt() ?? 0,
-      unverifiedCount: (r['unverified_count'] as num?)?.toInt() ?? 0,
+      sourceMatchCount: (r['verified_count'] as num?)?.toInt() ?? 0,
+      noSourceMatchCount: (r['unverified_count'] as num?)?.toInt() ?? 0,
     );
   }
 }

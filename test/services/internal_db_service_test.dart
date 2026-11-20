@@ -12,7 +12,6 @@ import 'package:smart_glass_app/models/spectrum_reading.dart';
 import 'package:smart_glass_app/services/internal_db_service.dart';
 import 'package:smart_glass_app/services/moondream_service.dart';
 
-
 /// Fresh [InternalDatabaseService] backed by an ISOLATED temp directory.
 /// The default forTest() fallback dir is shared across tests AND test runs,
 /// which leaks persisted rows (e.g. 10 accumulated ERROR logs broke
@@ -84,7 +83,7 @@ void main() {
                 type: CitationType.pubchem,
               ),
             ],
-            verifiedCount: 1,
+            sourceMatchCount: 1,
           ),
         ],
       );
@@ -111,6 +110,8 @@ void main() {
       expect(hydrated, isNotNull);
       expect(hydrated!.messages, hasLength(2));
       expect(hydrated.messages.first.citations, hasLength(1));
+      expect(hydrated.messages.first.sourceMatchCount, 1);
+      expect(hydrated.messages.first.noSourceMatchCount, 0);
       expect(hydrated.summary.runningContext.openQuestions, ['flash point']);
 
       await db.deleteChatSession('sess_1');

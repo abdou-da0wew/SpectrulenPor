@@ -10,6 +10,7 @@ import '../services/internal_db_service.dart';
 import '../utils/app_theme.dart' as palette;
 import '../utils/app_typography.dart';
 import 'chat_screen.dart';
+import '../utils/app_icons.dart';
 
 /// Saved Chat History, 3-Mode Scientific Knowledge Explorer, and Activity Log.
 class HistoryScreen extends StatefulWidget {
@@ -137,7 +138,7 @@ class _HistoryScreenState extends State<HistoryScreen>
         actions: [
           IconButton(
             tooltip: isAr ? 'تحديث' : 'Refresh',
-            icon: const Icon(Icons.refresh_rounded),
+            icon: const Icon(AppIcons.refreshRounded),
             onPressed: _refreshAll,
           ),
         ],
@@ -148,15 +149,15 @@ class _HistoryScreenState extends State<HistoryScreen>
           indicatorColor: Colors.white,
           tabs: [
             Tab(
-              icon: const Icon(Icons.forum_rounded, size: 18),
+              icon: const Icon(AppIcons.forumRounded, size: 18),
               text: isAr ? 'المحادثات' : 'Saved Chats',
             ),
             Tab(
-              icon: const Icon(Icons.science_rounded, size: 18),
+              icon: const Icon(AppIcons.scienceRounded, size: 18),
               text: isAr ? 'المراجع العلمية' : 'Knowledge Docs',
             ),
             Tab(
-              icon: const Icon(Icons.timeline_rounded, size: 18),
+              icon: const Icon(AppIcons.timelineRounded, size: 18),
               text: isAr ? 'النشاط' : 'Activity',
             ),
           ],
@@ -185,7 +186,7 @@ class _HistoryScreenState extends State<HistoryScreen>
             mainAxisSize: MainAxisSize.min,
             children: [
               const Icon(
-                Icons.chat_bubble_outline_rounded,
+                AppIcons.chatBubbleOutlineRounded,
                 size: 48,
                 color: palette.AppColors.dustyMauve,
               ),
@@ -221,7 +222,7 @@ class _HistoryScreenState extends State<HistoryScreen>
               backgroundColor:
                   palette.AppColors.dustyLavender.withValues(alpha: 0.14),
               child: const Icon(
-                Icons.biotech_rounded,
+                AppIcons.biotechRounded,
                 color: palette.AppColors.dustyLavender,
               ),
             ),
@@ -238,18 +239,18 @@ class _HistoryScreenState extends State<HistoryScreen>
                   runSpacing: 4,
                   children: [
                     _miniTag(
-                      Icons.chat_outlined,
+                      AppIcons.chatOutlined,
                       isAr
                           ? '${s.messageCount} رسائل'
                           : '${s.messageCount} msgs',
                     ),
                     _miniTag(
-                      Icons.schedule_rounded,
+                      AppIcons.scheduleRounded,
                       fmt.format(s.updatedAt),
                     ),
                     if (ctxObj.chemicalFormula.isNotEmpty)
                       _miniTag(
-                        Icons.functions_rounded,
+                        AppIcons.functionsRounded,
                         ctxObj.chemicalFormula,
                       ),
                   ],
@@ -274,7 +275,7 @@ class _HistoryScreenState extends State<HistoryScreen>
                 IconButton(
                   tooltip: isAr ? 'فتح المحادثة' : 'Resume chat',
                   icon: const Icon(
-                    Icons.open_in_new_rounded,
+                    AppIcons.openInNewRounded,
                     color: palette.AppColors.dustyLavender,
                   ),
                   onPressed: () => _resumeSession(s),
@@ -282,7 +283,7 @@ class _HistoryScreenState extends State<HistoryScreen>
                 IconButton(
                   tooltip: isAr ? 'حذف' : 'Delete',
                   icon: const Icon(
-                    Icons.delete_outline_rounded,
+                    AppIcons.deleteOutlineRounded,
                     color: palette.AppColors.danger,
                   ),
                   onPressed: () => _deleteSession(s),
@@ -323,7 +324,7 @@ class _HistoryScreenState extends State<HistoryScreen>
                       textInputAction: TextInputAction.search,
                       onSubmitted: (_) => _runDocsSearch(),
                       decoration: InputDecoration(
-                        prefixIcon: const Icon(Icons.manage_search_rounded),
+                        prefixIcon: const Icon(AppIcons.manageSearchRounded),
                         hintText: isAr
                             ? 'ابحث في 119 عنصراً، 110 مركبات، السلامة، PubChem، ويكيبيديا…'
                             : 'Search 119 elements, 110 compounds, GHS, PubChem, Wiki…',
@@ -333,7 +334,7 @@ class _HistoryScreenState extends State<HistoryScreen>
                   const SizedBox(width: 8),
                   FilledButton.icon(
                     onPressed: _searchingDocs ? null : () => _runDocsSearch(),
-                    icon: const Icon(Icons.search_rounded, size: 18),
+                    icon: const Icon(AppIcons.searchRounded, size: 18),
                     label: Text(isAr ? 'بحث' : 'Search'),
                   ),
                 ],
@@ -346,17 +347,17 @@ class _HistoryScreenState extends State<HistoryScreen>
                       segments: [
                         ButtonSegment(
                           value: DocsSearchMode.strict,
-                          icon: const Icon(Icons.gavel_rounded, size: 16),
+                          icon: const Icon(AppIcons.gavelRounded, size: 16),
                           label: Text(isAr ? 'صارم' : 'Strict'),
                         ),
                         ButtonSegment(
                           value: DocsSearchMode.detailed,
-                          icon: const Icon(Icons.list_alt_rounded, size: 16),
+                          icon: const Icon(AppIcons.listAltRounded, size: 16),
                           label: Text(isAr ? 'مفصل' : 'Detailed'),
                         ),
                         ButtonSegment(
                           value: DocsSearchMode.semantic,
-                          icon: const Icon(Icons.hub_rounded, size: 16),
+                          icon: const Icon(AppIcons.hubRounded, size: 16),
                           label: Text(isAr ? 'دلالي' : 'Semantic'),
                         ),
                       ],
@@ -376,8 +377,8 @@ class _HistoryScreenState extends State<HistoryScreen>
                 children: [
                   Icon(
                     _includeCloudDocs
-                        ? Icons.public_rounded
-                        : Icons.offline_bolt_rounded,
+                        ? AppIcons.publicRounded
+                        : AppIcons.offlineBoltRounded,
                     size: 16,
                     color: palette.AppColors.dustyLavender,
                   ),
@@ -411,7 +412,7 @@ class _HistoryScreenState extends State<HistoryScreen>
                   itemCount: presets.length,
                   separatorBuilder: (_, __) => const SizedBox(width: 6),
                   itemBuilder: (_, idx) => ActionChip(
-                    avatar: const Icon(Icons.bolt_rounded, size: 14),
+                    avatar: const Icon(AppIcons.boltRounded, size: 14),
                     label: Text(
                       presets[idx],
                       style: const TextStyle(fontSize: 12),
@@ -471,7 +472,7 @@ class _HistoryScreenState extends State<HistoryScreen>
                                       ),
                                     ),
                                     _miniTag(
-                                      Icons.verified_outlined,
+                                      AppIcons.verifiedOutlined,
                                       _sourceLabel(c.type),
                                     ),
                                   ],
@@ -506,7 +507,7 @@ class _HistoryScreenState extends State<HistoryScreen>
                                     child: Row(
                                       children: [
                                         const Icon(
-                                          Icons.link_rounded,
+                                          AppIcons.linkRounded,
                                           size: 14,
                                           color: palette.AppColors.dustyMauve,
                                         ),
@@ -585,12 +586,12 @@ class _HistoryScreenState extends State<HistoryScreen>
   }
 
   IconData _sourceIcon(CitationType s) => switch (s) {
-        CitationType.bundledDoc => Icons.menu_book_rounded,
-        CitationType.pubchem => Icons.science_rounded,
-        CitationType.wikipedia => Icons.travel_explore_rounded,
-        CitationType.web => Icons.language_rounded,
-        CitationType.factCheck => Icons.verified_rounded,
-        CitationType.moondream => Icons.visibility_rounded,
+        CitationType.bundledDoc => AppIcons.menuBookRounded,
+        CitationType.pubchem => AppIcons.scienceRounded,
+        CitationType.wikipedia => AppIcons.travelExploreRounded,
+        CitationType.web => AppIcons.languageRounded,
+        CitationType.factCheck => AppIcons.verifiedRounded,
+        CitationType.moondream => AppIcons.visibilityRounded,
       };
 
   String _sourceLabel(CitationType s) => switch (s) {
@@ -603,12 +604,12 @@ class _HistoryScreenState extends State<HistoryScreen>
       };
 
   IconData _activityIcon(String action) {
-    if (action.contains('box')) return Icons.gps_fixed_rounded;
-    if (action.contains('capture')) return Icons.camera_enhance_rounded;
-    if (action.contains('chat')) return Icons.forum_rounded;
-    if (action.contains('hazard')) return Icons.warning_amber_rounded;
-    if (action.contains('camera')) return Icons.cameraswitch_rounded;
-    return Icons.bolt_rounded;
+    if (action.contains('box')) return AppIcons.gpsFixedRounded;
+    if (action.contains('capture')) return AppIcons.cameraEnhanceRounded;
+    if (action.contains('chat')) return AppIcons.forumRounded;
+    if (action.contains('hazard')) return AppIcons.warningAmberRounded;
+    if (action.contains('camera')) return AppIcons.cameraswitchRounded;
+    return AppIcons.boltRounded;
   }
 
   Widget _miniTag(IconData icon, String label) {

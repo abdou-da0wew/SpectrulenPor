@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../models/recognition_state.dart';
 import '../services/internal_db_service.dart';
 import '../utils/app_theme.dart' as palette;
+import '../utils/app_icons.dart';
 
 /// Full Internal Database & Telemetry/Logs/Traces/Crash-Hang Inspector.
 class DiagnosticsDbScreen extends StatefulWidget {
@@ -98,12 +99,12 @@ class _DiagnosticsDbScreenState extends State<DiagnosticsDbScreen>
         actions: [
           IconButton(
             tooltip: isAr ? 'نسخ تقرير JSON' : 'Export Diagnostics JSON',
-            icon: const Icon(Icons.data_object_rounded),
+            icon: const Icon(AppIcons.dataObjectRounded),
             onPressed: _copyExportJson,
           ),
           IconButton(
             tooltip: isAr ? 'تحديث' : 'Refresh',
-            icon: const Icon(Icons.refresh_rounded),
+            icon: const Icon(AppIcons.refreshRounded),
             onPressed: _refresh,
           ),
         ],
@@ -115,19 +116,19 @@ class _DiagnosticsDbScreenState extends State<DiagnosticsDbScreen>
           indicatorColor: Colors.white,
           tabs: [
             Tab(
-              icon: const Icon(Icons.storage_rounded, size: 18),
+              icon: const Icon(AppIcons.storageRounded, size: 18),
               text: isAr ? 'نظرة عامة' : 'Overview & Cache',
             ),
             Tab(
-              icon: const Icon(Icons.receipt_long_rounded, size: 18),
+              icon: const Icon(AppIcons.receiptLongRounded, size: 18),
               text: isAr ? 'السجلات' : 'Logs & Errors',
             ),
             Tab(
-              icon: const Icon(Icons.warning_amber_rounded, size: 18),
+              icon: const Icon(AppIcons.warningAmberRounded, size: 18),
               text: isAr ? 'الأعطال والتعليق' : 'Crashes & Hangs',
             ),
             Tab(
-              icon: const Icon(Icons.speed_rounded, size: 18),
+              icon: const Icon(AppIcons.speedRounded, size: 18),
               text: isAr ? 'التتبع والقياسات' : 'Traces & Telemetry',
             ),
           ],
@@ -150,27 +151,27 @@ class _DiagnosticsDbScreenState extends State<DiagnosticsDbScreen>
   Widget _buildOverviewTab(bool isAr) {
     final db = InternalDatabaseService.instance;
     final rows = <(IconData, String, int)>[
-      (Icons.forum_rounded, 'chat_sessions', _stats['chat_sessions'] ?? 0),
-      (Icons.chat_rounded, 'chat_messages', _stats['chat_messages'] ?? 0),
-      (Icons.cached_rounded, 'response_cache', _stats['response_cache'] ?? 0),
-      (Icons.receipt_long_rounded, 'app_logs', _stats['app_logs'] ?? 0),
+      (AppIcons.forumRounded, 'chat_sessions', _stats['chat_sessions'] ?? 0),
+      (AppIcons.chatRounded, 'chat_messages', _stats['chat_messages'] ?? 0),
+      (AppIcons.cachedRounded, 'response_cache', _stats['response_cache'] ?? 0),
+      (AppIcons.receiptLongRounded, 'app_logs', _stats['app_logs'] ?? 0),
       (
-        Icons.report_problem_rounded,
+        AppIcons.reportProblemRounded,
         'crash_hang_reports',
         _stats['crash_hang_reports'] ?? 0
       ),
       (
-        Icons.sensors_rounded,
+        AppIcons.sensorsRounded,
         'telemetry_events',
         _stats['telemetry_events'] ?? 0
       ),
       (
-        Icons.account_tree_rounded,
+        AppIcons.accountTreeRounded,
         'pipeline_traces',
         _stats['pipeline_traces'] ?? 0
       ),
-      (Icons.person_pin_rounded, 'user_data', _stats['user_data'] ?? 0),
-      (Icons.timeline_rounded, 'user_activity', _stats['user_activity'] ?? 0),
+      (AppIcons.personPinRounded, 'user_data', _stats['user_data'] ?? 0),
+      (AppIcons.timelineRounded, 'user_activity', _stats['user_activity'] ?? 0),
     ];
 
     return ListView(
@@ -179,7 +180,7 @@ class _DiagnosticsDbScreenState extends State<DiagnosticsDbScreen>
         Card(
           child: ListTile(
             leading: const Icon(
-              Icons.dns_rounded,
+              AppIcons.dnsRounded,
               color: palette.AppColors.dustyLavender,
             ),
             title: Text(
@@ -191,7 +192,7 @@ class _DiagnosticsDbScreenState extends State<DiagnosticsDbScreen>
             ),
             trailing: FilledButton.tonalIcon(
               onPressed: _copyExportJson,
-              icon: const Icon(Icons.copy_all_rounded, size: 16),
+              icon: const Icon(AppIcons.copyAllRounded, size: 16),
               label: Text(isAr ? 'تصدير' : 'Export JSON'),
             ),
           ),
@@ -203,7 +204,9 @@ class _DiagnosticsDbScreenState extends State<DiagnosticsDbScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  isAr ? 'إحصائيات الجداول (9 جداول)' : 'Table Row Counts (9 Tables)',
+                  isAr
+                      ? 'إحصائيات الجداول (9 جداول)'
+                      : 'Table Row Counts (9 Tables)',
                   style: const TextStyle(
                     fontWeight: FontWeight.w700,
                     fontSize: 15,
@@ -276,14 +279,15 @@ class _DiagnosticsDbScreenState extends State<DiagnosticsDbScreen>
                   children: [
                     OutlinedButton.icon(
                       onPressed: () => _clearCache(all: false),
-                      icon: const Icon(Icons.cleaning_services_rounded, size: 17),
+                      icon: const Icon(AppIcons.cleaningServicesRounded,
+                          size: 17),
                       label: Text(
                         isAr ? 'حذف المنتهي صلاحيته' : 'Prune Expired TTL',
                       ),
                     ),
                     OutlinedButton.icon(
                       onPressed: () => _clearCache(all: true),
-                      icon: const Icon(Icons.delete_sweep_rounded, size: 17),
+                      icon: const Icon(AppIcons.deleteSweepRounded, size: 17),
                       label: Text(
                         isAr ? 'مسح الكاش بالكامل' : 'Clear All Cache',
                       ),
@@ -344,10 +348,10 @@ class _DiagnosticsDbScreenState extends State<DiagnosticsDbScreen>
                       child: ExpansionTile(
                         leading: Icon(
                           lvl == 'ERROR'
-                              ? Icons.error_outline_rounded
+                              ? AppIcons.errorOutlineRounded
                               : lvl == 'WARN'
-                                  ? Icons.warning_amber_rounded
-                                  : Icons.info_outline_rounded,
+                                  ? AppIcons.warningAmberRounded
+                                  : AppIcons.infoOutlineRounded,
                           color: color,
                         ),
                         title: Text(
@@ -392,7 +396,7 @@ class _DiagnosticsDbScreenState extends State<DiagnosticsDbScreen>
           mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(
-              Icons.verified_user_rounded,
+              AppIcons.verifiedUserRounded,
               size: 46,
               color: palette.AppColors.success,
             ),
@@ -422,8 +426,8 @@ class _DiagnosticsDbScreenState extends State<DiagnosticsDbScreen>
           child: ExpansionTile(
             leading: Icon(
               kind == 'HANG'
-                  ? Icons.hourglass_bottom_rounded
-                  : Icons.bug_report_rounded,
+                  ? AppIcons.hourglassBottomRounded
+                  : AppIcons.bugReportRounded,
               color: palette.AppColors.danger,
             ),
             title: Text(
@@ -458,7 +462,9 @@ class _DiagnosticsDbScreenState extends State<DiagnosticsDbScreen>
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
           child: Text(
-            isAr ? 'مراحل خط الأنابيب (Pipeline Spans)' : 'Pipeline Execution Spans',
+            isAr
+                ? 'مراحل خط الأنابيب (Pipeline Spans)'
+                : 'Pipeline Execution Spans',
             style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
           ),
         ),
@@ -466,7 +472,9 @@ class _DiagnosticsDbScreenState extends State<DiagnosticsDbScreen>
           Padding(
             padding: const EdgeInsets.all(14),
             child: Text(
-              isAr ? 'لا توجد آثار تنفيذ بعد.' : 'No execution spans recorded yet.',
+              isAr
+                  ? 'لا توجد آثار تنفيذ بعد.'
+                  : 'No execution spans recorded yet.',
               style: const TextStyle(color: palette.AppColors.inkSoft),
             ),
           ),
@@ -476,8 +484,8 @@ class _DiagnosticsDbScreenState extends State<DiagnosticsDbScreen>
               dense: true,
               leading: Icon(
                 t['status'] == 'ok'
-                    ? Icons.check_circle_outline_rounded
-                    : Icons.error_outline_rounded,
+                    ? AppIcons.checkCircleOutlineRounded
+                    : AppIcons.errorOutlineRounded,
                 color: t['status'] == 'ok'
                     ? palette.AppColors.success
                     : palette.AppColors.danger,
@@ -496,7 +504,9 @@ class _DiagnosticsDbScreenState extends State<DiagnosticsDbScreen>
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
           child: Text(
-            isAr ? 'قياسات الطيف والمستشعرات (Telemetry)' : 'Sensor & Spectrum Telemetry',
+            isAr
+                ? 'قياسات الطيف والمستشعرات (Telemetry)'
+                : 'Sensor & Spectrum Telemetry',
             style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
           ),
         ),
@@ -504,7 +514,9 @@ class _DiagnosticsDbScreenState extends State<DiagnosticsDbScreen>
           Padding(
             padding: const EdgeInsets.all(14),
             child: Text(
-              isAr ? 'لا توجد قراءات طيفية مسجلة.' : 'No sensor telemetry logged yet.',
+              isAr
+                  ? 'لا توجد قراءات طيفية مسجلة.'
+                  : 'No sensor telemetry logged yet.',
               style: const TextStyle(color: palette.AppColors.inkSoft),
             ),
           ),
@@ -513,8 +525,8 @@ class _DiagnosticsDbScreenState extends State<DiagnosticsDbScreen>
             dense: true,
             leading: Icon(
               ((ev['hazard'] as num?)?.toInt() ?? 0) == 1
-                  ? Icons.warning_rounded
-                  : Icons.sensors_rounded,
+                  ? AppIcons.warningRounded
+                  : AppIcons.sensorsRounded,
               color: ((ev['hazard'] as num?)?.toInt() ?? 0) == 1
                   ? palette.AppColors.danger
                   : palette.AppColors.dustyLavender,
