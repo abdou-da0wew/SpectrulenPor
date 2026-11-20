@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+message_file=${1:?commit message file is required}
+coauthor_email='270451464+DiveeAgent@users.noreply.github.com'
+
+if ! grep -Fqi -- "$coauthor_email" "$message_file"; then
+    git interpret-trailers \
+        --in-place \
+        --trailer "Co-authored-by: DiveeAgent <$coauthor_email>" \
+        "$message_file"
+fi

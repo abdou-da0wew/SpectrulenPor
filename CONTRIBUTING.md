@@ -31,3 +31,13 @@ Corpus values (CAS numbers, element properties, hazard classes) must come from t
 ## License note
 
 The project currently has no open-source license (all rights reserved by the authors). By contributing you agree that your work is offered under the terms the authors eventually choose for the repository.
+
+## Commit message co-author hook
+
+This repository includes the .githooks/commit-msg hook. Enable it in each clone with:
+
+    git config core.hooksPath .githooks
+
+The hook idempotently adds the repository's DiveeAgent co-author trailer to every
+commit message. Keep the trailer intact when editing generated commit messages;
+the hook restores it if it is missing.

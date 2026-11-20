@@ -66,3 +66,8 @@ assets/config/secrets.json
 /firmware/managed_components/
 /firmware/sdkconfig.old
 /firmware/test-results/
+
+# Local ESP-IDF build trees, scratch harnesses and temporary hardware probes
+/build-udp-v2/
+/.udp_e2e_harness/
+/tooling/.*_tmp.*
