@@ -2,6 +2,16 @@
 
 ## 2026-11-20: UDP V2 transport, mobile runtime modules and responsive app refresh
 
+### README, architecture and diagram refresh
+
+- Rebuilt the main README around the current Android-first app, local/cloud boundary, BLE commissioning-only flow, UDP V2 contract, scientific corpus, speech services, practical setup and documentation links.
+- Corrected benchmark claims to distinguish the latest full Flutter checkpoint (218 passed, 4 skipped, 13 failed before two follow-up fixes) from focused post-fix checks; no clean full-project analyzer result is claimed.
+- Promoted the latest physical V2 measurements: one AMPDU-on 60-second run at about 3.5 FPS with no incomplete frames, later inconsistent runs, and the latest AMPDU-off soak at about 1.5 FPS with one incomplete frame and a control timeout. The 20–30 FPS goal remains unmet.
+- Rebuilt the editable architecture, capture/process and scientific retrieval diagrams in HTML + inline SVG, preserving the diagram-design editorial palette and typography. All three PNG exports were regenerated from their HTML sources.
+- Added `tooling/render_diagrams.sh` to reproduce the PNG assets with Chromium/Google Chrome, and synchronized the deeper architecture and hardware-validation notes with the current UDP V2 framing, BLE policy and performance evidence.
+- Explicitly credited Abdou in the README and diagram bylines.
+- Validation: `bash -n tooling/render_diagrams.sh` passed; the render script produced all three 1600×1000 PNGs; image checks confirmed non-empty rendered content; `git diff --check` passed.
+
 ### Firmware and end-to-end camera transport
 
 - Move the ESP32-CAM sender and Flutter receiver to the same UDP V2 contract: a six-word header, 1200-byte JPEG payloads, frame/session identity, interleaved XOR parity recovery, and strict malformed/stale-fragment rejection.

@@ -1,312 +1,243 @@
 <div align="center">
 
-<img src="docs/assets/icons/eye.svg" width="42" alt="SpectruLenPor" />
+<img src="docs/assets/icons/eye.svg" width="44" alt="SpectruLenPor" />
 
 # SpectruLenPor
 
 **النظارة الذكية لتحليل الطيف واكتشاف العناصر والمركبات الكيميائية**
 
-**Smart scientific glasses for spectrum analysis and chemical element / compound identification**
+**Smart scientific glasses for object-aware chemistry and spectrum exploration**
 
-<img src="docs/assets/icons/flask.svg" width="16" valign="middle" alt="" />
-Local-first object detection · grounded chemistry answers · inline citations
+A student research prototype by **Malak Adel Sayed Hassan** and **Abdou**.
 
-<br>
+[![App version](https://img.shields.io/badge/app-5.5.1%2B16-7D5A78?style=flat)](pubspec.yaml)
+![Flutter](https://img.shields.io/badge/Flutter-3.19%2B-02569B?style=flat&logo=flutter&logoColor=white)
+![Dart](https://img.shields.io/badge/Dart-3.3%2B-0175C2?style=flat&logo=dart&logoColor=white)
+![Android](https://img.shields.io/badge/Android-12%2B%20(API%2031)-3DDC84?style=flat&logo=android&logoColor=white)
+![Firmware](https://img.shields.io/badge/ESP--IDF-5.5.1-E7352C?style=flat)
+![License](https://img.shields.io/badge/license-all%20rights%20reserved-lightgrey?style=flat)
 
-| | | | | | |
-|---|---|---|---|---|---|
-| ![version](https://img.shields.io/badge/version-5.5.1%2B16-7D5A78?style=flat) | ![flutter](https://img.shields.io/badge/Flutter-3.19%2B-02569B?style=flat&logo=flutter&logoColor=white) | ![dart](https://img.shields.io/badge/Dart-3.3%2B-0175C2?style=flat&logo=dart&logoColor=white) | ![android](https://img.shields.io/badge/Android-12%2B%20(API%2031)-3DDC84?style=flat&logo=android&logoColor=white) | ![platform](https://img.shields.io/badge/platform-Android%20·%20Web-lightgrey?style=flat) | ![license](https://img.shields.io/badge/license-All%20rights%20reserved-lightgrey?style=flat) |
-
-| | | | | | |
-|---|---|---|---|---|---|
-| ![ci](https://img.shields.io/badge/CI-workflow%20ready%20·%20runner%20blocked%20on%20account-yellow?style=flat) | ![tests](https://img.shields.io/badge/tests-190%20passing%20locally-success?style=flat) | ![analyze](https://img.shields.io/badge/flutter_analyze-0%20issues-success?style=flat) | ![stars](https://img.shields.io/github/stars/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) | ![last-commit](https://img.shields.io/github/last-commit/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) | ![commit-activity](https://img.shields.io/github/commit-activity/m/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) |
-
-| | | | |
-|---|---|---|---|
-| ![issues](https://img.shields.io/github/issues/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) | ![prs](https://img.shields.io/github/issues-pr/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) | ![code-size](https://img.shields.io/github/languages/code-size/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78) | [![prs-welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat)](CONTRIBUTING.md) |
+[![Stars](https://img.shields.io/github/stars/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78)](https://github.com/abdou-da0wew/SpectrulenPor/stargazers)
+[![Last commit](https://img.shields.io/github/last-commit/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78)](https://github.com/abdou-da0wew/SpectrulenPor/commits/main)
+[![Open issues](https://img.shields.io/github/issues/abdou-da0wew/SpectrulenPor?style=flat&color=7D5A78)](https://github.com/abdou-da0wew/SpectrulenPor/issues)
 
 </div>
 
 ---
 
-<img src="docs/assets/icons/graduation-cap.svg" width="24" valign="middle" alt="" /> **The project idea**
+## What it is
 
-SpectruLenPor is a student research project from Ashmounin Secondary School (Egypt): a pair of **low-cost smart glasses** built around an ESP32-CAM with UV/IR sensors, paired with a **bilingual (English / العربية RTL) Flutter Android app** that turns any Android 12+ phone into a scientific analysis instrument.
+SpectruLenPor is a low-cost smart-glasses and Android research prototype developed in Egypt. An AI-Thinker ESP32-CAM with an OV2640 camera can act as a remote camera source; an Android phone can also use its own camera. The Flutter app combines live, on-device object detection with user-triggered image analysis and a bilingual scientific chat experience.
 
-Point the camera at an object and the app runs **YOLO26-Nano fully on-device** to draw live, tappable bounding boxes. Lock a target and press *Capture & Analyze*: the app sends the frame to a vision-language model, grounds the answer in a **bundled scientific corpus** (119 elements, 110 compounds with PubChem-sourced CAS registry numbers, GHS lab safety) plus live lookups, and streams back a cited explanation with candidate source-match hints (lexical overlap only, not scientific verification) and voice narration — designed to keep working in a school lab on a **2,500–6,000 EGP hardware budget** (actual prototype BOM ≈ 1,750 EGP).
+The app uses **YOLO26-Nano through ONNX Runtime on Android** to draw interactive object boxes. The user chooses a target and explicitly starts analysis. A cloud vision model describes the selected subject, retrieval combines a bundled chemistry corpus with external references, and an OpenRouter language model streams an answer with inline citations. Voice input and speech output have local Android options as well as cloud-backed services.
 
-Detection, quality gating, caching, storage and diagnostics all run **locally and privately on the phone**; only the heavy AI steps (VLM, LLM, cloud TTS) are cloud-based, and a **Cloud-Only policy toggle** controls exactly what leaves the device — local YOLO always stays local.
+This is a working software and hardware prototype, not a calibrated scientific instrument. In particular, the optional spectral sensor is not installed on the current hardware test fixture, and sustained ESP32 video throughput remains below the desired target. Those limits are called out below instead of being hidden behind optimistic badges.
 
----
+## At a glance
 
-<img src="docs/assets/icons/device-mobile.svg" width="24" valign="middle" alt="" /> **In-app screenshots**
-
-Captured by launching the app on Flutter Web in a phone-layout headless browser (see `tooling/take_web_screenshots.py`).
-
-| Live detection view (EN) | Camera permission gate | Settings & policies |
-|---|---|---|
-| <img src="docs/screenshots/01_home_live.png" width="270" alt="Live detection view" /> | <img src="docs/screenshots/01_home_gate.png" width="270" alt="Camera permission gate" /> | <img src="docs/screenshots/02_settings.png" width="270" alt="Settings" /> |
-
-| RAG search modes | History & docs explorer | Internal DB diagnostics | Arabic RTL home |
-|---|---|---|---|
-| <img src="docs/screenshots/02b_settings_rag.png" width="200" alt="RAG modes" /> | <img src="docs/screenshots/03_history.png" width="200" alt="History" /> | <img src="docs/screenshots/04_diagnostics.png" width="200" alt="Diagnostics" /> | <img src="docs/screenshots/05_home_ar.png" width="200" alt="Arabic RTL" /> |
-
-| Glasses (BLE) source — disconnected state |
-|---|
-| <img src="docs/screenshots/02_glasses_ble.png" width="270" alt="Glasses BLE source" /> |
-
----
-
-<img src="docs/assets/icons/cpu.svg" width="24" valign="middle" alt="" /> **System architecture**
-
-<img src="docs/assets/architecture.png" width="100%" alt="SpectruLenPor architecture diagram" />
-
-*Editable source: [`docs/diagrams/architecture.html`](docs/diagrams/architecture.html) — built with the [diagram-design](https://github.com/cathrynlavery/diagram-design) editorial design system (HTML + inline SVG, rendered to PNG).*
-
-The step-by-step capture/analysis swimlane, in the same editorial system:
-
-<img src="docs/diagrams/pipeline.png" width="100%" alt="Capture and analysis pipeline swimlane" />
-
-*Editable source: [`docs/diagrams/pipeline.html`](docs/diagrams/pipeline.html).*
-
----
-
-<img src="docs/assets/icons/magnifying-glass.svg" width="24" valign="middle" alt="" /> **Scientific RAG & CAS discipline**
-
-Every chemical answer is grounded against a curated corpus instead of model memory. CAS registry numbers are **not handwritten**: a reproducible script (`tooling/backfill_cas_pubchem.py`) resolves each compound on PubChem, validates the check-digit, prefers the curated CAS Common Chemistry record, and refuses ambiguous results. The two true mixtures (borosilicate glass, 304 stainless steel) carry an explicit `cas_note` so the AI states *"no single CAS"* rather than inventing one.
-
-<img src="docs/assets/scientific-rag.png" width="100%" alt="Scientific RAG flow diagram" />
-
-*Editable source: [`docs/diagrams/scientific-rag.html`](docs/diagrams/scientific-rag.html).*
-
----
-
-<img src="docs/assets/icons/check-circle.svg" width="24" valign="middle" alt="" /> **Implementation status — what is real and what is untested**
-
-| Capability | Status |
+| Area | Current implementation |
 |---|---|
-| Local YOLO26-Nano ONNX inference + interactive boxes (tap-to-lock) | **Implemented** · unit-tested · on-device accuracy/latency **not yet benchmarked** |
-| Instant stale-box clearing on fast camera sweeps + 2.5 s expiry guard | **Implemented** · unit-tested |
-| VisionGate quality gate (luma ≥ 38, Laplacian ≥ 45) + torch hysteresis | **Implemented** · unit-tested |
-| Privacy blur of everything outside the capture box (+15 % margin) | **Implemented** · on-device visual check pending |
-| Moondream3 strict box-bound captions (never narrates the whole table) | **Implemented** · needs a live-API validation run |
-| OpenRouter prompt discipline (target-scoped, zero-guessing, citation rules) | **Implemented** · smoke script `tool/real_api_smoke_test.dart` pending a live run |
-| CAS backfill from PubChem (checksum + Common Chemistry anchored) | **Implemented** · 108/110 verified · mixtures explicitly flagged · test-locked |
-| 3-mode scientific RAG (strict / detailed / semantic) + TTL caching | **Implemented** · unit-tested |
-| Inline `[n]` citation chips + claim-level candidate source matching | **Implemented** · lexical heuristic labelled as a source-match hint, not scientific verification |
-| TTS: streamed Fish Audio + native Android fallback (sane rate/pitch) | **Implemented** · unit-tested · live voice output untested |
-| 9-table SQLite WAL database + diagnostics screens + HangWatchdog | **Implemented** · unit-tested (file_json fallback engine on web/tests) |
-| BLE ESP32-CAM streaming (QVGA JPEG, optional AS7265x telemetry) | **Implemented** · partial Linux HIL decoded 3 frames at 0.96 received fps · Android and sensor verification pending |
-| Flutter BLE-to-WiFi setup and UDP preview | **Implemented and unit/widget-tested** · exact acknowledgments, cancellation and decoded-frame readiness · real-phone verification pending · `bluetooth_camera_service.dart` split into `ble_session_manager.dart`, `ble_protocol.dart`, `jpeg_frame_decoder.dart` |
-| ESP32-CAM firmware (firmware/components/main/main.c) | **UDP V2 firmware built and flashed** · BLE GATT verified as setup/basic-control only, stream/single-frame rejected and 0 BLE JPEGs observed · 1200-byte UDP fragments, frame IDs, XOR FEC, RSSI-adaptive profiles · hardware AP provisioning and live UDP distance/soak test pending · [validation](docs/firmware-hardware-validation.md) |
-| Linux dashboard, CLI and shared OpenCV viewer | **Implemented** · latest 304 Python passes retain raw logs/source identities · 5 earlier actual-backend browser groups passed · live UDP preview and full contract verification pending |
-| Release signing & R8 templates | **Configured** · no production keystore yet |
-| CI (analyze + test on every push/PR) | **Implemented** · badge reflects real runs |
-| Flutter Web build | **Compiles** · camera/YOLO/BLE are native-only (graceful stubs on web) |
+| App | Flutter / Dart, Android-first, English and Arabic RTL |
+| Local vision | YOLO26-Nano ONNX inference, VisionGate quality checks, interactive target boxes |
+| Camera sources | Android phone camera or ESP32-CAM over Wi-Fi UDP |
+| Glasses setup | BLE pairing, Wi-Fi provisioning, status and commissioning controls |
+| Glasses video | UDP V2 on port 8888; six 32-bit header fields, 1200-byte JPEG data payloads, frame IDs and XOR parity recovery |
+| Scientific retrieval | Strict, detailed and semantic modes over local data plus live lookups |
+| Bundled knowledge | 119 elements, 110 compound records, GHS lab-safety data; 108 compound records have CAS numbers and two mixtures are explicitly marked as having no single CAS |
+| AI services | Moondream3 vision analysis and a configurable OpenRouter model chain |
+| Speech | Android Vosk speech input; Supertonic-3 local TTS; Fish Audio through OpenRouter with Android speech fallback |
+| Persistence | Nine-table SQLite database using WAL on Android |
+| Desktop / web | Flutter Web is useful for UI review; native camera, BLE, YOLO and SQLite capabilities are not provided by the web build |
 
----
+## Screenshots
 
-<img src="docs/assets/icons/wave-square.svg" width="24" valign="middle" alt="" /> **Real benchmarks**
+These screenshots were captured from the Flutter Web UI in a phone-sized browser. They show the interface and layout, not a live Android camera session or real ESP32 stream. Native-only features use web stubs.
 
-Software checks used Flutter **3.47.1 stable**, Linux x64, 2026-11-15, on successive uncommitted commissioning snapshots. The latest 190 Flutter and 304 Python passes retain raw logs, timestamps and unchanged source identities after the approved lifecycle fixes. Earlier 247 Python passes have inline-only provenance; earlier Flutter/218/195-test snapshots remain historical. The Web compile time is the earlier 2026-11-05 measurement. Software passes and flash verification do not establish a live firmware/mobile contract, Android or sensor verification.
-
-| Metric | Value | Status |
+| Live detection UI | Camera permission state | Settings |
 |---|---|---|
-| Unit + widget test suite | **190 passing, 0 failing, 0 skipped** | Complete post-fix local run, 2026-11-15; raw logs and source identities retained |
-| `flutter analyze` | **0 issues** ("No issues found") | Latest local checks, 2026-11-15 |
-| Host firmware/testbench Python suites | **180 firmware + 124 testbench = 304 passing** | Raw logs/timestamps retained; zero failures/errors/skips; unchanged source identities |
-| Firmware C protocol tests | **578 command + 11 JPEG + 8,974 UDP checks** | Fresh retained post-fix strict-warning/ASan/UBSan run |
-| Sender reporting regressions | **8 passed**, actual sender compiled | Included in reported Python firmware suite; deadlines distinguished from socket/short-write failures |
-| Release-source safety build | **976,848 bytes**, ESP-IDF 5.5.1 | Clean NVS-safe build, no TX wrappers; **not flashed**, predates sender correction |
-| Currently flashed reviewed release | **977,840 bytes**, zero compiler warnings/errors | Four regions independently verified; NVS-excluding sectors, no diagnostic instrumentation; latest probe still failed |
-| Historical camera-DMA diagnostic build03 | **980,624 bytes**, zero compiler warnings/errors | Earlier four-region flash verified; failed host injection and failed delivery remain retained |
-| `flutter build web --release` | Compiles clean (~84 s cold compile) | Historical measurement, 2026-11-05 |
-| Bundled model size | `yolo26n.onnx` **5.04 MB** (FP32, `[1,3,640,640] → [1,300,6]`, 80 COCO classes, end2end) | Verified from asset |
-| Execution-provider race (CPU vs NNAPI+FP16 vs XNNPACK) | **Implemented** at session start, fastest wins | Code verified — **on-device timings pending** |
-| Detection latency p50 / p95 | — | **Not yet measured** (needs Android hardware) |
-| BLE frame throughput | **0.96 received fps**, 3 decoded QVGA frames | Partial Linux HIL measurement, not a guarantee |
-| UDP frame throughput | **Working** · real 800x600 JPEG decoded over WiFi-only UDP · dynamic TX buffers (64), 3× fragment redundancy, 10ms packet pacing · stream (5/5 frames), controls (flash/stream/pause), reset persistence, dashboard API all verified · `ok: true` |
-| CAS corpus coverage | **108 / 110** compounds · 2 mixtures flagged `cas_skip` | Verified · test-locked |
-| Bundled corpus | 119 elements · 110 compounds · 9 GHS pictograms | Verified · test-locked |
-| Prototype hardware BOM | **≈ 1,750 EGP** of the 2,500–6,000 EGP budget | From parts list |
+| <img src="docs/screenshots/01_home_live.png" width="260" alt="Live detection UI" /> | <img src="docs/screenshots/01_home_gate.png" width="260" alt="Camera permission state" /> | <img src="docs/screenshots/02_settings.png" width="260" alt="Settings screen" /> |
 
-Reproduce the software-side numbers:
+| Retrieval modes | History | Diagnostics | Arabic RTL |
+|---|---|---|---|
+| <img src="docs/screenshots/02b_settings_rag.png" width="190" alt="Retrieval modes" /> | <img src="docs/screenshots/03_history.png" width="190" alt="History" /> | <img src="docs/screenshots/04_diagnostics.png" width="190" alt="Diagnostics" /> | <img src="docs/screenshots/05_home_ar.png" width="190" alt="Arabic RTL interface" /> |
 
-```bash
-flutter pub get
-flutter analyze
-flutter test --no-pub --concurrency 2  # 190 passing in the complete post-fix run
-flutter build web --release
-```
+## <img src="docs/assets/icons/cpu.svg" width="24" valign="middle" alt="" /> System architecture
 
----
+![SpectruLenPor system architecture](docs/assets/architecture.png)
 
-<img src="docs/assets/icons/target.svg" width="24" valign="middle" alt="" /> **Target devices**
+*Editable source: [docs/diagrams/architecture.html](docs/diagrams/architecture.html) - a self-contained HTML + inline SVG document using the [diagram-design](https://github.com/cathrynlavery/diagram-design) editorial design system. The PNG is rendered from this source.*
+
+The important boundary is intentional: camera preview and YOLO inference run on the phone. A user-triggered analysis sends the selected capture to configured cloud services. BLE is used for setup and commissioning; it is **not** the video transport.
+
+## Capture and analysis flow
+
+![Capture and analysis pipeline](docs/diagrams/pipeline.png)
+
+*Editable source: [docs/diagrams/pipeline.html](docs/diagrams/pipeline.html).*
+
+## <img src="docs/assets/icons/magnifying-glass.svg" width="24" valign="middle" alt="" /> Scientific retrieval
+
+![Scientific retrieval flow](docs/assets/scientific-rag.png)
+
+*Editable source: [docs/diagrams/scientific-rag.html](docs/diagrams/scientific-rag.html).*
+
+The retrieval layer has three modes:
+
+- **Strict** prioritizes exact symbols, formulas, CAS numbers and canonical titles.
+- **Detailed** retrieves structured element, compound and lab-safety properties.
+- **Semantic** expands object labels into plausible constituent materials before searching.
+
+The corpus includes 119 elements, 110 compound records and GHS pictograms. CAS numbers are checksum-validated; 108 of the 110 compound records have a CAS value. Borosilicate glass and 304 stainless steel are mixtures, so they are marked as having no single CAS number rather than assigned an invented one.
+
+Inline citations point to retrieved sources. The additional candidate source-matching indicator compares lexical overlap between response claims and cited source text. It is a relevance heuristic, **not** semantic entailment, fact verification or proof of scientific correctness.
+
+## Hardware and connectivity
+
+### ESP32-CAM
+
+The current firmware target is an AI-Thinker ESP32-CAM with an OV2640 camera and PSRAM. The optional AS7265x sensor is supported by the design, but it was unavailable on the latest physical test fixture. Its readings must not be described as calibrated UV measurements.
+
+The connection lifecycle is:
+
+1. BLE is used to pair, provision Wi-Fi credentials, read setup status and issue the limited commissioning commands.
+2. The board saves the Wi-Fi credentials and reboots into Wi-Fi-only operation.
+3. The phone and ESP32 must be on a network that allows station-to-station traffic. The app registers the UDP peer and uses the manually entered board IPv4 address; hostname discovery through mDNS is not implemented.
+4. Video and post-provisioning runtime controls use UDP on port 8888. Pausing capture keeps the UDP command channel available.
+
+The current UDP V2 packet header contains six little-endian 32-bit fields: sequence, total data fragments, byte offset, payload size, frame ID and frame size. JPEG data fragments carry up to 1200 payload bytes. Strided XOR parity packets allow a receiver to reconstruct one missing fragment per parity group. The Flutter receiver and firmware share this framing contract.
+
+### Throughput is still a work in progress
+
+The goal is 20-30 FPS at a useful resolution. **That target has not been achieved.** Selected firmware builds have delivered and decoded JPEG frames, but sustained results have varied. One 60-second AMPDU-on soak measured 210 frames (about 3.5 FPS) without incomplete frames or protocol errors. Later runs were inconsistent; the latest AMPDU-off soak measured about 1.5 FPS, one incomplete frame and a control timeout.
+
+Treat these measurements as commissioning evidence from a specific board, access point and test profile, not as a performance guarantee. Resolution, frame cadence, packet loss and long-run reliability still need hardware work. See the [dated engineering log](WORKLOG.md) and [firmware hardware validation notes](docs/firmware-hardware-validation.md).
+
+## Implementation status and verification
+
+| Component | Current status |
+|---|---|
+| Android UI, English/Arabic localization and responsive layouts | Implemented; Flutter Web screenshots are UI-only |
+| Local YOLO26-Nano detection and VisionGate | Implemented; Android hardware accuracy and latency are not benchmarked |
+| OpenRouter model discovery, model tests and custom free-model configuration | Implemented; catalog visibility does not prove that a model will complete an authenticated request |
+| Moondream3 selected-object analysis | Implemented; live authenticated provider verification remains environment-dependent |
+| Three-mode scientific retrieval and inline citations | Implemented and unit-tested |
+| Candidate source matching | Implemented as a lexical relevance heuristic only |
+| SQLite WAL storage, diagnostics and history | Implemented; Android runtime verification is distinct from web/test fallback behavior |
+| BLE provisioning and session lifecycle | Implemented; phone-level commissioning still needs repeatable end-to-end validation |
+| UDP V2 firmware sender and Flutter receiver | Implemented; real sustained delivery remains unreliable and below target |
+| Vosk speech input and Supertonic-3 Android TTS | Implemented; first-use model download and device execution are required |
+| Fish Audio TTS | Implemented through OpenRouter with Android speech fallback |
+| Production Android signing | Not complete; a production keystore has not been supplied |
+| Optional AS7265x spectral readings | Not verified on the latest physical fixture |
+
+### Latest verification checkpoint
+
+The latest full Flutter run recorded in the 20 November work log completed with **218 passing, 4 skipped and 13 failing tests**. Two follow-up fixes were then made: the raw ESP probe now skips when `ESP32_TEST_IP` is not configured, and the markdown-to-speech sanitizer was fixed to strip inline-code backticks. The focused TTS and speech-correction suites passed **13/13** after those fixes. The complete Flutter suite has **not** been rerun since, so the earlier totals are not a final post-fix result.
+
+A full-project `flutter analyze` attempt did not complete in the constrained shell. No clean analyzer result is claimed here.
+
+Firmware checks at the latest checkpoint included **3/3 C protocol tests** and **139 UDP testbench tests** passing; the firmware Python suite also passed. Host tests validate protocol and scheduling logic, but they do not substitute for a stable Android-to-board radio link or an extended physical soak.
+
+The current known state and historical test evidence are recorded in [WORKLOG.md](WORKLOG.md). Reproduction steps and lower-level notes are in the [firmware README](firmware/README.md) and [hardware validation document](docs/firmware-hardware-validation.md).
+
+## Privacy and service boundaries
+
+Live preview and YOLO detection are local to the Android device. The app does not automatically send every preview frame to the cloud. When the user starts selected-object analysis, the capture and associated prompt/context may be sent to configured services such as Moondream and OpenRouter. Live retrieval may also contact PubChem, Wikipedia and web-search providers. Cloud TTS sends speech text to its configured provider.
+
+The app offers model and cloud-policy settings, but users should still review which providers and credentials are configured before using it with private imagery or sensitive material. Local YOLO remains on-device.
+
+## Requirements
 
 | Target | Requirement |
 |---|---|
-| Android phone (primary) | Android **12+ (API 31+)**, `compileSdk 36` / `targetSdk 36`; any modern phone — YOLO26-Nano FP32 + the EP race (NNAPI / XNNPACK) keep inference fast on mid-range chips |
-| Smart glasses (companion) | AI-Thinker **ESP32-CAM** (+ OV2640), optional AS7265x on I2C1 GPIO13/GPIO14, flash LED GPIO4, BLE setup GATT `ffe0/ffe1/ffe2`, WiFi-only UDP port 8888 |
-| Desktop / CI | Flutter **3.19+** (Dart 3.3+), JDK 17, Android SDK 36 |
-| Web | Flutter Web build works for UI review; camera, YOLO, BLE, SQLite stay native-only |
+| Android phone | Android 12 or later (min SDK 31) |
+| Android build toolchain | Flutter 3.19+, Dart 3.3+, JDK 17, Android compile SDK 37 / target SDK 36 |
+| Firmware | ESP-IDF 5.5.1, AI-Thinker ESP32-CAM, OV2640 camera; PSRAM recommended |
+| Web | Flutter Web for layout and UI review; native camera, YOLO, BLE and SQLite features are unavailable there |
+| Optional sensor | AS7265x on the configured I2C pins; not installed on the latest validation fixture |
 
----
+## Quick start
 
-<img src="docs/assets/icons/github-logo.svg" width="24" valign="middle" alt="" /> **Authors**
+### 1. Install Flutter
 
-| | |
-|---|---|
-| **Malak Adel Sayed Hassan** | Author & student researcher — Grade 1 Secondary, Class 3/1, Ashmounin Secondary School |
-| **Abdoul-Rahman Ayman Mohamed** ([@abdou-da0wew](https://github.com/abdou-da0wew)) | Co-author & software/systems developer |
+Install Flutter stable and confirm that Android tooling is available:
 
-Hardware target budget: 2,500–6,000 EGP · actual prototype BOM ≈ 1,750 EGP.
+~~~bash
+flutter doctor
+~~~
 
----
+Use Flutter 3.19 or later with Dart 3.3 or later. Android builds also require JDK 17 and the Android SDK components listed above.
 
-<img src="docs/assets/icons/git-branch.svg" width="24" valign="middle" alt="" /> **Repository status**
+### 2. Clone and configure API keys
 
-- **Default branch:** `main` · current version **v5.5.1+16** (`com.spectraglass.app`)
-- **CI:** `.github/workflows/ci.yml` runs `flutter analyze` + `flutter test` on every push and PR. The workflow is committed and correct, but GitHub Actions jobs for this account currently die at runner startup (even a bare echo job fails with zero logs; the same pipeline passes locally), so the badge is pinned static until the owner clears the account-level Actions block under Settings -> Actions / billing.
-- **History:** PR #3 vision accuracy/UX · PR #4 audit fixes (cache wipe, columns, TTS, BLE reconnect, SSE, signing, fonts) · PR #5 PubChem CAS backfill · PR #6 mixture-CAS guard · PR #7 documentation overhaul
-- **Work log:** see [`WORKLOG.md`](WORKLOG.md) for the dated change history
-- **License:** none yet — © authors, all rights reserved
-
----
-
-<img src="docs/assets/icons/lightning.svg" width="24" valign="middle" alt="" /> **Quick start**
-
-### 1. Install Flutter (one command)
-
-**Linux** (snap):
-
-```bash
-sudo snap install flutter --classic
-```
-
-**Linux** (git, no snap):
-
-```bash
-git clone https://github.com/flutter/flutter.git -b stable --depth 1 "$HOME/flutter" && export PATH="$HOME/flutter/bin:$PATH" && flutter doctor
-```
-
-**Windows** (PowerShell, one line — clone stable, add to PATH, verify):
-
-```powershell
-git clone https://github.com/flutter/flutter.git -b stable --depth 1 "$env:USERPROFILE\flutter"; $env:PATH = "$env:USERPROFILE\flutter\bin;$env:PATH"; flutter doctor
-```
-
-> Tip: to make the Windows PATH change permanent, add `%USERPROFILE%\flutter\bin` to the user PATH environment variable. Tested with Flutter **3.47.9 stable**; the app requires **3.19+**.
-
-### 2. Clone & configure keys
-
-```bash
+~~~bash
 git clone https://github.com/abdou-da0wew/SpectrulenPor.git
 cd SpectrulenPor
+flutter pub get
 cp assets/config/secrets.example.json assets/config/secrets.json
-```
+~~~
 
-```json
+Fill in only the providers you intend to use:
+
+~~~json
 {
-  "moondream": "<Moondream API key — docs.moondream.ai>",
-  "openrouter_llm": "<OpenRouter LLM key — openrouter.ai/keys>",
-  "openrouter_tts": "<OpenRouter TTS key — openrouter.ai/keys>"
+  "moondream": "YOUR_MOONDREAM_API_KEY",
+  "openrouter_llm": "YOUR_OPENROUTER_LLM_KEY",
+  "openrouter_tts": "YOUR_OPENROUTER_TTS_KEY"
 }
-```
+~~~
 
-Keys can also be entered live in **Settings**, or injected at build time:
+The app also exposes API-key settings. Keep real credentials out of commits, screenshots and diagnostic logs. The local Supertonic model is downloaded on demand rather than stored in the Git repository.
 
-```bash
-flutter build apk --release \
-  --dart-define=MOONDREAM_API_KEY=... \
-  --dart-define=OPENROUTER_LLM_KEY=... \
-  --dart-define=OPENROUTER_TTS_KEY=...
-```
+### 3. Run on Android
 
-### 3. Run
+~~~bash
+flutter run
+~~~
 
-```bash
-flutter pub get      # fetch dependencies
-flutter analyze      # 0 errors / 0 warnings
-flutter test --no-pub --concurrency 2  # 190 passing in the complete post-fix run
-flutter run          # run on a connected Android device
-```
+### 4. Test and build
 
-### 4. Build
+~~~bash
+flutter analyze
+flutter test --no-pub --concurrency=1
+flutter build apk --debug
+~~~
 
-```bash
-flutter build apk --release            # Android APK
-flutter build web --release            # Flutter Web (UI review build)
-```
+The commands above are reproduction commands, not a claim that the current full Flutter suite or analyzer is green. Release distribution also requires a production signing configuration.
 
-### 5. Connect the smart glasses
+### 5. Commission the ESP32-CAM
 
-1. Build and flash with ESP-IDF 5.5.1 using [`firmware/README.md`](firmware/README.md). The ESP32-CAM-MB handles USB programming and power.
-2. The OV2640 and GPIO4 flash are onboard. Optional AS7265x wiring uses I2C1 on GPIO13/GPIO14; this is not the older analog UV/IR wiring.
-3. With empty setup credentials, connect to `SpectruLenPor-ESP32`, pair with `11111`, save WiFi credentials, and require the acknowledgment plus device MAC/hostname before rebooting.
-4. Saved credentials select WiFi-only boot. Enter the board's IPv4 address on the same network; the hostname is not mDNS discovery. Preview readiness requires a decoded camera frame.
-5. WiFi failure never restores BLE or erases credentials. Repeating setup requires an explicitly authorized NVS-only reset, not a whole-flash erase.
+Follow [firmware/README.md](firmware/README.md) for the ESP-IDF build, flash and setup sequence. Do not erase the whole flash to reset Wi-Fi: saved credentials live in NVS, and the firmware deliberately avoids automatically erasing NVS after initialization failures. Use the documented, explicitly authorized NVS reset procedure when a setup reset is required.
 
-For Linux commissioning, the [firmware README](firmware/README.md#linux-testbench) documents the loopback dashboard, CLI profiles and OpenCV consumers. These tools share one hardware owner. Browser startup and host tests are verified; live UDP delivery is still under investigation.
+After provisioning, place the phone and board on the same 2.4 GHz network, confirm that client isolation is disabled, enter the ESP32 IPv4 address in the app and wait for a decoded frame. A successful Wi-Fi association alone does not prove that the phone can reach the UDP socket.
 
----
+## Documentation
 
-<img src="docs/assets/icons/book-open.svg" width="24" valign="middle" alt="" /> **Documentation index**
-
-| Document | Purpose |
+| Document | What it covers |
 |---|---|
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Deep technical spec: pipeline, MethodChannels, RAG modes, DB schema, CAS discipline |
-| [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) | Real measured numbers vs pending on-device measurements, with reproduction steps |
-| [`docs/YOLO26_MOBILE_OPTIMIZATION.md`](docs/YOLO26_MOBILE_OPTIMIZATION.md) | Mobile inference ladder: EP race, LiteRT/INT8, CoreML, ExecuTorch, fine-tuning |
-| [`AGENTS.md`](AGENTS.md) | Ground rules for AI coding agents working in this repo |
-| [`CONTEXT.md`](CONTEXT.md) | Project context: mission, glossary, data inventory, constraints |
-| [`WORKLOG.md`](WORKLOG.md) | Dated engineering work log |
-| [`tooling/README.md`](tooling/README.md) | Model tooling, CAS backfill, screenshot capture scripts |
-| [`firmware/README.md`](firmware/README.md) | ESP-IDF build, wiring, BLE setup and UDP protocol |
-| [`docs/firmware-hardware-validation.md`](docs/firmware-hardware-validation.md) | Measured firmware results and separate Android/sensor limits |
-| [`assets/docs/README.md`](assets/docs/README.md) | Scientific corpus format documentation |
+| [Technical architecture](docs/ARCHITECTURE.md) | App pipeline, native channels, YOLO geometry, retrieval and SQLite schema |
+| [Benchmarks](docs/BENCHMARKS.md) | Measured values, pending measurements and reproduction details |
+| [Firmware README](firmware/README.md) | ESP-IDF setup, BLE commissioning, UDP contract and Linux testbench |
+| [Hardware validation](docs/firmware-hardware-validation.md) | Board fixture, firmware builds, flash evidence and physical test limits |
+| [Engineering work log](WORKLOG.md) | Dated changes, test evidence and current handoff |
+| [Contributing](CONTRIBUTING.md) | Repository workflow and contribution guidance |
+| [Agent instructions](AGENTS.md) | Repository-specific coding and verification rules |
+| [Project context](CONTEXT.md) | Project mission and background |
+| [Editable diagrams](docs/diagrams/) | HTML + inline SVG architecture, process and scientific retrieval visuals |
 
----
+Regenerate all three published diagram PNGs from their HTML sources:
 
-<img src="docs/assets/icons/bluetooth.svg" width="24" valign="middle" alt="" /> **Hardware bill of materials (EGP)**
+~~~bash
+tooling/render_diagrams.sh
+~~~
 
-| Component | Cost | Source |
-|---|---|---|
-| AI-Thinker ESP32-CAM + OV2640 camera module | ~600 | [Maker Selectronics — ESP32-CAM](https://makerselectronics.com/product/esp32-cam-esp32-s-wifibluetooth-with-ov2640-camera-module/) |
-| ESP32-CAM-MB micro-USB programmer shield (CH340) | ~120 | [Maker Selectronics — ESP32-CAM-MB](https://makerselectronics.com/product/esp32-cam-mb-micro-module-esp32-cam/) |
-| Legacy GUVA-S12SD + analog IR allowance | ~350 | Historical estimate; current AS7265x cost not recorded |
-| TP4056 Li-ion charging module + rechargeable cell | ~250 | — |
-| Eyeglass frame mount, enclosure & wiring | ~430 | — |
-| Android smartphone (existing user device) | 0 | — |
-| Software & AI stack (Flutter, ONNX Runtime, SQLite, Moondream/OpenRouter free tiers) | 0 | — |
-| **Historical prototype estimate** | **≈ 1,750 EGP** | Current AS7265x configuration has not been re-costed |
+The renderer uses Chromium/Google Chrome. Set CHROME_BIN if the executable is installed under a non-standard name or path.
 
----
+## Authors
 
-<img src="docs/assets/icons/sparkle.svg" width="24" valign="middle" alt="" /> **Design system**
+| Name | Contribution |
+|---|---|
+| **Malak Adel Sayed Hassan** | Author and student researcher, Ashmounin Secondary School, Egypt |
+| **Abdou** (عبد الرحمن أيمن محمد عثمان علي محمد علي العركي) · [@abdou-da0wew](https://github.com/abdou-da0wew) | Co-author; application and firmware engineering, software architecture and systems integration |
 
-- **Brand palette** (`lib/utils/app_theme.dart`): Alabaster Grey `#E5E3E1` · Dust Grey `#D4D3CD` · Silver `#C2BEC0` · Dusty Mauve `#A67E98` · Dusty Lavender `#825376` · Deep Plum Ink `#3A2434`.
-- **Bundled offline fonts** (`assets/fonts/`, declared in `pubspec.yaml`): **Jaro** (display) · **Rubik** (UI) · **Space Mono** (scientific/telemetry) · **Zain** (Arabic RTL).
-- **Iconography:** Material Icons in-app; **[Phosphor](https://phosphoricons.com) icons** in docs (`docs/assets/icons/`, MIT); **zero emojis** anywhere — in code, UI, or documentation.
-- **Diagrams:** [diagram-design](https://github.com/cathrynlavery/diagram-design) editorial HTML/SVG system.
-
----
-
-<img src="docs/assets/icons/list-checks.svg" width="24" valign="middle" alt="" /> **Roadmap**
-
-**Shipped (v5.5.1)**
-
-- [x] On-device YOLO26-Nano with EP race, instant box clearing, tap-to-lock targets
-- [x] Privacy blur + strict dual capture + Moondream box-bound grounding
-- [x] Citation chips, candidate source-match hints (not proof of claim correctness), auto-updating conversation context
-- [x] CAS backfill from PubChem with checksum + Common Chemistry anchoring
-- [x] Audit fixes: TTL cache wipe, column mismatches, TTS errors, BLE reconnect, SSE stall guard, font declarations
-- [x] Analyzer driven to **0 issues** (all warnings fixed, deprecated `Radio`/`speech_to_text` APIs migrated) so CI runs green
-- [x] 93-test suite + CI + full documentation overhaul
-
-**Next**
-
-- [ ] On-device benchmark runs (detection latency, EP timings) recorded in `docs/BENCHMARKS.md`
-- [ ] Resolve ESP32-CAM UDP delivery, complete real-network HIL and verify the Flutter handoff on Android
-- [ ] LiteRT/INT8 export ladder step (see `docs/YOLO26_MOBILE_OPTIMIZATION.md`)
-- [ ] Live TTS + OpenRouter + Moondream validation with production keys
-- [ ] Production release keystore + tagged GitHub releases
+This repository currently has no open-source license. Unless a license file is added, all rights remain with the authors; do not assume that the code may be redistributed under an open-source license.
