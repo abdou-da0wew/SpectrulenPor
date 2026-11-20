@@ -9,6 +9,7 @@ typedef const char *esp_event_base_t;
 typedef void *esp_event_handler_instance_t;
 typedef unsigned nvs_handle_t;
 typedef struct { int unused; } wifi_init_config_t;
+typedef struct { int8_t rssi; } wifi_ap_record_t;
 typedef struct {
     struct { uint8_t ssid[32], password[64]; int scan_method;
         struct { int rssi, authmode; } threshold;
@@ -20,7 +21,9 @@ typedef struct { esp_netif_t *esp_netif; struct { esp_ip4_addr_t ip; } ip_info; 
 enum { WIFI_EVENT_STA_CONNECTED, WIFI_EVENT_STA_DISCONNECTED, WIFI_EVENT_STA_START,
        WIFI_EVENT_STA_STOP, IP_EVENT_STA_GOT_IP, IP_EVENT_STA_LOST_IP,
        ESP_EVENT_ANY_ID, WIFI_STORAGE_RAM, WIFI_MODE_STA, WIFI_ALL_CHANNEL_SCAN,
-       WIFI_AUTH_OPEN, WIFI_AUTH_WPA_PSK, WIFI_IF_STA, WIFI_PS_NONE,
+       WIFI_AUTH_OPEN, WIFI_AUTH_WPA_PSK, WIFI_IF_STA, WIFI_PS_NONE, WIFI_BW_HT20,
+       WIFI_PROTOCOL_11B = 1 << 0, WIFI_PROTOCOL_11G = 1 << 1,
+       WIFI_PROTOCOL_11N = 1 << 2,
        NVS_READONLY, NVS_READWRITE };
 static const char wifi_events[] = "WIFI", ip_events[] = "IP";
 #define WIFI_EVENT wifi_events
@@ -35,6 +38,7 @@ static unsigned critical_depth, connect_calls, disconnect_calls, stop_calls, nvs
 static int64_t clock_now;
 static esp_netif_t host_netif;
 static esp_err_t disconnect_result = ESP_OK;
+static int configured_protocol;
 static void (*registered_handler)(void *, esp_event_base_t, int32_t, void *);
 void host_enter(portMUX_TYPE *lock) { (void)lock; ++critical_depth; }
 void host_exit(portMUX_TYPE *lock)
@@ -64,6 +68,20 @@ esp_err_t esp_wifi_deinit(void) { assert_unlocked(); return ESP_OK; }
 esp_err_t esp_wifi_set_storage(int storage) { (void)storage; assert_unlocked(); return ESP_OK; }
 esp_err_t esp_wifi_set_mode(int mode) { (void)mode; assert_unlocked(); return ESP_OK; }
 esp_err_t esp_wifi_set_ps(int mode) { (void)mode; assert_unlocked(); return ESP_OK; }
+esp_err_t esp_wifi_set_max_tx_power(int8_t power)
+{ (void)power; assert_unlocked(); return ESP_OK; }
+esp_err_t esp_wifi_set_protocol(int interface, int protocol)
+{
+    (void)interface;
+    configured_protocol = protocol;
+    assert_unlocked();
+    return ESP_OK;
+}
+
+esp_err_t esp_wifi_set_bandwidth(int interface, int bandwidth)
+{ (void)interface; (void)bandwidth; assert_unlocked(); return ESP_OK; }
+esp_err_t esp_wifi_sta_get_ap_info(wifi_ap_record_t *info)
+{ if (info == NULL) return ESP_FAIL; info->rssi = -65; return ESP_OK; }
 esp_err_t esp_wifi_set_config(int interface, const wifi_config_t *config)
 { (void)interface; (void)config; assert_unlocked(); return ESP_OK; }
 esp_err_t esp_event_handler_instance_register(esp_event_base_t base, int32_t event,
@@ -142,6 +160,9 @@ int main(int argc, char **argv)
     scenario = argv[1];
     firmware_wifi_credentials_t credentials = {.ssid = "host-test", .password = "synthetic-pass"};
     expect(wifi_start_station(&credentials) == ESP_OK, "station start");
+    expect(configured_protocol == (WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G |
+                                   WIFI_PROTOCOL_11N),
+           "station enables the supported 2.4 GHz b/g/n PHY bitmap");
     wifi_maintain();
     expect(connect_calls == 1, "first attempt starts once");
     if (is_case("got_ip_before_timeout")) {

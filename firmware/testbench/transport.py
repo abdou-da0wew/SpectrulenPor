@@ -48,32 +48,72 @@ def jpeg_dimensions(data: bytes) -> tuple[int, int]:
 
 
 class Reassembler:
-    """The firmware has no frame id: only seq=0 can begin a bounded assembly."""
+    """Bounded V2 frame assembler with reordering and one-loss-per-group XOR FEC."""
+
+    PARITY_FLAG = 0x80000000
+    SEQUENCE_MASK = 0x7FFFFFFF
 
     def __init__(self, peer: tuple[str, int], clock=time.monotonic):
         self.peer, self.clock = peer, clock
         self.parts = {}
+        self.parity = {}
         self.total = 0
+        self.frame_size = 0
+        self.frame_id = None
+        self.last_frame_id = None
         self.started = None
-        self.datagrams = self.packets = self.dropped_frames = self.protocol_errors = 0
+        self.datagrams = self.packets = self.parity_packets = 0
+        self.dropped_frames = self.protocol_errors = 0
         self.last_incomplete = None
 
+    @staticmethod
+    def _newer_frame(candidate, reference):
+        difference = (candidate - reference) & 0xFFFFFFFF
+        return difference != 0 and difference < 0x80000000
+
     def drop(self, reason):
-        self.last_incomplete = {"received_chunks": len(self.parts), "expected_chunks": self.total,
-                                "missing_chunks": max(0, self.total - len(self.parts)),
-                                "highest_sequence": max(self.parts) if self.parts else None,
-                                "reason": reason}
+        received = len(self.parts)
+        self.last_incomplete = {
+            "received_chunks": received,
+            "expected_chunks": self.total,
+            "missing_chunks": max(0, self.total - received),
+            "highest_sequence": max(self.parts) if self.parts else None,
+            "reason": reason,
+        }
         self.dropped_frames += 1
         self.clear()
 
     def clear(self):
         self.parts.clear()
+        self.parity.clear()
         self.total = 0
+        self.frame_size = 0
+        self.frame_id = None
         self.started = None
 
     def expire(self):
         if self.started is not None and self.clock() - self.started >= FRAME_EXPIRY_SECONDS:
             self.drop("expired")
+
+    def _recover(self):
+        group_count = min(self.total, WIRE.UDP_FEC_GROUP_SIZE)
+        for group_index in range(group_count):
+            members = range(group_index, self.total, WIRE.UDP_FEC_GROUP_SIZE)
+            missing = [seq for seq in members if seq not in self.parts]
+            if len(missing) != 1 or group_index not in self.parity:
+                continue
+            recovered = bytearray(self.parity[group_index])
+            for seq in range(group_index, self.total, WIRE.UDP_FEC_GROUP_SIZE):
+                if seq == missing[0]:
+                    continue
+                part = self.parts.get(seq)
+                if part is None:
+                    continue
+                for index, value in enumerate(part):
+                    recovered[index] ^= value
+            offset = missing[0] * WIRE.UDP_PAYLOAD_BYTES
+            expected = min(WIRE.UDP_PAYLOAD_BYTES, self.frame_size - offset)
+            self.parts[missing[0]] = bytes(recovered[:expected])
 
     def feed(self, packet: bytes, source: tuple[str, int]):
         self.expire()
@@ -81,39 +121,98 @@ class Reassembler:
         if source != self.peer:
             self.protocol_errors += 1
             return None
-        if packet in (bytes([WIRE.CMD_STREAM_ON]), bytes([WIRE.CMD_SINGLE_FRAME])):
+        runtime_echoes = (
+            WIRE.CMD_STREAM_OFF,
+            WIRE.CMD_STREAM_ON,
+            WIRE.CMD_SINGLE_FRAME,
+            WIRE.CMD_FLASH_ON,
+            WIRE.CMD_FLASH_OFF,
+            WIRE.CMD_RESTART,
+            WIRE.CMD_SHUTDOWN,
+            WIRE.CMD_CONNECTION_STATUS,
+            WIRE.CMD_REBOOT,
+            WIRE.CMD_UDP_KEEPALIVE,
+        )
+        if len(packet) == 1 and packet[0] in runtime_echoes:
+            return None
+        if packet.startswith(b"$CMD:"):
+            allowed = {
+                b"$CMD:stream_on", b"$CMD:stream_off", b"$CMD:single_frame",
+                b"$CMD:keepalive", b"$CMD:flash_on", b"$CMD:flash_off",
+                b"$CMD:restart", b"$CMD:shutdown_complete",
+            }
+            if packet.rstrip(b"\r\n") in allowed:
+                return None
+            self.protocol_errors += 1
+            return None
+        if packet.startswith(b"$STATUS:"):
             return None
         if len(packet) < WIRE.UDP_HEADER.size:
             self.protocol_errors += 1
             return None
-        seq, total, offset, size = WIRE.UDP_HEADER.unpack_from(packet)
+
+        raw_seq, total, offset, size, frame_id, frame_size = WIRE.UDP_HEADER.unpack_from(packet)
+        is_parity = bool(raw_seq & self.PARITY_FLAG)
+        sequence = raw_seq & self.SEQUENCE_MASK
         max_parts = (WIRE.MAX_FRAME_BYTES + WIRE.UDP_PAYLOAD_BYTES - 1) // WIRE.UDP_PAYLOAD_BYTES
-        if (not 0 < total <= max_parts or seq >= total
+        if (not 0 < total <= max_parts or not 4 <= frame_size <= WIRE.MAX_FRAME_BYTES
+                or total != (frame_size + WIRE.UDP_PAYLOAD_BYTES - 1) // WIRE.UDP_PAYLOAD_BYTES
                 or not 0 < size <= WIRE.UDP_PAYLOAD_BYTES
-                or len(packet) != WIRE.UDP_HEADER.size + size
-                or offset != seq * WIRE.UDP_PAYLOAD_BYTES
-                or offset + size > WIRE.MAX_FRAME_BYTES
-                or seq != total - 1 and size != WIRE.UDP_PAYLOAD_BYTES):
+                or len(packet) != WIRE.UDP_HEADER.size + size):
             self.protocol_errors += 1
             return None
-        payload = packet[WIRE.UDP_HEADER.size:]
-        if seq == 0:
-            if self.total == total and self.parts.get(0) == payload:
-                return None
-            if self.parts:
-                self.drop("replaced")
-            self.clear()
-            self.total, self.started = total, self.clock()
-        if total != self.total or self.started is None:
-            return None
-        if seq in self.parts:
-            if self.parts[seq] != payload:
+
+        if is_parity:
+            group_count = min(total, WIRE.UDP_FEC_GROUP_SIZE)
+            group_start = sequence
+            if (sequence >= group_count or offset != group_start * WIRE.UDP_PAYLOAD_BYTES
+                    or size != WIRE.UDP_PAYLOAD_BYTES or offset >= frame_size):
                 self.protocol_errors += 1
+                return None
+        else:
+            expected_offset = sequence * WIRE.UDP_PAYLOAD_BYTES
+            expected_size = min(WIRE.UDP_PAYLOAD_BYTES, frame_size - expected_offset)
+            if sequence >= total or offset != expected_offset or size != expected_size:
+                self.protocol_errors += 1
+                return None
+
+        if self.frame_id is None:
+            if self.last_frame_id is not None and not self._newer_frame(frame_id, self.last_frame_id):
+                return None
+            self.frame_id = self.last_frame_id = frame_id
+            self.total, self.frame_size, self.started = total, frame_size, self.clock()
+        elif frame_id != self.frame_id:
+            if not self._newer_frame(frame_id, self.frame_id):
+                return None
+            if self.parts or self.parity:
+                self.drop("replaced")
+            self.frame_id = self.last_frame_id = frame_id
+            self.total, self.frame_size, self.started = total, frame_size, self.clock()
+        elif total != self.total or frame_size != self.frame_size:
+            self.protocol_errors += 1
+            self.drop("frame_metadata_mismatch")
             return None
-        self.parts[seq] = payload
-        self.packets += 1
+
+        payload = packet[WIRE.UDP_HEADER.size:]
+        table = self.parity if is_parity else self.parts
+        if sequence in table:
+            if table[sequence] != payload:
+                self.protocol_errors += 1
+                self.drop("conflicting_duplicate")
+            return None
+        table[sequence] = payload
+        if is_parity:
+            self.parity_packets += 1
+        else:
+            self.packets += 1
+
+        self._recover()
         if len(self.parts) == self.total:
             frame = b"".join(self.parts[index] for index in range(self.total))
+            if len(frame) != self.frame_size:
+                self.protocol_errors += 1
+                self.drop("frame_size_mismatch")
+                return None
             self.clear()
             return self.clock(), frame
         return None

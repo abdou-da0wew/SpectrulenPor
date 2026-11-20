@@ -14,7 +14,7 @@ import hardware_helpers as helpers
 TEST_EPOCH = 1000.0
 TEST_TIMEOUT = 0.05
 TEST_PEER = ("192.0.2.10", 8888)
-TEST_JPEG = b"\xff\xd8" + b"x" * 596 + b"\xff\xd9"
+TEST_JPEG = b"\xff\xd8" + b"x" * 2396 + b"\xff\xd9"
 
 
 class FakeClock:
@@ -580,6 +580,11 @@ class PacketSocket:
     def __init__(self, packets):
         self.pending = deque(packets)
         self.receive_sizes = []
+        self.sent = []
+
+    def sendto(self, data, peer):
+        self.sent.append((data, peer))
+        return len(data)
 
     def recvfrom(self, size):
         self.receive_sizes.append(size)
@@ -588,15 +593,37 @@ class PacketSocket:
         return self.pending.popleft()
 
 
-def udp_packet(seq, total, offset, payload, size=None):
+def udp_packet(seq, total, offset, payload, size=None, frame_id=1,
+               frame_size=None, parity=False):
     if size is None:
         size = len(payload)
-    return struct.pack("<IIII", seq, total, offset, size) + payload
+    if frame_size is None:
+        frame_size = total * helpers.UDP_PAYLOAD_BYTES
+    raw_seq = (helpers.UDP_PARITY_SEQUENCE_FLAG | seq) if parity else seq
+    return helpers.UDP_HEADER.pack(raw_seq, total, offset, size, frame_id, frame_size) + payload
 
 
-def jpeg_packets():
-    return [udp_packet(0, 2, 0, TEST_JPEG[:512]),
-            udp_packet(1, 2, 512, TEST_JPEG[512:])]
+def jpeg_packets(frame=TEST_JPEG, frame_id=1):
+    total = (len(frame) + helpers.UDP_PAYLOAD_BYTES - 1) // helpers.UDP_PAYLOAD_BYTES
+    packets = [
+        (udp_packet(seq, total, seq * helpers.UDP_PAYLOAD_BYTES,
+                    frame[seq * helpers.UDP_PAYLOAD_BYTES:(seq + 1) * helpers.UDP_PAYLOAD_BYTES],
+                    frame_id=frame_id, frame_size=len(frame)), TEST_PEER)
+        for seq in range(total)
+    ]
+    for group_index in range(min(total, helpers.UDP_FEC_GROUP_SIZE)):
+        parity = bytearray(helpers.UDP_PAYLOAD_BYTES)
+        for seq in range(group_index, total, helpers.UDP_FEC_GROUP_SIZE):
+            offset = seq * helpers.UDP_PAYLOAD_BYTES
+            chunk = frame[offset:offset + helpers.UDP_PAYLOAD_BYTES]
+            for index, value in enumerate(chunk):
+                parity[index] ^= value
+        packets.append((udp_packet(
+            group_index, total, group_index * helpers.UDP_PAYLOAD_BYTES,
+            bytes(parity), frame_id=frame_id, frame_size=len(frame), parity=True,
+        ), TEST_PEER))
+    return [packet for packet, _ in packets]
+
 
 
 def make_udp_receiver(packets):
@@ -604,141 +631,387 @@ def make_udp_receiver(packets):
     receiver.peer = TEST_PEER
     receiver.socket = PacketSocket(packets)
     receiver.parts = {}
+    receiver.parity = {}
     receiver.total = 0
-    receiver.chunk_bytes = 0
+    receiver.frame_size = 0
+    receiver.frame_id = None
+    receiver.last_frame_id = None
     receiver.dropped_frames = 0
+    receiver.stale_datagrams = 0
     receiver.packets = 0
+    receiver.parity_packets = 0
     receiver.datagrams = 0
+    receiver.control_messages = []
+    receiver.last_control_echo_seen = False
+    receiver.background_video_datagrams = 0
     return receiver
 
 
 class UdpFrameTests(ClockedTestCase):
-    def test_wire_contract_is_four_little_endian_uint32s_and_512_byte_chunks(self):
-        self.assertEqual(helpers.UDP_HEADER.size, 16)
-        self.assertEqual(helpers.UDP_HEADER.format, "<IIII")
-        self.assertEqual(helpers.UDP_PAYLOAD_BYTES, 512)
-        self.assertEqual(helpers.UDP_HEADER.pack(1, 2, 512, 88),
-                         b"\x01\0\0\0\x02\0\0\0\0\x02\0\0\x58\0\0\0")
+    def test_wire_contract_is_v2_six_uint32_fields_and_1200_byte_chunks(self):
+        self.assertEqual(helpers.UDP_HEADER.size, 24)
+        self.assertEqual(helpers.UDP_HEADER.format, "<IIIIII")
+        self.assertEqual(helpers.UDP_PAYLOAD_BYTES, 1200)
+        self.assertEqual(helpers.UDP_FEC_GROUP_SIZE, 4)
+        self.assertEqual(helpers.UDP_HEADER.unpack(
+            helpers.UDP_HEADER.pack(1, 2, 1200, 88, 7, 1288)),
+            (1, 2, 1200, 88, 7, 1288))
 
-    def test_reconstructs_two_fragments_without_a_ble_client(self):
-        receiver = make_udp_receiver([(packet, TEST_PEER) for packet in jpeg_packets()])
+    def test_udp_peer_echo_requires_exact_payload_and_source(self):
+        receiver = make_udp_receiver([(b"\x0c", TEST_PEER)])
+        receiver.wait_echo(b"\x0c", timeout=TEST_TIMEOUT)
+        self.assertEqual(receiver.datagrams, 1)
 
+        receiver = make_udp_receiver([(b"\x01", TEST_PEER)])
+        with self.assertRaisesRegex(AssertionError, "^HIL_UDP_ECHO_MISMATCH$"):
+            receiver.wait_echo(b"\x0c", timeout=TEST_TIMEOUT)
+
+        receiver = make_udp_receiver([(b"\x0c", ("192.0.2.11", TEST_PEER[1]))])
+        with self.assertRaisesRegex(AssertionError, "^HIL_UDP_SOURCE$"):
+            receiver.wait_echo(b"\x0c", timeout=TEST_TIMEOUT)
+
+    def test_reads_udp_status_control_line_from_expected_peer(self):
+        line = b"$STATUS:bt=0,wifi=connected,ip=192.0.2.10\n"
+        receiver = make_udp_receiver([(line, TEST_PEER)])
+
+        result = receiver.control_line("$STATUS:", timeout=TEST_TIMEOUT)
+
+        self.assertEqual(result, "$STATUS:bt=0,wifi=connected,ip=192.0.2.10")
+        self.assertEqual(receiver.datagrams, 1)
+
+    def test_request_control_ignores_optional_peer_echo_like_flutter(self):
+        receiver = make_udp_receiver([
+            (bytes([helpers.CMD_UDP_KEEPALIVE]), TEST_PEER),
+            (b"$CMD:keepalive\n", TEST_PEER),
+        ])
+
+        result = receiver.request_control(
+            bytes([helpers.CMD_UDP_KEEPALIVE]), "$CMD:keepalive",
+            timeout=TEST_TIMEOUT, attempts=1,
+        )
+
+        self.assertEqual(result, "$CMD:keepalive")
+        self.assertEqual(receiver.datagrams, 2)
+
+    def test_request_control_accepts_registration_echo_before_ack(self):
+        receiver = make_udp_receiver([
+            (bytes([helpers.CMD_UDP_KEEPALIVE]), TEST_PEER),
+            (b"$CMD:keepalive\n", TEST_PEER),
+        ])
+
+        result = receiver.request_control(
+            bytes([helpers.CMD_UDP_KEEPALIVE]), "$CMD:keepalive",
+            timeout=TEST_TIMEOUT, attempts=2,
+            echo=bytes([helpers.CMD_UDP_KEEPALIVE]),
+        )
+
+        self.assertEqual(result, "$CMD:keepalive")
+        self.assertTrue(receiver.last_control_echo_seen)
+        self.assertEqual(receiver.datagrams, 2)
+        self.assertEqual(receiver.socket.sent, [(bytes([helpers.CMD_UDP_KEEPALIVE]), TEST_PEER)])
+
+    def test_status_wait_returns_latest_of_delayed_duplicate_snapshots(self):
+        old_status = b"$STATUS:bt=0,wifi=connected,flash=1,stream=1\n"
+        new_status = b"$STATUS:bt=0,wifi=connected,flash=0,stream=1\n"
+        receiver = make_udp_receiver([
+            (old_status, TEST_PEER),
+            (new_status, TEST_PEER),
+            (new_status, TEST_PEER),
+        ])
+        result = receiver.request_control(
+            bytes([helpers.CMD_CONNECTION_STATUS]), "$STATUS:",
+            timeout=TEST_TIMEOUT, attempts=1,
+        )
+        self.assertIn("flash=0", result)
+        self.assertEqual(receiver.datagrams, 2)
+
+    def test_control_wait_skips_valid_interleaved_video_datagrams(self):
+        status = b"$STATUS:bt=0,wifi=connected,camera=1,heap=100\n"
+        video = jpeg_packets(frame_id=44)[0]
+        receiver = make_udp_receiver([
+            (video, TEST_PEER), (status, TEST_PEER), (status, TEST_PEER),
+        ])
+        result = receiver.request_control(
+            bytes([helpers.CMD_CONNECTION_STATUS]), "$STATUS:",
+            timeout=TEST_TIMEOUT, attempts=1,
+        )
+        self.assertTrue(result.startswith("$STATUS:"))
+        self.assertEqual(receiver.background_video_datagrams, 1)
+        self.assertEqual(receiver.control_messages, [])
+
+    def test_control_wait_rejects_malformed_video_datagrams(self):
+        malformed = bytearray(jpeg_packets(frame_id=44)[0])
+        malformed[8:12] = (1).to_bytes(4, "little")
+        receiver = make_udp_receiver([(bytes(malformed), TEST_PEER)])
+        with self.assertRaisesRegex(AssertionError, "^HIL_UDP_UNEXPECTED_CONTROL$"):
+            receiver.request_control(
+                bytes([helpers.CMD_CONNECTION_STATUS]), "$STATUS:",
+                timeout=TEST_TIMEOUT, attempts=1,
+            )
+
+    def test_request_control_accepts_ack_before_registration_echo(self):
+        receiver = make_udp_receiver([
+            (b"$CMD:keepalive\n", TEST_PEER),
+            (bytes([helpers.CMD_UDP_KEEPALIVE]), TEST_PEER),
+        ])
+
+        result = receiver.request_control(
+            bytes([helpers.CMD_UDP_KEEPALIVE]), "$CMD:keepalive",
+            timeout=TEST_TIMEOUT, attempts=2,
+            echo=bytes([helpers.CMD_UDP_KEEPALIVE]),
+        )
+
+        self.assertEqual(result, "$CMD:keepalive")
+        self.assertTrue(receiver.last_control_echo_seen)
+        self.assertEqual(receiver.datagrams, 2)
+
+    def test_request_control_retries_idempotent_command_after_lost_reply(self):
+        receiver = make_udp_receiver([
+            (bytes([helpers.CMD_UDP_KEEPALIVE]), TEST_PEER),
+        ])
+
+        def delayed_reply(data, peer):
+            receiver.socket.sent.append((data, peer))
+            if len(receiver.socket.sent) == 2:
+                receiver.socket.pending.append((b"$CMD:keepalive\n", TEST_PEER))
+            return len(data)
+
+        receiver.socket.sendto = delayed_reply
+        result = receiver.request_control(
+            bytes([helpers.CMD_UDP_KEEPALIVE]), "$CMD:keepalive",
+            timeout=TEST_TIMEOUT, attempts=2,
+            echo=bytes([helpers.CMD_UDP_KEEPALIVE]),
+        )
+
+        self.assertEqual(result, "$CMD:keepalive")
+        self.assertEqual(len(receiver.socket.sent), 2)
+
+    def test_request_control_skips_valid_delayed_command_ack_before_status(self):
+        receiver = make_udp_receiver([
+            (b"$CMD:flash_on\n", TEST_PEER),
+            (b"$STATUS:bt=0,wifi=connected,ip=192.0.2.10\n", TEST_PEER),
+        ])
+
+        result = receiver.request_control(
+            b"\x09", "$STATUS:", timeout=TEST_TIMEOUT, attempts=1,
+        )
+
+        self.assertTrue(result.startswith("$STATUS:"))
+        self.assertEqual(receiver.control_messages, ["$CMD:flash_on"])
+        self.assertEqual(receiver.datagrams, 2)
+
+    def test_request_control_rejects_unknown_command_ack(self):
+        receiver = make_udp_receiver([(b"$CMD:untrusted\n", TEST_PEER)])
+        with self.assertRaisesRegex(AssertionError, "^HIL_UDP_UNKNOWN_ACK$"):
+            receiver.request_control(b"\x09", "$STATUS:", timeout=TEST_TIMEOUT)
+
+    def test_request_control_rejects_error_and_wrong_peer(self):
+        receiver = make_udp_receiver([(b"$ERROR:WIFI_UNAVAILABLE\n", TEST_PEER)])
+        with self.assertRaisesRegex(AssertionError, "^HIL_UDP_COMMAND_ERROR$"):
+            receiver.request_control(b"\x09", "$STATUS:", timeout=TEST_TIMEOUT)
+
+        receiver = make_udp_receiver([(b"$STATUS:ok\n", ("192.0.2.11", TEST_PEER[1]))])
+        with self.assertRaisesRegex(AssertionError, "^HIL_UDP_SOURCE$"):
+            receiver.request_control(b"\x09", "$STATUS:", timeout=TEST_TIMEOUT)
+
+    def test_udp_control_line_rejects_unexpected_source_and_payload(self):
+        receiver = make_udp_receiver([(b"$STATUS:ok\n", ("192.0.2.11", TEST_PEER[1]))])
+        with self.assertRaisesRegex(AssertionError, "^HIL_UDP_SOURCE$"):
+            receiver.control_line("$STATUS:", timeout=TEST_TIMEOUT)
+
+        receiver = make_udp_receiver([(b"not-status\n", TEST_PEER)])
+        with self.assertRaisesRegex(AssertionError, "^HIL_UDP_UNEXPECTED_CONTROL$"):
+            receiver.control_line("$STATUS:", timeout=TEST_TIMEOUT)
+
+    def test_reconstructs_out_of_order_fragments_without_ble(self):
+        receiver = make_udp_receiver([(packet, TEST_PEER)
+                                      for packet in reversed(jpeg_packets())])
         stamp, frame = receiver.next_frame(timeout=TEST_TIMEOUT)
-
         self.assertEqual(stamp, TEST_EPOCH)
         self.assertEqual(frame, TEST_JPEG)
-        self.assertEqual(receiver.packets, 2)
+        self.assertEqual(receiver.packets, 0)
+        self.assertEqual(receiver.parity_packets, 2)
         self.assertEqual(receiver.datagrams, 2)
         self.assertEqual(receiver.parts, {})
         self.assertEqual(receiver.total, 0)
         self.assertEqual(receiver.socket.receive_sizes, [helpers.UDP_RECEIVE_BYTES] * 2)
 
+    def test_late_fragment_after_fec_recovery_is_counted_as_stale(self):
+        packets = jpeg_packets(frame_id=17)
+        receiver = make_udp_receiver([(packet, TEST_PEER) for packet in packets[1:]])
+        _, frame = receiver.next_frame(timeout=TEST_TIMEOUT)
+        self.assertEqual(frame, TEST_JPEG)
+
+        receiver.socket.pending.append((packets[0], TEST_PEER))
+        with self.assertRaisesRegex(TimeoutError, "^HIL_UDP_FRAME_TIMEOUT$"):
+            receiver.next_frame(timeout=TEST_TIMEOUT)
+
+        self.assertEqual(receiver.stale_datagrams, 2)
+        self.assertIsNone(receiver.frame_id)
+        self.assertEqual(receiver.parts, {})
+
+    def test_xor_fec_recovers_one_missing_data_packet(self):
+        packets = jpeg_packets()
+        receiver = make_udp_receiver([(packet, TEST_PEER) for packet in packets[1:]])
+        _, frame = receiver.next_frame(timeout=TEST_TIMEOUT)
+        self.assertEqual(frame, TEST_JPEG)
+        self.assertEqual(receiver.packets, 1)
+        self.assertEqual(receiver.parity_packets, 1)
+
+    def test_two_adjacent_fragments_are_recovered_by_strided_fec_groups(self):
+        frame = bytes((index * 13) & 0xFF for index in range(10 * helpers.UDP_PAYLOAD_BYTES + 17))
+        packets = jpeg_packets(frame, frame_id=29)
+        receiver = make_udp_receiver([
+            (packet, TEST_PEER) for packet in packets
+            if (helpers.UDP_HEADER.unpack_from(packet)[0] & helpers.UDP_PARITY_SEQUENCE_FLAG)
+            or ((helpers.UDP_HEADER.unpack_from(packet)[0] & 0x7FFFFFFF) not in {0, 1})
+        ])
+        _, decoded = receiver.next_frame(timeout=TEST_TIMEOUT)
+        self.assertEqual(decoded, frame)
+
+    def test_two_losses_in_one_strided_group_are_not_recovered(self):
+        frame = bytes((index * 7) & 0xFF for index in range(10 * helpers.UDP_PAYLOAD_BYTES + 17))
+        packets = jpeg_packets(frame, frame_id=30)
+        receiver = make_udp_receiver([
+            (packet, TEST_PEER) for packet in packets
+            if (helpers.UDP_HEADER.unpack_from(packet)[0] & helpers.UDP_PARITY_SEQUENCE_FLAG)
+            or ((helpers.UDP_HEADER.unpack_from(packet)[0] & 0x7FFFFFFF) not in {0, 4})
+        ])
+        with self.assertRaisesRegex(TimeoutError, "^HIL_UDP_FRAME_TIMEOUT$"):
+            receiver.next_frame(timeout=TEST_TIMEOUT)
+        self.assertNotIn(0, receiver.parts)
+        self.assertNotIn(4, receiver.parts)
+
     def test_optional_ble_client_is_pumped_while_receiving(self):
         receiver = make_udp_receiver([(packet, TEST_PEER) for packet in jpeg_packets()])
         client = Mock(spec=["pump"])
-
         _, frame = receiver.next_frame(client=client, timeout=TEST_TIMEOUT)
-
         self.assertEqual(frame, TEST_JPEG)
         self.assertEqual(client.pump.call_count, 2)
 
-    def test_documented_single_byte_echoes_are_accepted_but_not_frame_data(self):
-        packets = [(b"\x01", TEST_PEER), (b"\x02", TEST_PEER)]
+    def test_duplicate_status_replies_are_ignored_before_video(self):
+        status = b"$STATUS:bt=0,wifi=connected,camera=1\\n"
+        packets = [(status, TEST_PEER), (status, TEST_PEER)]
         packets.extend((packet, TEST_PEER) for packet in jpeg_packets())
         receiver = make_udp_receiver(packets)
-
         _, frame = receiver.next_frame(timeout=TEST_TIMEOUT)
-
         self.assertEqual(frame, TEST_JPEG)
-        self.assertEqual(receiver.datagrams, 4)
+        self.assertEqual(receiver.control_messages, ["$STATUS:bt=0,wifi=connected,camera=1"] * 2)
+
+    def test_documented_single_byte_echoes_are_accepted_but_not_frame_data(self):
+        packets = [(b"\x01", TEST_PEER), (b"\x02", TEST_PEER),
+                   (bytes([helpers.CMD_UDP_KEEPALIVE]), TEST_PEER),
+                   (b"$CMD:single_frame\n", TEST_PEER)]
+        packets.extend((packet, TEST_PEER) for packet in jpeg_packets())
+        receiver = make_udp_receiver(packets)
+        _, frame = receiver.next_frame(timeout=TEST_TIMEOUT)
+        self.assertEqual(frame, TEST_JPEG)
+        self.assertEqual(receiver.datagrams, 6)
         self.assertEqual(receiver.packets, 2)
+        self.assertEqual(receiver.control_messages, ["$CMD:single_frame"])
+
+    def test_udp_error_ack_is_never_discarded_as_a_valid_control_message(self):
+        receiver = make_udp_receiver([(b"$ERROR:WIFI_UNAVAILABLE\n", TEST_PEER)])
+        with self.assertRaisesRegex(AssertionError, "^HIL_UDP_COMMAND_ERROR$"):
+            receiver.next_frame(timeout=TEST_TIMEOUT)
 
     def test_wrong_source_address_or_port_is_rejected(self):
         for source in (("192.0.2.11", TEST_PEER[1]), (TEST_PEER[0], TEST_PEER[1] + 1)):
-            with self.subTest(source=source):
-                receiver = make_udp_receiver([(jpeg_packets()[0], source)])
+            receiver = make_udp_receiver([(jpeg_packets()[0], source)])
+            with self.assertRaisesRegex(AssertionError, "^HIL_UDP_SOURCE$"):
+                receiver.next_frame(timeout=TEST_TIMEOUT)
+            self.assertEqual(receiver.parts, {})
+            self.assertEqual(receiver.packets, 0)
 
-                with self.assertRaisesRegex(AssertionError, "^HIL_UDP_SOURCE$"):
-                    receiver.next_frame(timeout=TEST_TIMEOUT)
+    def test_drain_preserves_completed_frame_watermark_for_late_parity(self):
+        receiver = make_udp_receiver([
+            (packet, TEST_PEER) for packet in jpeg_packets(frame_id=7)
+        ])
+        _, frame = receiver.next_frame(timeout=TEST_TIMEOUT)
+        self.assertEqual(frame, TEST_JPEG)
+        self.assertEqual(receiver.last_frame_id, 7)
 
-                self.assertEqual(receiver.parts, {})
-                self.assertEqual(receiver.packets, 0)
-
-    def test_other_short_packets_are_not_valid_command_echoes(self):
-        for packet in (b"", b"\x00", b"\x03", b"\xff", b"\x01\x02", bytes(15)):
-            with self.subTest(packet=packet):
-                receiver = make_udp_receiver([(packet, TEST_PEER)])
-
-                with self.assertRaisesRegex(AssertionError, "^HIL_UDP_INVALID_ECHO$"):
-                    receiver.next_frame(timeout=TEST_TIMEOUT)
-
-    def test_invalid_sequence_bounds_are_rejected(self):
-        max_chunks = (helpers.MAX_FRAME_BYTES + 511) // 512
-        for seq, total in ((0, 0), (2, 2), (0, max_chunks + 1)):
-            with self.subTest(seq=seq, total=total):
-                packet = udp_packet(seq, total, 0, b"x")
-                receiver = make_udp_receiver([(packet, TEST_PEER)])
-
-                with self.assertRaisesRegex(AssertionError, "^HIL_UDP_SEQUENCE$"):
-                    receiver.next_frame(timeout=TEST_TIMEOUT)
-
-    def test_invalid_payload_sizes_and_datagram_lengths_are_rejected(self):
-        for size, payload in ((0, b""), (513, b"x" * 513),
-                              (512, b"x" * 511), (1, b"xx")):
-            with self.subTest(size=size, actual=len(payload)):
-                packet = udp_packet(0, 1, 0, payload, size=size)
-                receiver = make_udp_receiver([(packet, TEST_PEER)])
-
-                with self.assertRaisesRegex(AssertionError, "^HIL_UDP_SIZE$"):
-                    receiver.next_frame(timeout=TEST_TIMEOUT)
-
-    def test_out_of_bounds_or_noncanonical_offsets_are_rejected(self):
-        cases = (
-            [udp_packet(0, 1, helpers.MAX_FRAME_BYTES, b"x")],
-            [udp_packet(0, 1, 1, b"x")],
-            [jpeg_packets()[0], udp_packet(1, 2, 511, TEST_JPEG[512:])],
-            [jpeg_packets()[0], udp_packet(1, 2, 513, TEST_JPEG[512:])],
-        )
-        for packets in cases:
-            with self.subTest(header=packets[-1][:16]):
-                receiver = make_udp_receiver([(packet, TEST_PEER) for packet in packets])
-
-                with self.assertRaisesRegex(AssertionError, "^HIL_UDP_OFFSET$"):
-                    receiver.next_frame(timeout=TEST_TIMEOUT)
-
-    def test_nonfinal_fragment_must_contain_512_bytes(self):
-        packet = udp_packet(0, 2, 0, b"x" * 511)
-        receiver = make_udp_receiver([(packet, TEST_PEER)])
-
-        with self.assertRaisesRegex(AssertionError, "^HIL_UDP_FRAGMENT_SIZE$"):
-            receiver.next_frame(timeout=TEST_TIMEOUT)
-
-    def test_incomplete_frame_times_out_instead_of_returning_partial_jpeg(self):
-        receiver = make_udp_receiver([(jpeg_packets()[0], TEST_PEER)])
-
+        receiver.drain()
+        receiver.socket.pending.append((
+            udp_packet(0, (len(TEST_JPEG) + helpers.UDP_PAYLOAD_BYTES - 1) // helpers.UDP_PAYLOAD_BYTES,
+                       0, bytes(helpers.UDP_PAYLOAD_BYTES),
+                       frame_id=7, frame_size=len(TEST_JPEG), parity=True),
+            TEST_PEER,
+        ))
         with self.assertRaisesRegex(TimeoutError, "^HIL_UDP_FRAME_TIMEOUT$"):
             receiver.next_frame(timeout=TEST_TIMEOUT)
+        self.assertIsNone(receiver.frame_id)
+        self.assertEqual(receiver.last_frame_id, 7)
+        self.assertEqual(receiver.stale_datagrams, 1)
 
-        self.assertEqual(receiver.packets, 1)
-        self.assertEqual(receiver.parts, {0: TEST_JPEG[:512]})
+    def test_all_short_transport_echoes_are_ignored_like_flutter(self):
+        short_packets = (b"", b"\x00", b"\x03", b"\xff", b"\x01\x02", bytes(23))
+        packets = [(packet, TEST_PEER) for packet in short_packets]
+        packets.extend((packet, TEST_PEER) for packet in jpeg_packets())
+        receiver = make_udp_receiver(packets)
+        _, frame = receiver.next_frame(timeout=TEST_TIMEOUT)
+        self.assertEqual(frame, TEST_JPEG)
+        # Frame assembly finishes as soon as all data fragments are present;
+        # the trailing parity datagram is not required to complete the frame.
+        self.assertEqual(receiver.datagrams, len(short_packets) + 2)
+
+    def test_invalid_sequence_and_frame_metadata_are_rejected(self):
+        cases = (
+            udp_packet(0, 0, 0, b"x", frame_size=4),
+            udp_packet(2, 2, 2400, b"x", frame_size=2401),
+            udp_packet(0, 2, 0, b"x", frame_size=helpers.MAX_FRAME_BYTES + 1),
+        )
+        for packet in cases:
+            receiver = make_udp_receiver([(packet, TEST_PEER)])
+            with self.assertRaisesRegex(AssertionError, "^HIL_UDP_SEQUENCE$"):
+                receiver.next_frame(timeout=TEST_TIMEOUT)
+
+    def test_invalid_sizes_and_offsets_are_rejected(self):
+        invalid = (
+            udp_packet(0, 2, 0, b"", size=0, frame_size=2400),
+            udp_packet(0, 2, 0, b"x" * 1201, size=1201, frame_size=2000),
+            udp_packet(0, 2, 1, b"x", frame_size=2400),
+            udp_packet(0, 2, 0, b"x", size=2, frame_size=2400),
+            udp_packet(0, 2, 0, b"x", frame_size=2000),
+            udp_packet(1, 2, 1000, b"x", frame_size=2000),
+        )
+        for packet in invalid:
+            receiver = make_udp_receiver([(packet, TEST_PEER)])
+            with self.assertRaises(AssertionError):
+                receiver.next_frame(timeout=TEST_TIMEOUT)
+
+    def test_incomplete_strided_group_with_two_losses_is_not_returned(self):
+        frame = bytes((index * 11) & 0xFF for index in range(10 * helpers.UDP_PAYLOAD_BYTES + 17))
+        packets = jpeg_packets(frame, frame_id=31)
+        receiver = make_udp_receiver([
+            (packet, TEST_PEER) for packet in packets
+            if (helpers.UDP_HEADER.unpack_from(packet)[0] & helpers.UDP_PARITY_SEQUENCE_FLAG)
+            or ((helpers.UDP_HEADER.unpack_from(packet)[0] & 0x7FFFFFFF) not in {0, 4})
+        ])
+        with self.assertRaisesRegex(TimeoutError, "^HIL_UDP_FRAME_TIMEOUT$"):
+            receiver.next_frame(timeout=TEST_TIMEOUT)
+        self.assertEqual(set(receiver.parts), {1, 2, 3, 5, 6, 7, 8, 9, 10})
+        self.assertEqual(receiver.dropped_frames, 0)
+
+    def test_newer_frame_replaces_partial_and_old_frame_is_ignored(self):
+        old = jpeg_packets(TEST_JPEG, frame_id=10)
+        fresh_frame = TEST_JPEG[:-1] + b"z"
+        fresh = jpeg_packets(fresh_frame, frame_id=11)
+        packets = [(old[0], TEST_PEER)]
+        packets.extend((packet, TEST_PEER) for packet in fresh)
+        packets.append((old[1], TEST_PEER))
+        packets.append((old[2], TEST_PEER))
+        receiver = make_udp_receiver(packets)
+        _, frame = receiver.next_frame(timeout=TEST_TIMEOUT)
+        self.assertEqual(frame, fresh_frame)
+        self.assertEqual(receiver.dropped_frames, 1)
 
     def test_echoes_without_a_frame_eventually_time_out(self):
         receiver = make_udp_receiver([(b"\x01", TEST_PEER), (b"\x02", TEST_PEER)])
-
         with self.assertRaisesRegex(TimeoutError, "^HIL_UDP_FRAME_TIMEOUT$"):
             receiver.next_frame(timeout=TEST_TIMEOUT)
-
         self.assertEqual(receiver.datagrams, 2)
         self.assertEqual(receiver.packets, 0)
-
-    def test_fragment_without_a_frame_start_cannot_complete_a_frame(self):
-        receiver = make_udp_receiver([(jpeg_packets()[1], TEST_PEER)])
-
-        with self.assertRaisesRegex(TimeoutError, "^HIL_UDP_FRAME_TIMEOUT$"):
-            receiver.next_frame(timeout=TEST_TIMEOUT)
-
-        self.assertEqual(receiver.parts, {})
-
 
 if __name__ == "__main__":
     unittest.main()

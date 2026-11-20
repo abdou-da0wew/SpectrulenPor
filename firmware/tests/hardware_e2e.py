@@ -26,7 +26,7 @@ from hardware_helpers import (BluezClient, UARTLog, UdpFrames, decode_jpeg, requ
                               BLE_PAIRING_CODE, CMD_STREAM_ON, CMD_STREAM_OFF,
                               CMD_SINGLE_FRAME, CMD_FLASH_ON, CMD_FLASH_OFF,
                               CMD_RESTART, CMD_SHUTDOWN, CMD_WIFI_CONFIG_PUT,
-                              CMD_BLE_PAIR, CMD_REBOOT)
+                              CMD_BLE_PAIR, CMD_REBOOT, CMD_CONNECTION_STATUS, CMD_UDP_KEEPALIVE)
 
 REPLY_TIMEOUT = 8
 WIFI_TIMEOUT = 120
@@ -34,7 +34,7 @@ IDLE_SECONDS = 2.2
 UDP_TEST_FRAMES = 30
 BLE_SCAN_SECONDS = 5
 BLE_FRAME_SIZE = (320, 240)
-UDP_FRAME_SIZE = (800, 600)
+UDP_FRAME_SIZES = frozenset({(1024, 768), (800, 600), (640, 480), (320, 240)})
 MAX_SSID_BYTES = 32
 MAX_PASSWORD_BYTES = 64
 TEST_PASSWORD = "TestPass123"
@@ -86,7 +86,9 @@ class HardwareSuite:
         self.wifi_dirty = False
         self.uart = None
         self.phase = "setup"
+        self.wifi_recovery_boot = False
         self.cleanup_errors = []
+        self.primary_failure = None
         self.interruption = None
 
     def checkpoint(self):
@@ -98,6 +100,97 @@ class HardwareSuite:
         if self.interruption is not None:
             self.interruption.bind_udp(receiver)
         return receiver
+
+    def initial_commissioning(self):
+        """Wait for BLE setup, either from empty NVS or WiFi-failure recovery."""
+        mark = self.uart.reset()
+        boot = self.uart.wait(
+            r"operation=boot.mode mode=(ble_setup|wifi_only) ble=([01])",
+            mark,
+            WIFI_TIMEOUT,
+            "HIL_BOOT_MODE_MISSING",
+        )
+        mode, ble_enabled = boot.groups()
+
+        if mode == "ble_setup":
+            require(ble_enabled == "1", "HIL_SETUP_BLE_BOOT_MISMATCH")
+            self.uart.wait(
+                r"operation=ble.advertise",
+                mark,
+                WIFI_TIMEOUT,
+                "HIL_SETUP_ADVERTISEMENT_MISSING",
+            )
+            return {
+                "boot_mode": mode,
+                "commissioning_source": "empty_nvs",
+                "ble_recovery": False,
+            }
+
+        require(ble_enabled == "0", "HIL_WIFI_BOOT_BLE_MISMATCH")
+        self.uart.wait(
+            r"operation=boot.ready camera=1",
+            mark,
+            WIFI_TIMEOUT,
+            "HIL_CAMERA_BOOT_FAILED",
+        )
+        transport = self.uart.wait(
+            r"operation=wifi.got_ip ip=([0-9.]+)|"
+            r"operation=ble.recovery outcome=starting reason=WIFI_UNAVAILABLE",
+            mark,
+            WIFI_TIMEOUT,
+            "HIL_WIFI_OR_BLE_RECOVERY_TIMEOUT",
+        )
+
+        if transport.group(1) is not None:
+            ip = transport.group(1)
+            self.uart.wait(
+                r"UDP socket bound on port",
+                mark,
+                WIFI_TIMEOUT,
+                "HIL_UDP_LISTENER_NOT_READY",
+            )
+            boot_text = self.uart.text(mark)
+            require(
+                "operation=ble.init" not in boot_text
+                and "operation=ble.advertise" not in boot_text,
+                "HIL_BLE_STARTED_IN_WIFI_MODE",
+            )
+            self.phase = "wifi"
+            self.udp = self.receiver(ip)
+            self.checkpoint()
+            # Peer echo is a best-effort ARP warm-up. The app's registration
+            # contract is the keepalive acknowledgement, not that optional echo.
+            ack = self.udp.request_control(
+                bytes([CMD_UDP_KEEPALIVE]), "$CMD:keepalive",
+                timeout=2, attempts=4,
+            )
+            require(ack == "$CMD:keepalive", "HIL_UDP_KEEPALIVE_ACK_MISMATCH")
+            status = self.status()
+            require(
+                status["wifi"] == "connected" and status["ip"] == ip,
+                "HIL_WIFI_STATUS_MISMATCH",
+            )
+            return {
+                "boot_mode": mode,
+                "commissioning_source": "saved_wifi",
+                "ble_recovery": False,
+                "wifi": status["wifi"],
+                "ip": ip,
+                "udp_listener_ready": True,
+            }
+
+        self.uart.wait(
+            r"operation=ble.recovery outcome=advertising mode=commissioning",
+            mark,
+            WIFI_TIMEOUT,
+            "HIL_BLE_RECOVERY_ADVERTISEMENT_MISSING",
+        )
+        self.wifi_recovery_boot = True
+        return {
+            "boot_mode": mode,
+            "commissioning_source": "wifi_failure_recovery",
+            "ble_recovery": True,
+        }
 
     def local_cleanup(self, operation, *arguments):
         failure = sys.exc_info()[1]
@@ -123,6 +216,8 @@ class HardwareSuite:
             record["details"] = details
             record["ok"] = True
         except BaseException as exc:
+            if self.primary_failure is None:
+                self.primary_failure = exc
             record["ok"] = False
             record["error_type"] = type(exc).__name__
             if isinstance(self.udp, UdpFrames):
@@ -149,14 +244,21 @@ class HardwareSuite:
             self.records.append(record)
             print(f'{"PASS" if record.get("ok") else "FAIL"} {name}', flush=True)
 
-    def status(self):
+    def status(self, udp: UdpFrames | None = None):
         if self.phase == "setup":
             status = self.client.status()
+        elif self.phase == "wifi":
+            receiver = udp or self.udp
+            line = receiver.request_control(
+                bytes([CMD_CONNECTION_STATUS]), "$STATUS:",
+                timeout=2, attempts=4,
+            )
+            status = dict(
+                pair.split("=", 1)
+                for pair in line.removeprefix("$STATUS:").split(",")
+            )
         else:
-            since = self.uart.mark()
-            match = self.uart.wait(r"\$STATUS:([^\r\n\x1b]+)(?:\x1b\[[0-9;]*m)?\r?\n", since,
-                                   REPLY_TIMEOUT, "HIL_UART_STATUS_TIMEOUT")
-            status = dict(pair.split("=", 1) for pair in match.group(1).split(","))
+            raise RuntimeError("HIL_UNKNOWN_TRANSPORT_PHASE")
         self.heap_samples.append(int(status["heap"]))
         require(status["bt"] == ("1" if self.phase == "setup" else "0"),
                 "HIL_BOOT_TRANSPORT_MISMATCH")
@@ -212,14 +314,30 @@ class HardwareSuite:
         return match.group(1)
 
     def assert_udp_quiet(self):
-        before = self.udp.datagrams
+        # STREAM_OFF can race one frame already being captured/sent. Allow that
+        # in-flight frame (or its partial fragments) to settle, then drain and
+        # preserve its frame-ID watermark before enforcing the quiet interval.
+        previous_dropped = self.udp.dropped_frames
+        try:
+            self.udp.next_frame(timeout=0.9)
+        except TimeoutError as exc:
+            require(str(exc) == "HIL_UDP_FRAME_TIMEOUT", "HIL_UNEXPECTED_UDP_TIMEOUT")
+        self.udp.drain()
+        settled_frame_id = self.udp.last_frame_id
+
         try:
             self.udp.next_frame(timeout=IDLE_SECONDS)
         except TimeoutError as exc:
             require(str(exc) == "HIL_UDP_FRAME_TIMEOUT", "HIL_UNEXPECTED_UDP_TIMEOUT")
         else:
             raise AssertionError("HIL_UDP_UNEXPECTED_FRAME")
-        require(self.udp.datagrams == before, "HIL_UDP_UNEXPECTED_FRAGMENTS")
+        require(
+            self.udp.last_frame_id == settled_frame_id
+            and self.udp.frame_id is None
+            and not self.udp.parts
+            and self.udp.dropped_frames == previous_dropped,
+            "HIL_UDP_UNEXPECTED_FRAME",
+        )
 
     def udp_control(self, code: int):
         since = self.uart.mark()
@@ -421,11 +539,12 @@ class HardwareSuite:
         self.udp.command(bytes([CMD_SINGLE_FRAME]))
         stamp, data = self.udp.next_frame()
         del stamp
-        details = decode_jpeg(data, UDP_FRAME_SIZE, self.output / "frames" / "udp-single.jpg")
+        details = decode_jpeg(data, UDP_FRAME_SIZES, self.output / "frames" / "udp-single.jpg")
         self.assert_udp_quiet()
         status = self.status()
         require(int(status["frames"]) == int(before["frames"]) + 1 and status["stream"] == "0",
                 "HIL_UDP_SINGLE_COUNT")
+        details["late_fragments_ignored"] = self.udp.stale_datagrams
         return details
 
     def udp_stream(self):
@@ -435,7 +554,7 @@ class HardwareSuite:
         for index in range(UDP_TEST_FRAMES):
             stamp, frame = self.udp.next_frame()
             times.append(stamp)
-            decode_jpeg(frame, UDP_FRAME_SIZE, self.output / "frames" / f"udp-stream-{index}.jpg")
+            decode_jpeg(frame, UDP_FRAME_SIZES, self.output / "frames" / f"udp-stream-{index}.jpg")
         self.udp_control(CMD_STREAM_OFF)
         self.udp.drain()
         self.assert_udp_quiet()
@@ -459,22 +578,22 @@ class HardwareSuite:
             attacker.command(b"\x03")
             stamp, data = self.udp.next_frame()
             del stamp
-            decode_jpeg(data, (800, 600), self.output / "frames" / "udp-after-invalid.jpg")
+            decode_jpeg(data, UDP_FRAME_SIZES, self.output / "frames" / "udp-after-invalid.jpg")
             require(self.status()["flash"] == "0", "HIL_OTHER_PEER_CONTROL_ACCEPTED")
             require(re.search(r"operation=command.execute transport=udp .*command=0x(?:03|07)",
                               self.uart.text(before)) is None, "HIL_INVALID_UDP_COMMAND_EXECUTED")
             attacker.command(b"\x01")
             stamp, data = attacker.next_frame()
             del stamp
-            decode_jpeg(data, (800, 600), self.output / "frames" / "udp-new-peer.jpg")
-            self.status()
+            decode_jpeg(data, UDP_FRAME_SIZES, self.output / "frames" / "udp-new-peer.jpg")
+            self.status(udp=attacker)
             self.udp.drain()
             self.assert_udp_quiet()
             attacker.command(b"\x00")
-            require(self.status()["stream"] == "0", "HIL_NEW_PEER_PAUSE_FAILED")
+            require(self.status(udp=attacker)["stream"] == "0", "HIL_NEW_PEER_PAUSE_FAILED")
             self.udp.command(bytes([CMD_SINGLE_FRAME]))
             _, data = self.udp.next_frame()
-            decode_jpeg(data, UDP_FRAME_SIZE, self.output / "frames" / "udp-peer-restored.jpg")
+            decode_jpeg(data, UDP_FRAME_SIZES, self.output / "frames" / "udp-peer-restored.jpg")
             return {"flash_on_off": True, "invalid_and_other_peer_commands_not_executed": True,
                     "unicast_handover": True, "original_peer_reclaimed": True}
         finally:
@@ -521,7 +640,7 @@ class HardwareSuite:
         self.checkpoint()
         self.udp.command(bytes([CMD_SINGLE_FRAME]))
         _, data = self.udp.next_frame()
-        details = decode_jpeg(data, UDP_FRAME_SIZE, self.output / "frames" / "udp-after-reset.jpg")
+        details = decode_jpeg(data, UDP_FRAME_SIZES, self.output / "frames" / "udp-after-reset.jpg")
         self.assert_udp_quiet()
         self.client.assert_not_advertising(BLE_SCAN_SECONDS)
         return {"hardware_reset_observed": True, "wifi_credentials_persisted": True,
@@ -538,6 +657,27 @@ class HardwareSuite:
         self.client.command(0, "$CMD:stream_off")
         require(self.status()["standby"] == "0", "HIL_RESUME_FAILED")
         return {"standby": True, "ble_recovery": True}
+
+    def wifi_integrity(self):
+        status = self.status()
+        text = (self.output / "uart.log").read_text(errors="replace")
+        require(
+            re.search(r"Guru Meditation|Brownout|abort\\(\\)|panic'ed|assert failed", text, re.I) is None,
+            "HIL_UART_RUNTIME_FAULT",
+        )
+        if status["sensor"] == "0":
+            require("$UV:" not in text, "HIL_FABRICATED_SENSOR_READING")
+        require(status["bt"] == "0", "HIL_BLE_STARTED_IN_WIFI_MODE")
+        return {
+            "frame_errors": int(status["errors"]),
+            "notification_errors": int(status["notify_errors"]),
+            "heap_bytes": int(status["heap"]),
+            "minimum_internal_heap_bytes": int(status["min_heap"]),
+            "udp_datagrams": self.udp.datagrams if self.udp else 0,
+            "accepted_fragments": self.udp.packets if self.udp else 0,
+            "incomplete_frames": self.udp.dropped_frames if self.udp else 0,
+            "runtime_faults": 0,
+        }
 
     def integrity(self):
         self.client.pump(1)
@@ -558,12 +698,30 @@ class HardwareSuite:
         try:
             self.checkpoint()
             require(self.uart is not None, "HIL_UART_REQUIRED")
-            mark = self.uart.reset()
-            self.uart.wait(r"operation=boot.mode mode=ble_setup ble=1", mark,
-                           code="HIL_SETUP_REQUIRES_CLEAN_NVS")
-            self.uart.wait(r"operation=ble.advertise", mark,
-                           code="HIL_SETUP_ADVERTISEMENT_MISSING")
+            self.case("initial_commissioning", self.initial_commissioning)
+            if self.phase == "wifi":
+                self.case("udp_single_frame", self.udp_single)
+                self.case("udp_stream_and_pause", self.udp_stream)
+                self.case("udp_single_after_pause", self.udp_single)
+                self.case("udp_controls_and_peer_handover", self.udp_controls_and_peer)
+                self.case("restart_and_nvs_recovery", self.restart)
+                self.case("final_integrity", self.wifi_integrity)
+                return
+
             self.case("advertisement_and_gatt", self.advertisement_and_gatt)
+            if self.wifi_recovery_boot and self.wifi is not None:
+                # A saved-WiFi recovery boot is already evidence that the old
+                # credential failed. Re-provision from the active NM profile
+                # before running unrelated BLE-negative tests that would delay
+                # restoration of the actual UDP video path.
+                self.case("wifi_provisioning_from_recovery", self.wifi_connect)
+                self.case("udp_single_frame", self.udp_single)
+                self.case("udp_stream_and_pause", self.udp_stream)
+                self.case("udp_single_after_pause", self.udp_single)
+                self.case("udp_controls_and_peer_handover", self.udp_controls_and_peer)
+                self.case("restart_and_nvs_recovery", self.restart)
+                self.case("final_integrity", self.wifi_integrity)
+                return
             self.case("malformed_ble_commands", self.malformed_ble)
             self.case("paused_single_frame", self.single_frame)
             self.case("queued_single_frames", self.queued_single_frames)
@@ -584,11 +742,15 @@ class HardwareSuite:
                 self.case("udp_controls_and_peer_handover", self.udp_controls_and_peer)
                 self.case("restart_and_nvs_recovery", self.restart)
             self.case("final_integrity", self.integrity)
+        except BaseException as exc:
+            if self.primary_failure is None:
+                self.primary_failure = exc
+            raise
         finally:
             self.cleanup()
 
     def cleanup(self, disconnect=True):
-        failed = sys.exc_info()[0] is not None
+        failed = sys.exc_info()[0] is not None or self.primary_failure is not None
         if self.interruption is not None:
             self.interruption.begin_cleanup()
         cleanup = []

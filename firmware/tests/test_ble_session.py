@@ -27,7 +27,16 @@ class BleSessionTests(unittest.TestCase):
             stubs, Path(__file__), Path(__file__).with_name("session_host.py")],
             extra_flags=("-pthread",))
 
-    def test_new_stream_command_reconciles_before_execution(self):
+    def test_ble_recovery_waits_for_the_wifi_outage_threshold(self):
+        self.host.assert_case(self, "recovery_delayed")
+
+    def test_wifi_recovery_resets_the_ble_fallback_timer(self):
+        self.host.assert_case(self, "recovery_wifi_reset")
+
+    def test_ble_recovery_retries_after_transient_initialization_failure(self):
+        self.host.assert_case(self, "recovery_init_retry")
+
+    def test_new_stream_command_is_rejected_after_session_reconciliation(self):
         self.host.assert_case(self, "new_stream_during_drain")
 
     def test_new_flash_command_reconciles_before_execution(self):

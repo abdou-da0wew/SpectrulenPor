@@ -416,6 +416,12 @@ class HardwareEngine:
         self._clear_latest()
         self._update(connected=False, transport=None, ip=ip)
         self.udp = self.udp_factory(ip, cooperate=self.cooperate, on_frame=self._publish)
+        self.udp.request_control(
+            bytes([WIRE.CMD_UDP_KEEPALIVE]),
+            "$CMD:keepalive",
+            timeout=4,
+            attempts=3,
+        )
         self.udp.command(bytes([WIRE.CMD_SINGLE_FRAME]))
         self.udp.next_frame(timeout=FRAME_TIMEOUT_SECONDS)
         self.cooperate()
@@ -467,11 +473,50 @@ class HardwareEngine:
                            WIRE.CMD_SINGLE_FRAME: "$CMD:single_frame", WIRE.CMD_FLASH_ON: "$CMD:flash_on",
                            WIRE.CMD_FLASH_OFF: "$CMD:flash_off"}
         if self.udp is not None:
-            self.udp.command(bytes([code]))
+            attempts = 1 if code == WIRE.CMD_SINGLE_FRAME else 3
+            self.udp.request_control(
+                bytes([code]), acknowledgments[code], timeout=4, attempts=attempts
+            )
         elif self.client is not None and self.client.rx is not None:
             self.client.command(code, acknowledgments[code])
         else:
             raise TestbenchError("TB_NOT_CONNECTED", "NOT_CONNECTED", 409)
+
+    def _verify_udp_stream_stopped(self):
+        status = self.udp.request_control(
+            bytes([WIRE.CMD_CONNECTION_STATUS]),
+            "$STATUS:",
+            timeout=4,
+            attempts=3,
+            required_status_copies=1,
+        )
+        fields = dict(
+            item.split("=", 1)
+            for item in status.removeprefix("$STATUS:").split(",")
+            if "=" in item
+        )
+        if fields.get("stream") != "0":
+            raise TestbenchError("HIL_UDP_STREAM_STOP_UNCONFIRMED")
+        return status
+
+    def _stop_stream(self):
+        acknowledgment_error = None
+        try:
+            self._control(WIRE.CMD_STREAM_OFF)
+        except TimeoutError as exc:
+            acknowledgment_error = exc
+
+        if self.udp is not None:
+            try:
+                self._verify_udp_stream_stopped()
+            except TimeoutError:
+                if acknowledgment_error is not None:
+                    raise acknowledgment_error
+                raise
+            return
+
+        if acknowledgment_error is not None:
+            raise acknowledgment_error
 
     def _next_frame(self):
         if self.udp is not None:
@@ -486,14 +531,21 @@ class HardwareEngine:
 
     def _quiet(self):
         deadline = time.monotonic() + QUIET_SECONDS
-        datagrams = self.udp.datagrams if self.udp else None
+        assembly = self.udp.assembly if self.udp is not None else None
+        video_packets = (
+            assembly.packets + assembly.parity_packets if assembly is not None else 0
+        )
         while time.monotonic() < deadline:
             self.cooperate()
             if self.client is not None:
                 self.client.pump()
             if self.udp is not None:
                 self.udp.poll()
-                if self.udp.ready or self.udp.datagrams != datagrams:
+                current_assembly = self.udp.assembly
+                current_video_packets = (
+                    current_assembly.packets + current_assembly.parity_packets
+                )
+                if self.udp.ready or current_video_packets != video_packets:
                     raise TestbenchError("HIL_UDP_UNEXPECTED_FRAGMENTS")
             elif self.client.frames:
                 raise TestbenchError("HIL_SINGLE_FRAME_RESUMED_STREAM")
@@ -540,7 +592,7 @@ class HardwareEngine:
         def stream():
             self._control(WIRE.CMD_STREAM_ON)
             times = [self._next_frame()[0] for _ in range(3)]
-            self._control(WIRE.CMD_STREAM_OFF)
+            self._stop_stream()
             self._drain()
             self._quiet()
             return {"decoded_frames": len(times), "pause_observed": True,

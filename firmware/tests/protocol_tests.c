@@ -144,7 +144,22 @@ static void test_commands(void)
     memset(&unterminated, 'a', sizeof(unterminated));
     CHECK(!protocol_wifi_credentials_valid(&unterminated));
     for (unsigned code = 0; code <= 255; ++code) {
-        CHECK(protocol_command_allowed_over_udp((uint8_t)code) == (code <= CMD_FLASH_OFF));
+        CHECK(protocol_command_allowed_over_udp((uint8_t)code) ==
+              (code <= CMD_FLASH_OFF || code == CMD_RESTART ||
+               code == CMD_SHUTDOWN || code == CMD_CONNECTION_STATUS ||
+               code == CMD_REBOOT || code == CMD_UDP_KEEPALIVE));
+    }
+    const uint8_t ble_setup_codes[] = {
+        CMD_FLASH_ON, CMD_FLASH_OFF, CMD_RESTART, CMD_SHUTDOWN,
+        CMD_WIFI_CONFIG_PUT, CMD_WIFI_CONFIG_GET, CMD_CONNECTION_STATUS,
+        CMD_BLE_PAIR, CMD_REBOOT,
+    };
+    for (unsigned code = 0; code <= 255; ++code) {
+        bool allowed = false;
+        for (size_t i = 0; i < sizeof(ble_setup_codes); ++i) {
+            if (ble_setup_codes[i] == code) allowed = true;
+        }
+        CHECK(protocol_command_allowed_over_ble_setup((uint8_t)code) == allowed);
     }
 }
 
@@ -178,32 +193,62 @@ static void test_udp(void)
     uint8_t packet[UDP_MTU_SAFE];
     size_t packet_len;
     const uint8_t frame[] = {0xFF, 0xD8, 0xFF, 0xD9};
+    const uint32_t frame_id = 42U;
     const uint8_t expected[] = {
         0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0,
-        0xFF, 0xD8, 0xFF, 0xD9,
+        42, 0, 0, 0, 4, 0, 0, 0, 0xFF, 0xD8, 0xFF, 0xD9,
     };
-    CHECK(protocol_udp_encode_packet(frame, sizeof(frame), 0, packet, sizeof(packet), &packet_len));
+    CHECK(protocol_udp_encode_packet(frame, sizeof(frame), frame_id, 0,
+                                     packet, sizeof(packet), &packet_len));
     CHECK(packet_len == sizeof(expected));
     CHECK(memcmp(packet, expected, sizeof(expected)) == 0);
-    CHECK(!protocol_udp_encode_packet(NULL, 4, 0, packet, sizeof(packet), &packet_len));
+    CHECK(!protocol_udp_encode_packet(NULL, 4, frame_id, 0, packet, sizeof(packet), &packet_len));
     CHECK(packet_len == 0);
-    CHECK(!protocol_udp_encode_packet(frame, 4, 0, NULL, sizeof(packet), &packet_len));
-    CHECK(!protocol_udp_encode_packet(frame, 0, 0, packet, sizeof(packet), &packet_len));
-    CHECK(!protocol_udp_encode_packet(frame, MAX_FRAME_BYTES + 1, 0, packet, sizeof(packet), &packet_len));
-    CHECK(!protocol_udp_encode_packet(frame, 4, 1, packet, sizeof(packet), &packet_len));
-    CHECK(!protocol_udp_encode_packet(frame, 4, 0, packet, sizeof(packet), NULL));
+    CHECK(!protocol_udp_encode_packet(frame, 4, frame_id, 0, NULL, sizeof(packet), &packet_len));
+    CHECK(!protocol_udp_encode_packet(frame, 0, frame_id, 0, packet, sizeof(packet), &packet_len));
+    CHECK(!protocol_udp_encode_packet(frame, MAX_FRAME_BYTES + 1, frame_id, 0, packet, sizeof(packet), &packet_len));
+    CHECK(!protocol_udp_encode_packet(frame, 4, frame_id, 1, packet, sizeof(packet), &packet_len));
+    CHECK(!protocol_udp_encode_packet(frame, 4, frame_id, 0, packet, sizeof(packet), NULL));
     memset(packet, 0xA5, sizeof(packet));
-    CHECK(!protocol_udp_encode_packet(frame, 4, 0, packet, sizeof(expected) - 1, &packet_len));
+    CHECK(!protocol_udp_encode_packet(frame, 4, frame_id, 0, packet, sizeof(expected) - 1, &packet_len));
     for (size_t i = 0; i < sizeof(packet); ++i) {
         CHECK(packet[i] == 0xA5);
     }
+
+    uint8_t parity[UDP_PAYLOAD_BYTES] = {0};
+    CHECK(protocol_udp_encode_parity_packet(
+        parity, sizeof(parity), sizeof(frame), frame_id, 0, 1,
+        packet, sizeof(packet), &packet_len));
+    CHECK(packet_len == UDP_HEADER_LEN + UDP_PAYLOAD_BYTES);
+    CHECK(read_u32_le(packet) == (UDP_PARITY_SEQUENCE_FLAG | 0U));
+    CHECK(read_u32_le(packet + 4) == 1U);
+    CHECK(read_u32_le(packet + 8) == 0U);
+    CHECK(read_u32_le(packet + 12) == UDP_PAYLOAD_BYTES);
+    CHECK(read_u32_le(packet + 16) == frame_id);
+    CHECK(read_u32_le(packet + 20) == sizeof(frame));
+
+    /* Strided FEC group one covers data sequences 1, 5, 9, ... . */
+    const size_t strided_frame_len = 2U * UDP_PAYLOAD_BYTES + 1U;
+    CHECK(protocol_udp_encode_parity_packet(
+        parity, sizeof(parity), strided_frame_len, frame_id, 1, 3,
+        packet, sizeof(packet), &packet_len));
+    CHECK(read_u32_le(packet) == (UDP_PARITY_SEQUENCE_FLAG | 1U));
+    CHECK(read_u32_le(packet + 4) == 3U);
+    CHECK(read_u32_le(packet + 8) == UDP_PAYLOAD_BYTES);
+    CHECK(read_u32_le(packet + 20) == strided_frame_len);
+
+    CHECK(!protocol_udp_encode_parity_packet(
+        parity, sizeof(parity) - 1, sizeof(frame), frame_id, 0, 1,
+        packet, sizeof(packet), &packet_len));
 
     const size_t payload = UDP_PAYLOAD_BYTES;
     CHECK(protocol_udp_packet_count(0) == 0);
     CHECK(protocol_udp_packet_count(payload) == 1);
     CHECK(protocol_udp_packet_count(payload + 1) == 2);
     CHECK(protocol_udp_packet_count(MAX_FRAME_BYTES + 1) == 0);
-    const size_t lengths[] = {1, 3, 4, 1383, 1384, 1385, 4096, 16384, MAX_FRAME_BYTES};
+    const size_t lengths[] = {
+        1, 3, 4, 959, 960, 961, 4096, 16384, MAX_FRAME_BYTES
+    };
     for (size_t test = 0; test < sizeof(lengths) / sizeof(lengths[0]); ++test) {
         size_t length = lengths[test];
         uint8_t *source = malloc(length);
@@ -215,10 +260,13 @@ static void test_udp(void)
         size_t count = protocol_udp_packet_count(length);
         size_t offset = 0;
         for (size_t seq = 0; seq < count; ++seq) {
-            CHECK(protocol_udp_encode_packet(source, length, seq, packet, sizeof(packet), &packet_len));
+            CHECK(protocol_udp_encode_packet(source, length, frame_id, seq,
+                                             packet, sizeof(packet), &packet_len));
             CHECK(read_u32_le(packet) == seq);
             CHECK(read_u32_le(packet + 4) == count);
             CHECK(read_u32_le(packet + 8) == offset);
+            CHECK(read_u32_le(packet + 16) == frame_id);
+            CHECK(read_u32_le(packet + 20) == length);
             size_t bytes = read_u32_le(packet + 12);
             CHECK(packet_len == UDP_HEADER_LEN + bytes);
             CHECK(packet_len <= UDP_MTU_SAFE);

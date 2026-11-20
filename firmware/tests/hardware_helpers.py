@@ -25,9 +25,11 @@ RX_UUID = "0000ffe2-0000-1000-8000-00805f9b34fb"
 CCCD_UUID = "00002902-0000-1000-8000-00805f9b34fb"
 MAX_FRAME_BYTES = 512 * 1024
 MAX_TEXT_BYTES = 4096
-UDP_HEADER = struct.Struct("<IIII")
+UDP_HEADER = struct.Struct("<IIIIII")
 UDP_PORT = 8888
-UDP_PAYLOAD_BYTES = 512
+UDP_PAYLOAD_BYTES = 1200
+UDP_FEC_GROUP_SIZE = 4
+UDP_PARITY_SEQUENCE_FLAG = 0x80000000
 UDP_RECEIVE_BYTES = 1500
 UART_BAUD = 115200
 UART_READ_TIMEOUT_SECONDS = 0.1
@@ -48,6 +50,7 @@ CMD_WIFI_CONFIG_GET = 0x08
 CMD_CONNECTION_STATUS = 0x09
 CMD_BLE_PAIR = 0x0A      # pairing code "11111"
 CMD_REBOOT = 0x0B        # reboot ESP after WiFi setup
+CMD_UDP_KEEPALIVE = 0x0C # re-register UDP video/control peer
 
 BLE_PAIRING_CODE = "11111"
 
@@ -65,14 +68,21 @@ def is_gatt_rejection(error) -> bool:
     )
 
 
-def decode_jpeg(data: bytes, expected_size: tuple[int, int], path: Path) -> dict:
+def decode_jpeg(
+    data: bytes,
+    expected_size: tuple[int, int] | frozenset[tuple[int, int]],
+    path: Path,
+) -> dict:
     from PIL import Image, ImageStat
 
     require(data.startswith(b"\xff\xd8") and data.endswith(b"\xff\xd9"), "HIL_JPEG_MARKERS")
     with Image.open(io.BytesIO(data)) as image:
         image.load()
         require(image.format == "JPEG", "HIL_IMAGE_FORMAT")
-        require(image.size == expected_size, "HIL_IMAGE_DIMENSIONS")
+        if isinstance(expected_size, frozenset):
+            require(image.size in expected_size, "HIL_IMAGE_DIMENSIONS")
+        else:
+            require(image.size == expected_size, "HIL_IMAGE_DIMENSIONS")
         luminance = ImageStat.Stat(image.convert("L")).mean[0]
         width, height = image.size
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -531,14 +541,227 @@ class UdpFrames:
             pass
         self.socket.setblocking(False)
         self.parts = {}
+        self.parity = {}
         self.total = 0
-        self.chunk_bytes = 0
+        self.frame_size = 0
+        self.frame_id = None
+        self.last_frame_id = None
         self.dropped_frames = 0
+        self.stale_datagrams = 0
         self.packets = 0
+        self.parity_packets = 0
         self.datagrams = 0
+        self.control_messages = []
+        self.last_control_echo_seen = False
+        self.background_video_datagrams = 0
+
+    @staticmethod
+    def _newer_frame(candidate: int, reference: int) -> bool:
+        difference = (candidate - reference) & 0xFFFFFFFF
+        return difference != 0 and difference < 0x80000000
+
+    @staticmethod
+    def _is_video_datagram(packet: bytes) -> bool:
+        if len(packet) < UDP_HEADER.size:
+            return False
+        raw_seq, total, offset, size, _frame_id, frame_size = UDP_HEADER.unpack_from(packet)
+        is_parity = bool(raw_seq & UDP_PARITY_SEQUENCE_FLAG)
+        sequence = raw_seq & 0x7FFFFFFF
+        if not (0 < total <= (MAX_FRAME_BYTES + UDP_PAYLOAD_BYTES - 1) // UDP_PAYLOAD_BYTES):
+            return False
+        if not (4 <= frame_size <= MAX_FRAME_BYTES):
+            return False
+        if total != (frame_size + UDP_PAYLOAD_BYTES - 1) // UDP_PAYLOAD_BYTES:
+            return False
+        if not (0 < size <= UDP_PAYLOAD_BYTES and len(packet) == UDP_HEADER.size + size):
+            return False
+        if is_parity:
+            groups = min(total, UDP_FEC_GROUP_SIZE)
+            group_start = sequence
+            return (sequence < groups and offset == group_start * UDP_PAYLOAD_BYTES
+                    and size == UDP_PAYLOAD_BYTES and offset < frame_size)
+        return (sequence < total and offset == sequence * UDP_PAYLOAD_BYTES
+                and size == min(UDP_PAYLOAD_BYTES, frame_size - offset))
+
+    def _clear_frame(self):
+        self.parts.clear()
+        self.parity.clear()
+        self.total = 0
+        self.frame_size = 0
+        self.frame_id = None
+
+    def _recover(self):
+        group_count = min(self.total, UDP_FEC_GROUP_SIZE)
+        for group_index in range(group_count):
+            members = range(group_index, self.total, UDP_FEC_GROUP_SIZE)
+            missing = [seq for seq in members if seq not in self.parts]
+            if len(missing) != 1 or group_index not in self.parity:
+                continue
+            recovered = bytearray(self.parity[group_index])
+            for seq in range(group_index, self.total, UDP_FEC_GROUP_SIZE):
+                if seq == missing[0]:
+                    continue
+                part = self.parts.get(seq)
+                if part is None:
+                    continue
+                for index, value in enumerate(part):
+                    recovered[index] ^= value
+            offset = missing[0] * UDP_PAYLOAD_BYTES
+            expected = min(UDP_PAYLOAD_BYTES, self.frame_size - offset)
+            self.parts[missing[0]] = bytes(recovered[:expected])
 
     def command(self, data: bytes) -> None:
         self.socket.sendto(data, self.peer)
+
+    def wait_echo(self, expected: bytes, timeout: float = 10) -> None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                packet, source = self.socket.recvfrom(UDP_RECEIVE_BYTES)
+            except BlockingIOError:
+                time.sleep(POLL_SECONDS)
+                continue
+            self.datagrams += 1
+            require(source == self.peer, "HIL_UDP_SOURCE")
+            require(packet == expected, "HIL_UDP_ECHO_MISMATCH")
+            return
+        raise TimeoutError("HIL_UDP_ECHO_TIMEOUT")
+
+    def request_control(
+        self,
+        command: bytes,
+        prefix: str,
+        timeout: float = 4,
+        attempts: int = 3,
+        echo: bytes | None = None,
+        required_status_copies: int = 2,
+    ) -> str:
+        require(
+            bool(command) and attempts >= 1 and required_status_copies in (1, 2),
+            "HIL_UDP_CONTROL_ARGUMENT",
+        )
+        expected = prefix.encode("ascii")
+        echo_seen = False
+        response = None
+        for _ in range(attempts):
+            if response is None or (echo is not None and not echo_seen):
+                self.command(command)
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                try:
+                    packet, source = self.socket.recvfrom(UDP_RECEIVE_BYTES)
+                except BlockingIOError:
+                    time.sleep(POLL_SECONDS)
+                    continue
+                self.datagrams += 1
+                require(source == self.peer, "HIL_UDP_SOURCE")
+                if len(command) == 1 and packet == command:
+                    # The ESP may return the same one-byte packet as an ARP
+                    # warm-up. Flutter ignores it and waits for the text ACK.
+                    echo_seen = True
+                    if echo is not None and response is not None:
+                        self.last_control_echo_seen = True
+                        return response
+                    continue
+                if echo is not None and packet == echo:
+                    echo_seen = True
+                    if response is not None:
+                        self.last_control_echo_seen = True
+                        return response
+                    continue
+                if packet.startswith(expected):
+                    response = packet.decode("utf-8", errors="replace").rstrip("\r\n")
+                    if echo is None or echo_seen:
+                        if prefix == "$STATUS:" and echo is None:
+                            # Status replies are duplicated by the ESP. A prior
+                            # duplicate may be queued before this request, so
+                            # require the pair and return the second snapshot.
+                            # This skips at most one stale response and avoids a
+                            # long quiet-window that would starve live video.
+                            status_copies = 1
+                            duplicate_deadline = time.monotonic() + 0.15
+                            while (
+                                status_copies < required_status_copies
+                                and time.monotonic() < duplicate_deadline
+                            ):
+                                try:
+                                    duplicate, duplicate_source = self.socket.recvfrom(UDP_RECEIVE_BYTES)
+                                except BlockingIOError:
+                                    time.sleep(POLL_SECONDS)
+                                    continue
+                                self.datagrams += 1
+                                require(duplicate_source == self.peer, "HIL_UDP_SOURCE")
+                                if duplicate.startswith(expected):
+                                    response = duplicate.decode(
+                                        "utf-8", errors="replace"
+                                    ).rstrip("\r\n")
+                                    status_copies += 1
+                                    continue
+                                if duplicate.startswith(b"$ERROR:"):
+                                    raise AssertionError("HIL_UDP_COMMAND_ERROR")
+                                if duplicate.startswith(b"$CMD:"):
+                                    message = duplicate.decode(
+                                        "utf-8", errors="replace"
+                                    ).rstrip("\r\n")
+                                    require(message in {
+                                        "$CMD:stream_on", "$CMD:stream_off",
+                                        "$CMD:single_frame", "$CMD:keepalive",
+                                        "$CMD:flash_on", "$CMD:flash_off",
+                                        "$CMD:restart", "$CMD:shutdown_complete",
+                                    }, "HIL_UDP_UNKNOWN_ACK")
+                                    self.control_messages.append(message)
+                                    continue
+                                if self._is_video_datagram(duplicate):
+                                    self.background_video_datagrams += 1
+                                    continue
+                                if len(duplicate) < UDP_HEADER.size:
+                                    continue
+                                raise AssertionError("HIL_UDP_UNEXPECTED_CONTROL")
+                        self.last_control_echo_seen = echo_seen
+                        return response
+                    continue
+                if packet.startswith(b"$ERROR:"):
+                    raise AssertionError("HIL_UDP_COMMAND_ERROR")
+                if packet.startswith(b"$CMD:"):
+                    message = packet.decode("utf-8", errors="replace").rstrip("\r\n")
+                    allowed = {
+                        "$CMD:stream_on",
+                        "$CMD:stream_off",
+                        "$CMD:single_frame",
+                        "$CMD:keepalive",
+                        "$CMD:flash_on",
+                        "$CMD:flash_off",
+                        "$CMD:restart",
+                        "$CMD:shutdown_complete",
+                    }
+                    require(message in allowed, "HIL_UDP_UNKNOWN_ACK")
+                    self.control_messages.append(message)
+                    continue
+                if self._is_video_datagram(packet):
+                    # Video and control share the app's UDP socket. Frames can
+                    # arrive while the HIL awaits a status/command response.
+                    self.background_video_datagrams += 1
+                    continue
+                raise AssertionError("HIL_UDP_UNEXPECTED_CONTROL")
+        if echo is not None and not echo_seen:
+            raise AssertionError("HIL_UDP_PEER_ECHO_MISSING")
+        raise TimeoutError("HIL_UDP_CONTROL_TIMEOUT")
+
+    def control_line(self, prefix: str, timeout: float = 10) -> str:
+        expected = prefix.encode("ascii")
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                packet, source = self.socket.recvfrom(UDP_RECEIVE_BYTES)
+            except BlockingIOError:
+                time.sleep(POLL_SECONDS)
+                continue
+            self.datagrams += 1
+            require(source == self.peer, "HIL_UDP_SOURCE")
+            if packet.startswith(expected):
+                return packet.decode("utf-8", errors="replace").rstrip("\r\n")
+            raise AssertionError("HIL_UDP_UNEXPECTED_CONTROL")
+        raise TimeoutError("HIL_UDP_CONTROL_TIMEOUT")
 
     def next_frame(self, client: BluezClient | None = None, timeout: float = 10) -> tuple[float, bytes]:
         deadline = time.monotonic() + timeout
@@ -552,44 +775,105 @@ class UdpFrames:
                 continue
             self.datagrams += 1
             require(source == self.peer, "HIL_UDP_SOURCE")
-            if len(packet) < UDP_HEADER.size:
-                require(packet in (bytes([CMD_STREAM_ON]), bytes([CMD_SINGLE_FRAME])),
-                        "HIL_UDP_INVALID_ECHO")
+            if packet.startswith(b"$CMD:"):
+                message = packet.decode("utf-8", errors="replace").rstrip("\r\n")
+                allowed = {
+                    "$CMD:stream_on",
+                    "$CMD:stream_off",
+                    "$CMD:single_frame",
+                    "$CMD:keepalive",
+                    "$CMD:flash_on",
+                    "$CMD:flash_off",
+                    "$CMD:restart",
+                    "$CMD:shutdown_complete",
+                }
+                require(message in allowed, "HIL_UDP_UNKNOWN_ACK")
+                self.control_messages.append(message)
                 continue
-            require(len(packet) >= UDP_HEADER.size, "HIL_UDP_HEADER")
-            seq, total, offset, size = UDP_HEADER.unpack_from(packet)
-            require(0 < total <= (MAX_FRAME_BYTES + UDP_PAYLOAD_BYTES - 1) // UDP_PAYLOAD_BYTES
-                    and seq < total, "HIL_UDP_SEQUENCE")
+            if packet.startswith(b"$STATUS:"):
+                # ESP may duplicate idempotent status replies for RF resilience.
+                # They are control-plane text, never a V2 video packet.
+                self.control_messages.append(
+                    packet.decode("utf-8", errors="replace").rstrip("\\r\\n")
+                )
+                continue
+            if packet.startswith(b"$ERROR:"):
+                raise AssertionError("HIL_UDP_COMMAND_ERROR")
+            if len(packet) < UDP_HEADER.size:
+                # Match the app receiver: transport echoes and all other short
+                # datagrams are ignored, never interpreted as V2 frame headers.
+                continue
+
+            raw_seq, total, offset, size, frame_id, frame_size = UDP_HEADER.unpack_from(packet)
+            is_parity = bool(raw_seq & UDP_PARITY_SEQUENCE_FLAG)
+            sequence = raw_seq & 0x7FFFFFFF
+            max_parts = (MAX_FRAME_BYTES + UDP_PAYLOAD_BYTES - 1) // UDP_PAYLOAD_BYTES
+            require(0 < total <= max_parts and 4 <= frame_size <= MAX_FRAME_BYTES
+                    and total == (frame_size + UDP_PAYLOAD_BYTES - 1) // UDP_PAYLOAD_BYTES,
+                    "HIL_UDP_SEQUENCE")
             require(0 < size <= UDP_PAYLOAD_BYTES and len(packet) == UDP_HEADER.size + size,
                     "HIL_UDP_SIZE")
-            require(offset + size <= MAX_FRAME_BYTES, "HIL_UDP_OFFSET")
-            if seq == 0:
+            if is_parity:
+                group_count = min(total, UDP_FEC_GROUP_SIZE)
+                group_start = sequence
+                require(sequence < group_count and offset == group_start * UDP_PAYLOAD_BYTES
+                        and size == UDP_PAYLOAD_BYTES and offset < frame_size,
+                        "HIL_UDP_PARITY")
+            else:
+                expected_offset = sequence * UDP_PAYLOAD_BYTES
+                expected_size = min(UDP_PAYLOAD_BYTES, frame_size - expected_offset)
+                require(sequence < total and offset == expected_offset
+                        and size == expected_size, "HIL_UDP_OFFSET")
+
+            if self.frame_id is None:
+                if self.last_frame_id is not None and not self._newer_frame(frame_id, self.last_frame_id):
+                    self.stale_datagrams += 1
+                    continue
+                self.frame_id, self.last_frame_id = frame_id, frame_id
+                self.total, self.frame_size = total, frame_size
+            elif frame_id != self.frame_id:
+                if not self._newer_frame(frame_id, self.frame_id):
+                    self.stale_datagrams += 1
+                    continue
                 if self.parts:
                     self.dropped_frames += 1
-                self.parts.clear()
-                self.total = total
-                self.chunk_bytes = size
-            if self.total != total:
+                self._clear_frame()
+                self.frame_id, self.last_frame_id = frame_id, frame_id
+                self.total, self.frame_size = total, frame_size
+            elif total != self.total or frame_size != self.frame_size:
+                self._clear_frame()
                 continue
-            require(offset == seq * UDP_PAYLOAD_BYTES, "HIL_UDP_OFFSET")
-            require(seq == total - 1 or size == UDP_PAYLOAD_BYTES, "HIL_UDP_FRAGMENT_SIZE")
-            self.parts[seq] = packet[UDP_HEADER.size:]
-            self.packets += 1
-            if len(self.parts) == total:
-                frame = b"".join(self.parts[index] for index in range(total))
-                self.parts.clear()
-                self.total = 0
+
+            payload = packet[UDP_HEADER.size:]
+            table = self.parity if is_parity else self.parts
+            existing = table.get(sequence)
+            if existing is not None:
+                require(existing == payload, "HIL_UDP_DUPLICATE_CONFLICT")
+                continue
+            table[sequence] = payload
+            if is_parity:
+                self.parity_packets += 1
+            else:
+                self.packets += 1
+
+            self._recover()
+            if len(self.parts) == self.total:
+                frame = b"".join(self.parts[index] for index in range(self.total))
+                require(len(frame) == self.frame_size, "HIL_UDP_FRAME_SIZE")
+                self._clear_frame()
                 return time.monotonic(), frame
         raise TimeoutError("HIL_UDP_FRAME_TIMEOUT")
 
     def drain(self) -> None:
         while True:
             try:
-                self.socket.recvfrom(1500)
+                self.socket.recvfrom(UDP_RECEIVE_BYTES)
             except BlockingIOError:
                 break
-        self.parts.clear()
-        self.total = 0
+        # Preserve the last completed frame watermark. Late data/parity packets
+        # from that frame can still arrive after the socket queue was drained;
+        # the Flutter receiver rejects them using the same frame-ID watermark.
+        self._clear_frame()
 
     def close(self) -> None:
         self.socket.close()

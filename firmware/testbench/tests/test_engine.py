@@ -454,9 +454,13 @@ class ActualSetupCancellationTests(unittest.TestCase):
         self.engine.decoder = lambda _: (320, 240)
         self.engine.recovery_required = True
         ip = "192.0.2.10"
-        packet = WIRE.UDP_HEADER.pack(0, 1, 0, len(FAKE_JPEG)) + FAKE_JPEG
-        socket = Mock(spec=["bind", "setblocking", "sendto", "recvfrom", "close"])
-        socket.recvfrom.side_effect = [(packet, (ip, WIRE.UDP_PORT)), BlockingIOError()]
+        packet = WIRE.UDP_HEADER.pack(0, 1, 0, len(FAKE_JPEG), 1, len(FAKE_JPEG)) + FAKE_JPEG
+        socket = Mock(spec=["bind", "setsockopt", "setblocking", "sendto", "recvfrom", "close"])
+        socket.recvfrom.side_effect = [
+            (b"$CMD:keepalive\n", (ip, WIRE.UDP_PORT)),
+            (packet, (ip, WIRE.UDP_PORT)),
+            BlockingIOError(),
+        ]
         original = UdpReceiver.next_frame
 
         def late_frame(receiver, *args, **kwargs):
@@ -473,7 +477,8 @@ class ActualSetupCancellationTests(unittest.TestCase):
             finally:
                 self.engine._cleanup()
         self.assertEqual([call.args[0][0] for call in socket.sendto.call_args_list],
-                         [WIRE.CMD_SINGLE_FRAME, WIRE.CMD_STREAM_OFF, WIRE.CMD_FLASH_OFF])
+                         [WIRE.CMD_UDP_KEEPALIVE, WIRE.CMD_SINGLE_FRAME,
+                          WIRE.CMD_STREAM_OFF, WIRE.CMD_FLASH_OFF])
         socket.close.assert_called_once()
         self.assertFalse(FakeLock.held)
 

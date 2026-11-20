@@ -95,7 +95,9 @@ class FixtureUDP:
         self.ready = deque()
         self.closed = self.streaming = False
         self.datagrams = self.packets = self.dropped_frames = 0
-        self.assembly = SimpleNamespace(protocol_errors=0, parts={}, total=0)
+        self.assembly = SimpleNamespace(
+            protocol_errors=0, parts={}, total=0, packets=0, parity_packets=0
+        )
 
     def command(self, command):
         self.cooperate()
@@ -104,12 +106,22 @@ class FixtureUDP:
         elif command == bytes([WIRE.CMD_STREAM_OFF]):
             self.streaming = False
 
+    def request_control(
+        self, command, prefix, timeout=4, attempts=3, echo=None,
+        required_status_copies=2,
+    ):
+        self.command(command)
+        if prefix == "$STATUS:":
+            return "$STATUS:bt=0,wifi=connected,stream=0"
+        return prefix
+
     def next_frame(self, **kwargs):
         import time
         self.cooperate()
         stamp = time.monotonic()
         self.datagrams += 1
         self.packets += 1
+        self.assembly.packets += 1
         self.on_frame(stamp, FAKE_JPEG, "udp")
         return stamp, FAKE_JPEG
 
@@ -334,10 +346,25 @@ class ProfileVerificationTests(unittest.TestCase):
                         self.assert_aggregate(report, False)
                         self.assertTrue(all(record["ok"] for record in report["cases"]))
 
+    def test_adaptive_udp_resolutions_promote_with_real_image_evidence(self):
+        main, _ = suites()
+        for width, height in sorted(main.UDP_FRAME_SIZES):
+            with self.subTest(width=width, height=height):
+                details = copy.deepcopy(CONTRACT_DETAILS)
+                for case in ("udp_single_frame", "restart_and_nvs_recovery"):
+                    image_key = "udp_image" if case == "restart_and_nvs_recovery" else None
+                    image = details[case][image_key] if image_key else details[case]
+                    image["width"], image["height"] = width, height
+                report = self.run_profile("mobile-flow", details=details)
+                self.assertTrue(report["ok"], report["job"])
+                self.assert_aggregate(report, True)
+
     def test_false_nvs_wrong_image_and_unverified_controls_do_not_promote(self):
         for case, field, invalid in (
             ("restart_and_nvs_recovery", "wifi_credentials_persisted", False),
-            ("restart_and_nvs_recovery", "udp_image", IMAGE_BLE),
+            ("restart_and_nvs_recovery", "udp_image", {
+                "bytes": len(FAKE_JPEG), "width": 160, "height": 120,
+            }),
             ("udp_controls_and_peer_handover", "flash_on_off", False),
             ("ble_stream_and_pause", "decoded_frames", 0),
             ("ble_stream_and_pause", "decoded_frames", True),

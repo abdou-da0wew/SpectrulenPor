@@ -35,9 +35,15 @@ def _contract_verified(suite, profile, main):
     def positive(value):
         return type(value) is int and value > 0
 
-    def image(details, size):
-        return (isinstance(details, dict) and positive(details.get("bytes"))
-                and (details.get("width"), details.get("height")) == size)
+    def image(details, allowed_sizes):
+        dimensions = (details.get("width"), details.get("height")) if isinstance(details, dict) else None
+        if isinstance(allowed_sizes, (set, frozenset, tuple)) and allowed_sizes and all(
+            isinstance(item, tuple) for item in allowed_sizes
+        ):
+            size_ok = dimensions in allowed_sizes
+        else:
+            size_ok = dimensions == allowed_sizes
+        return isinstance(details, dict) and positive(details.get("bytes")) and size_ok
 
     boot = records["wifi_provisioning"]
     recovery = records["restart_and_nvs_recovery"]
@@ -52,9 +58,9 @@ def _contract_verified(suite, profile, main):
         and recovery.get("nvs_persistence_verified") is True
         and recovery.get("wifi_connected") is True
         and recovery.get("ble_initialized") is False
-        and image(recovery.get("udp_image"), main.UDP_FRAME_SIZE)
+        and image(recovery.get("udp_image"), main.UDP_FRAME_SIZES)
         and image(records[BLE_CAPTURE_CASE[profile]], main.BLE_FRAME_SIZE)
-        and image(records["udp_single_frame"], main.UDP_FRAME_SIZE)
+        and image(records["udp_single_frame"], main.UDP_FRAME_SIZES)
         and positive(records["ble_stream_and_pause"].get("decoded_frames"))
         and positive(records["udp_stream_and_pause"].get("decoded_frames"))
         and all(controls.get(key) is True for key in (

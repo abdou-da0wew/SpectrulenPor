@@ -53,3 +53,5 @@ STATIC_FILES = {
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
 }
+
+CMD_UDP_KEEPALIVE = 0x0C

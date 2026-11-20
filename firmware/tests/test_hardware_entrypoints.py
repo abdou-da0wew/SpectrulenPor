@@ -534,7 +534,7 @@ class HardwareEntryPointTests(unittest.TestCase):
             with self.subTest(operation_failed=operation_failed):
                 failures = {"udp.control.0": TimeoutError("private pause failure")}
                 if operation_failed:
-                    failures["case.advertisement_and_gatt"] = TimeoutError("HIL_ORIGINAL_FAILURE")
+                    failures["case.udp_single_frame"] = TimeoutError("HIL_ORIGINAL_FAILURE")
                 probe = self.probe(hardware_e2e, failures, real_suite=True)
                 probe.udp_suite = True
                 result, report = probe.invoke()
@@ -555,7 +555,7 @@ class HardwareEntryPointTests(unittest.TestCase):
                             "client.disconnect.1": RuntimeError("private disconnect failure"),
                             "udp.close": OSError("private socket failure")}
                 if operation_failed:
-                    failures["case.advertisement_and_gatt"] = TimeoutError("HIL_ORIGINAL_FAILURE")
+                    failures["case.udp_single_frame"] = TimeoutError("HIL_ORIGINAL_FAILURE")
                 probe = self.probe(hardware_e2e, failures, real_suite=True)
                 probe.udp_suite = True
                 result, report = probe.invoke()

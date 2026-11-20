@@ -10,9 +10,10 @@ esp_err_t udp_stream_start(void);
 /* Stop UDP socket. */
 void udp_stream_stop(void);
 
-/* Send one JPEG frame over UDP to the app peer registered by stream control.
- * Packet: [seq:4][total:4][offset:4][size:4][payload...] */
-bool udp_stream_send_frame(const uint8_t *jpeg, size_t len);
+/* Send one V2 JPEG frame over UDP to the registered mobile peer. */
+bool udp_stream_send_frame(const uint8_t *jpeg, size_t len, uint32_t packet_pace_ms);
+/* Send a short command/status response to the registered mobile peer. */
+bool udp_stream_send_control(const uint8_t *data, size_t len);
 
 /* Poll bounded input and return one validated control command. */
 bool udp_stream_receive_command(firmware_command_t *out);

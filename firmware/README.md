@@ -1,5 +1,7 @@
 # SpectruLenPor ESP32-CAM Firmware
 
+**Creator and primary developer:** Abdoul-Rahman Ayman ([`@abdou-da0wew`](https://github.com/abdou-da0wew)). Firmware authorship and maintenance details are recorded in [`MAINTAINERS.md`](MAINTAINERS.md) and [`manifest.json`](manifest.json).
+
 ESP-IDF firmware for the AI-Thinker ESP32-CAM. BLE handles initial setup; saved WiFi credentials select WiFi-only operation on the next boot. The application entry point is [`components/main/main.c`](components/main/main.c).
 
 ## Hardware
@@ -11,7 +13,7 @@ ESP-IDF firmware for the AI-Thinker ESP32-CAM. BLE handles initial setup; saved 
 
 | Signal | GPIO / bus | Notes |
 |---|---|---|
-| OV2640 | Onboard camera pins, I2C0 for SCCB | QVGA `320x240` over BLE; SVGA `800x600` over UDP with PSRAM |
+| OV2640 | Onboard camera pins, I2C0 for SCCB | QVGA `320x240` over BLE; XGA `1024x768`, SVGA `800x600`, VGA `640x480` or QVGA `320x240` over UDP with PSRAM |
 | White flash LED | GPIO4 | On/off commands; cleared on BLE disconnect and reset |
 | Optional AS7265x SDA / SCL | GPIO13 / GPIO14, I2C1 | Address `0x49`; not analog ADC inputs |
 
@@ -63,25 +65,30 @@ WiFi retries are bounded by `WIFI_MAX_RETRIES` in `config.h`. Exhaustion reports
 | TX, notify | `0000ffe1-0000-1000-8000-00805f9b34fb` |
 | RX, write with response | `0000ffe2-0000-1000-8000-00805f9b34fb` |
 
-TX carries raw JPEGs delimited by `FFD8` / `FFD9` and newline-delimited text. The maximum notification payload is the smaller of 500 bytes and negotiated MTU minus 3. Setup-mode sensor telemetry, when available, is scheduled every 500 ms.
+TX is control/status text only. BLE never carries JPEG bytes or image fragments. The maximum notification payload is the smaller of 500 bytes and negotiated MTU minus 3. BLE is used for pairing, WiFi provisioning, provisioning status, and basic commissioning controls; after credentials are saved the ESP reboots into WiFi-only mode and does not initialize BLE.
 
 | Command | BLE | UDP | Effect |
 |---|---|---|---|
-| `0x00` | Yes | Yes | Pause streaming and clear pending single requests; keep the UDP listener open |
-| `0x01` | Yes | Yes | Resume streaming; UDP sender becomes the current peer |
-| `0x02` | Yes | Yes | Queue one camera image without resuming a paused stream; UDP sender becomes the peer |
-| `0x03` / `0x04` | Yes | Yes | Flash on / off |
-| `0x05` | Yes | No | Legacy software restart |
-| `0x06` | Yes | No | Standby: pause, flash off, stop WiFi; setup BLE remains available |
-| `0x07` | Paired | No | Save credentials; two empty strings erase them |
-| `0x08` | Yes | No | Read current SSID as `$WIFI_CFG:ssid=...\n`, never the password |
-| `0x09` | Yes | No | Read connection and camera status |
-| `0x0A` | Yes | No | Validate setup code |
-| `0x0B` | Paired | No | Reboot into saved WiFi configuration; fails without credentials |
+| 0x00 | No | Yes | Pause streaming; keep the UDP listener open |
+| 0x01 | No | Yes | Start/resume video; UDP source endpoint becomes the current peer |
+| 0x02 | No | Yes | Queue one camera image without resuming a paused stream |
+| 0x03 / 0x04 | Yes, setup only | Yes | Flash on / off |
+| 0x05 | Yes, setup only | Yes | Restart the ESP |
+| 0x06 | Yes, setup only | Yes | Standby: pause, flash off, stop WiFi |
+| 0x07 | Paired | No | Save credentials; two empty strings erase them |
+| 0x08 | Yes, setup only | No | Read current SSID; never the password |
+| 0x09 | Yes, setup only | Yes | Read connection and camera status |
+| 0x0A | Yes | No | Validate setup code |
+| 0x0B | Paired | Yes | Reboot into saved WiFi configuration; fails without credentials |
+| 0x0C | No | Yes | Refresh the registered UDP peer after WiFi/AP recovery |
 
-UDP frames retain the existing wire format: four little-endian `uint32` fields (`seq`, `total`, `offset`, `size`) followed by up to 512 JPEG bytes. Sequence numbering starts at zero for every frame; this protocol has no frame ID or retransmission guarantee. A new peer receives a one-byte `0x01` or `0x02` echo before image fragments. Only the current peer can pause or change the flash. Another sender can claim the stream with `0x01` / `0x02`.
+UDP video uses wire protocol V2 on port 8888. Each datagram starts with six little-endian uint32 fields: seq, total_data_fragments, byte_offset, payload_size, frame_id, and frame_size. Data datagrams carry up to 1200 JPEG bytes. The high bit of seq marks an XOR parity datagram; the remaining bits identify one of four interleaved sequence groups. Parity datagrams carry 1200 bytes, padded with zeroes for a short final fragment. Frame IDs are monotonic within a UDP socket session and allow the phone to reject late packets from older frames. The receiver accepts reordered fragments and reconstructs one missing data fragment per interleaved group. More than one loss in a group drops that frame; the next camera frame is preferred over waiting on a stale image. This is low-latency forward error correction, not a retransmission guarantee.
 
-`STREAM_INTERVAL_MS=100` is a scheduling target, not a measured 10 fps guarantee. Packet pacing and JPEG size affect actual throughput.
+The app binds an ephemeral UDP port and registers the peer with command 0x0C (keepalive) before camera capture starts. If the user leaves the IP field empty, the app broadcasts that existing keepalive command and resolves the ESP32 from its echo/acknowledgement; a stalled stream triggers rediscovery for DHCP address changes. Both devices must share a LAN where broadcast traffic is allowed. Stream-on (0x01), pause (0x00), single-frame (0x02), status, flashlight, restart, shutdown and reboot all use this same UDP socket after provisioning. The ESP unicasts video to that registered source address and port. The keepalive acknowledgement confirms the control peer; only a decoded JPEG marks the camera feed ready. Pausing video retains the socket, so controls and resume remain available. Only the current peer can control the camera or flashlight. UDP control and video are not encrypted; use a trusted local network.
+
+The OV2640 emits JPEG in hardware; the ESP does not recompress JPEG in software. Data payloads are 1200 bytes, keeping the 24-byte V2 header plus IPv4/UDP overhead below a 1500-byte path MTU. The sender yields for 1 ms after each data/parity datagram and uses up to 16 bounded exponential retries for transient local Wi-Fi queue exhaustion. Four interleaved XOR parity packets protect each frame against one missing packet per sequence group, replacing the old five-copy-per-fragment scheme.
+
+WiFi enables the ESP-IDF-supported 802.11b/g/n 2.4 GHz protocol bitmap; the access point and station negotiate the actual PHY rate per connection. Modem sleep is disabled and station bandwidth is fixed at HT20. Camera resolution adapts to AP RSSI with hysteresis: strong links use XGA (1024×768), medium links use SVGA (800×600), weak links use VGA (640×480) down to −70 dBm, and weaker links start at QVGA (320×240) to avoid sending oversized frames over marginal RF links. The XGA/SVGA/VGA post-frame intervals are 0 ms and QVGA uses 25 ms; each transmitted datagram yields for 1–6 ms according to the active RSSI profile to drain the bounded Wi-Fi TX queue; SVGA has a 40 ms capture-and-send budget, while the other profiles use a 50 ms budget. These budgets are degradation thresholds, not guaranteed frame rates. The streaming control loop polls at 1 ms while frames are pending or streaming. A frame over its profile budget or any UDP send failure degrades one profile step and holds that safer profile for 15 seconds before attempting an upgrade. These are scheduling targets, not measured FPS guarantees; OV2640 capture time, JPEG size, Wi-Fi airtime, packet loss and phone decode time determine actual throughput. Real range still depends on antenna orientation, router placement and interference.
 
 ## Tests
 
@@ -200,3 +207,10 @@ The private camera-DMA build compiles cleanly with matching legacy config/partit
 - `sensors` / `flashlight`: optional spectral triad and onboard GPIO control.
 
 See [firmware hardware validation](../docs/firmware-hardware-validation.md) for measured results and remaining limits.
+
+## BLE/UDP transport ownership (2026-11-16)
+
+- BLE GATT is a commissioning channel only: pair, save/read WiFi configuration, setup status, flashlight, restart, standby and the explicit WiFi reboot handoff. Its TX characteristic carries ASCII control/status only; binary notification payloads are discarded by the app.
+- BLE rejects stream-on, stream-off and single-frame with VIDEO_AND_RUNTIME_COMMANDS_REQUIRE_UDP. The firmware's separate BLE setup allowlist prevents video commands from being queued over BLE.
+- After provisioning, the ESP boots WiFi-only and does not start its BLE service. The phone registers UDP port 8888 with command 0x0C; all camera/video and normal runtime controls thereafter use UDP. Pausing video does not close the UDP socket.
+- test/live_esp_udp_stream_test.dart runs the physical UDP stream/control smoke test when ESP32_TEST_IP is set.

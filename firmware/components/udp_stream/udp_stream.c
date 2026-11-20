@@ -1,9 +1,11 @@
 #include <string.h>
+#include <inttypes.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <unistd.h>
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_random.h"
 #include "esp_heap_caps.h"
 #include "lwip/sockets.h"
 #include "freertos/FreeRTOS.h"
@@ -18,6 +20,7 @@ static bool s_started = false;
 static esp_ip_addr_t s_app_ip;
 static uint16_t s_app_port = 0;
 static bool s_app_peer_known = false;
+static uint32_t s_next_frame_id;
 
 bool udp_stream_has_peer(void) { return s_app_peer_known && s_started; }
 
@@ -57,18 +60,15 @@ esp_err_t udp_stream_start(void)
         return ESP_FAIL;
     }
 
-    int sndbuf = UDP_SNDBUF_BYTES;
     int rcvbuf = UDP_RCVBUF_BYTES;
-    if (setsockopt(s_sock, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf)) < 0) {
-        ESP_LOGW(TAG, "UDP SO_SNDBUF failed: errno=%d", errno);
-    }
     if (setsockopt(s_sock, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf)) < 0) {
         ESP_LOGW(TAG, "UDP SO_RCVBUF failed: errno=%d", errno);
     }
 
+    s_next_frame_id = esp_random();
     s_started = true;
-    ESP_LOGI(TAG, "UDP socket bound on port %d sndbuf=%d rcvbuf=%d",
-             UDP_VIDEO_PORT, sndbuf, rcvbuf);
+    ESP_LOGI(TAG, "UDP socket bound on port %d rcvbuf=%d",
+             UDP_VIDEO_PORT, rcvbuf);
     return ESP_OK;
 }
 
@@ -82,65 +82,197 @@ void udp_stream_stop(void)
     udp_stream_clear_peer();
 }
 
-bool udp_stream_send_frame(const uint8_t *jpeg, size_t len)
+bool udp_stream_send_control(const uint8_t *data, size_t len)
 {
+    if (data == NULL || len == 0 || len > STATUS_TEXT_CAPACITY ||
+        !s_started || s_sock < 0 || !s_app_peer_known) {
+        return false;
+    }
+
+    struct sockaddr_in destination = {0};
+    destination.sin_family = AF_INET;
+    destination.sin_port = htons(s_app_port);
+    destination.sin_addr.s_addr = s_app_ip.u_addr.ip4.addr;
+
+    int sent = -1;
+    unsigned attempts = 0;
+    while (attempts < UDP_CONTROL_SEND_ATTEMPTS) {
+        ++attempts;
+        sent = sendto(s_sock, data, len, 0,
+                      (const struct sockaddr *)&destination,
+                      sizeof(destination));
+        if (sent == (int)len) break;
+        bool transient = sent < 0 &&
+            (errno == ENOMEM || errno == ENOBUFS ||
+             errno == EAGAIN || errno == EWOULDBLOCK);
+        if (!transient || attempts == UDP_CONTROL_SEND_ATTEMPTS) break;
+        vTaskDelay(pdMS_TO_TICKS(UDP_CONTROL_RETRY_DELAY_MS));
+    }
+    if (sent != (int)len) {
+        ESP_LOGW(TAG,
+                 "operation=udp.control_send outcome=failure errno=%d sent=%d expected=%zu attempts=%u",
+                 sent < 0 ? errno : 0, sent, len, attempts);
+        return false;
+    }
+
+    /* Control datagrams are tiny and idempotent. A spaced duplicate makes
+     * peer registration/status robust against an occasional Wi-Fi TX loss
+     * without changing the application wire protocol. */
+    vTaskDelay(pdMS_TO_TICKS(UDP_CONTROL_DUPLICATE_DELAY_MS));
+    int repeated = sendto(s_sock, data, len, 0,
+                          (const struct sockaddr *)&destination,
+                          sizeof(destination));
+    if (repeated != (int)len) {
+        ESP_LOGW(TAG,
+                 "operation=udp.control_repeat outcome=partial errno=%d sent=%d expected=%zu",
+                 repeated < 0 ? errno : 0, repeated, len);
+    }
+    return true;
+}
+
+static bool send_datagram(const struct sockaddr_in *destination,
+                          const uint8_t *packet, size_t packet_len,
+                          int64_t deadline, uint32_t frame_id,
+                          uint32_t sequence, bool parity, uint32_t packet_pace_ms)
+{
+    unsigned attempts = 0;
+    int result = -1;
+    int send_errno = 0;
+    while (attempts < UDP_SEND_MAX_ATTEMPTS &&
+           esp_timer_get_time() < deadline) {
+        ++attempts;
+        result = sendto(s_sock, packet, packet_len, 0,
+                        (const struct sockaddr *)destination,
+                        sizeof(*destination));
+        send_errno = result < 0 ? errno : 0;
+        if (result == (int)packet_len) {
+            /* Yield after every datagram so the Wi-Fi driver can drain its
+             * bounded TX pool instead of accepting a whole frame in a burst. */
+            if (packet_pace_ms > 0U) {
+                vTaskDelay(pdMS_TO_TICKS(packet_pace_ms));
+            }
+            return true;
+        }
+        bool transient = result < 0 &&
+            (send_errno == ENOMEM || send_errno == ENOBUFS ||
+             send_errno == EAGAIN || send_errno == EWOULDBLOCK);
+        if (!transient) {
+            break;
+        }
+        if (attempts < UDP_SEND_MAX_ATTEMPTS) {
+            uint32_t delay_ms = UDP_SEND_RETRY_DELAY_MS << (attempts - 1U);
+            if (delay_ms > UDP_SEND_RETRY_MAX_DELAY_MS) {
+                delay_ms = UDP_SEND_RETRY_MAX_DELAY_MS;
+            }
+            vTaskDelay(pdMS_TO_TICKS(delay_ms));
+        }
+    }
+
+    const char *code = esp_timer_get_time() >= deadline
+        ? "UDP_SEND_DEADLINE"
+        : result < 0 ? "UDP_SEND_SOCKET_ERROR" : "UDP_SEND_SHORT_WRITE";
+    ESP_LOGW(TAG,
+             "operation=udp.send outcome=failure code=%s errno=%d frame=%" PRIu32
+             " packet=%s seq=%" PRIu32 " bytes=%zu result=%d attempts=%u"
+             " heap=%zu largest=%zu",
+             code, send_errno, frame_id, parity ? "parity" : "data", sequence,
+             packet_len, result, attempts,
+             heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    return false;
+}
+
+bool udp_stream_send_frame(const uint8_t *jpeg, size_t len, uint32_t packet_pace_ms)
+{
+    static int64_t log_window_started, last_frame_started;
+    static uint32_t log_frames;
+
     if (!s_started || s_sock < 0 || !s_app_peer_known ||
         !protocol_jpeg_valid(jpeg, len)) {
         return false;
     }
 
-    struct sockaddr_in dest_addr = {0};
-    dest_addr.sin_family = AF_INET;
-    dest_addr.sin_port = htons(s_app_port);
-    dest_addr.sin_addr.s_addr = s_app_ip.u_addr.ip4.addr;
-    size_t count = protocol_udp_packet_count(len);
-    int64_t deadline = esp_timer_get_time() + UDP_FRAME_SEND_TIMEOUT_MS * 1000LL;
-    for (size_t seq = 0; seq < count; ++seq) {
-        uint8_t packet[UDP_MTU_SAFE];
-        size_t packet_len;
-        if (!protocol_udp_encode_packet(jpeg, len, seq, packet,
-                                         sizeof(packet), &packet_len)) {
+    struct sockaddr_in destination = {0};
+    destination.sin_family = AF_INET;
+    destination.sin_port = htons(s_app_port);
+    destination.sin_addr.s_addr = s_app_ip.u_addr.ip4.addr;
+
+    const size_t total = protocol_udp_packet_count(len);
+    if (total == 0 || total > UINT32_MAX) {
+        return false;
+    }
+    const uint32_t frame_id = ++s_next_frame_id;
+    const int64_t started = esp_timer_get_time();
+    const int64_t deadline =
+        started + UDP_FRAME_SEND_TIMEOUT_MS * 1000LL;
+    if (last_frame_started != 0 &&
+        started - last_frame_started > 1500000LL) {
+        log_window_started = 0;
+        log_frames = 0;
+    }
+    if (log_window_started == 0) log_window_started = started;
+    last_frame_started = started;
+    uint8_t packet[UDP_MTU_SAFE];
+    uint8_t parity[UDP_PAYLOAD_BYTES];
+    size_t packet_len = 0;
+    size_t parity_packets = 0;
+
+    /*
+     * JPEG is already compressed by the OV2640 hardware. Send small data
+     * datagrams in sequence order, then one XOR parity packet for each strided
+     * group: {0,4,8...}, {1,5,9...}, etc. Consecutive Wi-Fi burst losses land
+     * in different groups and can therefore be recovered independently.
+     * Only one parity buffer is needed; the JPEG is revisited per group.
+     */
+    const size_t group_count = total < UDP_FEC_GROUP_SIZE
+        ? total : UDP_FEC_GROUP_SIZE;
+    for (size_t sequence = 0; sequence < total; ++sequence) {
+        if (!protocol_udp_encode_packet(jpeg, len, frame_id, sequence,
+                                        packet, sizeof(packet), &packet_len) ||
+            !send_datagram(&destination, packet, packet_len, deadline,
+                           frame_id, (uint32_t)sequence, false, packet_pace_ms)) {
             return false;
         }
-        for (unsigned copy = 0; copy < UDP_FRAGMENT_REDUNDANCY; ++copy) {
-            if (copy > 0) {
-                vTaskDelay(pdMS_TO_TICKS(UDP_SEND_RETRY_DELAY_MS));
+    }
+
+    for (size_t group_index = 0; group_index < group_count; ++group_index) {
+        memset(parity, 0, sizeof(parity));
+        for (size_t sequence = group_index; sequence < total;
+             sequence += UDP_FEC_GROUP_SIZE) {
+            const size_t offset = sequence * UDP_PAYLOAD_BYTES;
+            size_t chunk_len = len - offset;
+            if (chunk_len > UDP_PAYLOAD_BYTES) {
+                chunk_len = UDP_PAYLOAD_BYTES;
             }
-            int result = -1;
-            int send_errno = 0;
-            unsigned attempts = 0;
-            bool deadline_expired = false;
-            while (true) {
-                if (esp_timer_get_time() >= deadline) {
-                    deadline_expired = true;
-                    break;
-                }
-                ++attempts;
-                result = sendto(s_sock, packet, packet_len, 0,
-                                 (struct sockaddr *)&dest_addr, sizeof(dest_addr));
-                send_errno = result < 0 ? errno : 0;
-                if (result >= 0 || (send_errno != ENOMEM && send_errno != ENOBUFS &&
-                                     send_errno != EAGAIN && send_errno != EWOULDBLOCK)) {
-                    break;
-                }
-                vTaskDelay(pdMS_TO_TICKS(UDP_SEND_RETRY_DELAY_MS));
+            for (size_t i = 0; i < chunk_len; ++i) {
+                parity[i] ^= jpeg[offset + i];
             }
-            if (result != (int)packet_len) {
-                const char *code = deadline_expired ? "UDP_SEND_DEADLINE" :
-                    result < 0 ? "UDP_SEND_SOCKET_ERROR" : "UDP_SEND_SHORT_WRITE";
-                ESP_LOGW(TAG, "operation=udp.send outcome=failure code=%s errno=%d seq=%zu"
-                         " total=%zu bytes=%zu result=%d attempts=%u heap=%zu largest=%zu",
-                         code, send_errno, seq, count, packet_len, result, attempts,
-                         heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
-                         heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
-                return false;
-            }
-            /* Let the WiFi driver drain the TX buffer before the next packet.
-             * ESP-IDF recommends pacing sendto() calls to avoid ENOMEM when
-             * static/dynamic TX buffers fill up during a burst. */
-            vTaskDelay(pdMS_TO_TICKS(UDP_SEND_PACE_MS));
         }
-        vTaskDelay(pdMS_TO_TICKS(UDP_PACKET_PACE_MS));
+        if (!protocol_udp_encode_parity_packet(
+                parity, sizeof(parity), len, frame_id, group_index, total,
+                packet, sizeof(packet), &packet_len) ||
+            !send_datagram(&destination, packet, packet_len, deadline,
+                           frame_id, (uint32_t)group_index, true, packet_pace_ms)) {
+            return false;
+        }
+        ++parity_packets;
+    }
+
+    const int64_t completed = esp_timer_get_time();
+    if (++log_frames >= 128U) {
+        const int64_t elapsed_us = completed - log_window_started;
+        if (elapsed_us > 0) {
+            const uint32_t fps_x100 = (uint32_t)(
+                (uint64_t)log_frames * 100000000ULL / (uint64_t)elapsed_us);
+            (void)fps_x100;
+            ESP_LOGI(TAG,
+                     "operation=udp.stream frames=%" PRIu32
+                     " fps_x100=%" PRIu32
+                     " last_bytes=%zu fragments=%zu parity=%zu",
+                     log_frames, fps_x100, len, total, parity_packets);
+        }
+        log_window_started = completed;
+        log_frames = 0;
     }
     return true;
 }
@@ -161,8 +293,13 @@ bool udp_stream_receive_command(firmware_command_t *out)
             ESP_LOGW(TAG, "UDP recvfrom failed: errno=%d", errno);
             break;
         }
+        ESP_LOGI(TAG,
+                 "operation=udp.rx bytes=%d src_port=%u first=0x%02x",
+                 n, (unsigned)ntohs(src_addr.sin_port),
+                 n > 0 ? (unsigned)buf[0] : 0U);
         if (n != 1 || !protocol_command_allowed_over_udp(buf[0]) ||
             protocol_parse_command(buf, (size_t)n, out) != PROTOCOL_OK) {
+            ESP_LOGW(TAG, "operation=udp.command.reject bytes=%d", n);
             continue;
         }
         esp_ip_addr_t src_ip = {
@@ -170,14 +307,15 @@ bool udp_stream_receive_command(firmware_command_t *out)
             .type = ESP_IPADDR_TYPE_V4,
         };
         uint16_t src_port = ntohs(src_addr.sin_port);
-        if (out->code == CMD_STREAM_ON || out->code == CMD_SINGLE_FRAME) {
+        if (out->code == CMD_STREAM_ON || out->code == CMD_SINGLE_FRAME ||
+            out->code == CMD_UDP_KEEPALIVE) {
             bool changed = !s_app_peer_known ||
                 src_ip.u_addr.ip4.addr != s_app_ip.u_addr.ip4.addr ||
                 src_port != s_app_port;
             udp_stream_set_app_peer(&src_ip, src_port);
             if (changed) {
-                /* A short control echo is ignored by legacy frame receivers.
-                 * It resolves ARP before the first JPEG fragment burst. */
+                /* The echo resolves ARP before the first frame. Keepalive
+                 * uses the same path to re-register a peer after WiFi recovery. */
                 int sent = sendto(s_sock, buf, 1, 0,
                                    (struct sockaddr *)&src_addr, src_len);
                 if (sent < 0) {

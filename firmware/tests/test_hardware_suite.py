@@ -35,6 +35,101 @@ class HardwareSuiteTests(unittest.TestCase):
         self.suite.uart = Mock()
         self.client.dbus.DBusException = FakeDBusError
 
+    def test_initial_commissioning_accepts_empty_nvs_ble_boot(self):
+        boot = re.search(
+            r"operation=boot.mode mode=(ble_setup|wifi_only) ble=([01])",
+            "operation=boot.mode mode=ble_setup ble=1",
+        )
+        self.suite.uart.reset.return_value = 17
+        self.suite.uart.wait.side_effect = [boot, None]
+
+        result = self.suite.initial_commissioning()
+
+        self.assertEqual(result["boot_mode"], "ble_setup")
+        self.assertEqual(result["commissioning_source"], "empty_nvs")
+        self.assertFalse(result["ble_recovery"])
+        self.assertEqual(self.suite.uart.wait.call_count, 2)
+
+    def test_initial_commissioning_accepts_saved_wifi_recovery(self):
+        pattern = r"operation=boot.mode mode=(ble_setup|wifi_only) ble=([01])"
+        boot = re.search(pattern, "operation=boot.mode mode=wifi_only ble=0")
+        recovery_start = re.search(
+            r"operation=wifi.got_ip ip=([0-9.]+)|"
+            r"operation=ble.recovery outcome=starting reason=WIFI_UNAVAILABLE",
+            "operation=ble.recovery outcome=starting reason=WIFI_UNAVAILABLE",
+        )
+        recovery_advertising = re.search(
+            r"operation=ble.recovery outcome=advertising mode=commissioning",
+            "operation=ble.recovery outcome=advertising mode=commissioning",
+        )
+        self.suite.uart.reset.return_value = 29
+        self.suite.uart.wait.side_effect = [boot, None, recovery_start, recovery_advertising]
+
+        result = self.suite.initial_commissioning()
+
+        self.assertEqual(result["boot_mode"], "wifi_only")
+        self.assertEqual(result["commissioning_source"], "wifi_failure_recovery")
+        self.assertTrue(result["ble_recovery"])
+        self.assertEqual(self.suite.uart.wait.call_count, 4)
+        self.assertEqual(
+            self.suite.uart.wait.call_args_list[2].args[0],
+            r"operation=wifi.got_ip ip=([0-9.]+)|"
+            r"operation=ble.recovery outcome=starting reason=WIFI_UNAVAILABLE",
+        )
+        self.assertEqual(
+            self.suite.uart.wait.call_args_list[3].args[0],
+            r"operation=ble.recovery outcome=advertising mode=commissioning",
+        )
+
+    def test_initial_commissioning_rejects_inconsistent_boot_transport(self):
+        boot = re.search(
+            r"operation=boot.mode mode=(ble_setup|wifi_only) ble=([01])",
+            "operation=boot.mode mode=wifi_only ble=1",
+        )
+        self.suite.uart.wait.return_value = boot
+
+        with self.assertRaisesRegex(AssertionError, "HIL_WIFI_BOOT_BLE_MISMATCH"):
+            self.suite.initial_commissioning()
+
+    def test_initial_commissioning_uses_udp_when_saved_wifi_is_already_connected(self):
+        boot = re.search(
+            r"operation=boot.mode mode=(ble_setup|wifi_only) ble=([01])",
+            "operation=boot.mode mode=wifi_only ble=0",
+        )
+        got_ip = re.search(
+            r"operation=wifi.got_ip ip=([0-9.]+)",
+            "operation=wifi.got_ip ip=192.138.1.2",
+        )
+        status_line = (
+            "$STATUS:bt=0,wifi=connected,ip=192.138.1.2,flash=0,stream=0,"
+            "camera=1,sensor=0,psram=8388608,frames=1,errors=0,"
+            "notify_errors=0,heap=100000,min_heap=90000"
+        )
+        self.suite.uart.reset.return_value = 41
+        self.suite.uart.mark.return_value = 99
+        self.suite.uart.text.return_value = (
+            "operation=boot.mode mode=wifi_only ble=0\\n"
+            "operation=boot.ready camera=1\\n"
+            "operation=wifi.got_ip ip=192.138.1.2\\n"
+            "UDP socket bound on port 8888\\n"
+        )
+        self.suite.uart.wait.side_effect = [boot, None, got_ip, None]
+        receiver = Mock()
+        receiver.request_control.side_effect = ["$CMD:keepalive", status_line]
+        receiver.last_control_echo_seen = True
+        with patch.object(self.suite, "receiver", return_value=receiver):
+            result = self.suite.initial_commissioning()
+
+        self.assertEqual(self.suite.phase, "wifi")
+        self.assertIs(self.suite.udp, receiver)
+        self.assertEqual(result["commissioning_source"], "saved_wifi")
+        self.assertEqual(result["ip"], "192.138.1.2")
+        self.assertFalse(result["ble_recovery"])
+        self.assertEqual(receiver.request_control.call_args_list[0].args,
+                         (bytes([0x0C]), "$CMD:keepalive"))
+        self.assertEqual(receiver.request_control.call_args_list[1].args,
+                         (bytes([0x09]), "$STATUS:"))
+
     def test_att_value_and_length_rejections_are_recognized(self):
         for name, message in (("org.bluez.Error.Failed", "Operation failed with ATT error: 0x13"),
                               ("org.bluez.Error.InvalidArguments", "Invalid Length")):
@@ -105,11 +200,16 @@ class HardwareSuiteTests(unittest.TestCase):
             "received_sequences": [0, 2], "incomplete_frames": 1,
         })
 
-    def test_wifi_status_does_not_use_ble(self):
+    def test_wifi_status_uses_udp_control_not_ble_or_uart(self):
         self.suite.phase = "wifi"
-        self.suite.uart.wait.side_effect = lambda pattern, *args: re.search(pattern, STATUS)
+        self.suite.udp = Mock()
+        self.suite.udp.request_control.return_value = STATUS
         self.assertEqual(self.suite.status()["wifi"], "connected")
+        self.suite.udp.request_control.assert_called_once_with(
+            bytes([0x09]), "$STATUS:", timeout=2, attempts=4,
+        )
         self.client.status.assert_not_called()
+        self.suite.uart.wait.assert_not_called()
 
     def test_wifi_timeout_is_failure_not_skip(self):
         with patch("hardware_e2e.time.monotonic", side_effect=(0, WIFI_TIMEOUT + 1)):

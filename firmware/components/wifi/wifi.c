@@ -261,6 +261,20 @@ esp_err_t wifi_start_station(const firmware_wifi_credentials_t *credentials)
     if (ret != ESP_OK) {
         return ret;
     }
+
+    /* ESP-IDF 5.5 requires 11b in supported 2.4 GHz station bitmaps.
+     * 11g/11n remain enabled so the AP can negotiate higher PHY rates when
+     * available; 11b here preserves compatibility rather than forcing its rate. */
+    const uint8_t video_protocols =
+        WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N;
+    ret = esp_wifi_set_protocol(WIFI_IF_STA, video_protocols);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "operation=wifi.protocol code=%s", esp_err_to_name(ret));
+    } else {
+        ESP_LOGI(TAG,
+                 "operation=wifi.protocol outcome=success phy=802.11b/g/n");
+    }
+
     portENTER_CRITICAL(&s_state_lock);
     uint32_t generation = s_state.generation + 1U;
     s_state = (wifi_state_t){
@@ -281,13 +295,21 @@ esp_err_t wifi_start_station(const firmware_wifi_credentials_t *credentials)
         portEXIT_CRITICAL(&s_state_lock);
         return ret;
     }
+    /* Disable modem sleep for lower real-time receive latency. */
     ret = esp_wifi_set_ps(WIFI_PS_NONE);
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "operation=wifi.power_save code=%s", esp_err_to_name(ret));
     }
+    /* 84 maps to the ESP32's documented 20 dBm maximum. */
     ret = esp_wifi_set_max_tx_power(84);
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "operation=wifi.tx_power code=%s", esp_err_to_name(ret));
+    }
+    /* HT20 is more interoperable on congested 2.4 GHz networks and avoids
+     * spending airtime on a 40 MHz channel for this modest video bitrate. */
+    ret = esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "operation=wifi.bandwidth code=%s", esp_err_to_name(ret));
     }
     ESP_LOGI(TAG, "operation=wifi.start outcome=success");
     return ESP_OK;
@@ -365,6 +387,18 @@ bool wifi_is_associated(void)
 {
     wifi_state_t state = state_snapshot();
     return state.started && state.associated;
+}
+
+int wifi_rssi_dbm(void)
+{
+    if (!wifi_is_connected()) {
+        return WIFI_MIN_RSSI_DBM;
+    }
+    wifi_ap_record_t ap_info = {0};
+    if (esp_wifi_sta_get_ap_info(&ap_info) != ESP_OK) {
+        return WIFI_MIN_RSSI_DBM;
+    }
+    return ap_info.rssi;
 }
 
 esp_ip_addr_t wifi_app_address(void)

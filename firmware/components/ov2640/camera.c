@@ -10,6 +10,9 @@ static bool s_ready;
 static bool s_has_psram;
 static framesize_t s_frame_size;
 static size_t s_frame_buffers;
+static int s_jpeg_quality;
+static bool s_udp_mode;
+static bool s_capture_profile_known;
 
 bool camera_is_ready(void) { return s_ready; }
 size_t camera_psram_bytes(void)
@@ -22,6 +25,10 @@ esp_err_t camera_init(void)
     s_has_psram = esp_psram_is_initialized();
     s_frame_size = s_has_psram ? CAM_FRAME_SIZE : CAM_BLE_FRAME_SIZE;
     s_frame_buffers = s_has_psram ? CAM_FRAME_BUFFERS : 1;
+    s_jpeg_quality = s_has_psram ? CAM_JPEG_QUALITY : CAM_BLE_JPEG_QUALITY;
+    s_udp_mode = false;
+    /* Start with the XGA PSRAM profile; BLE fallback remains QVGA. */
+    s_capture_profile_known = false;
     camera_config_t config = {
         .pin_pwdn = PIN_CAM_PWDN,
         .pin_reset = PIN_CAM_RESET,
@@ -44,7 +51,7 @@ esp_err_t camera_init(void)
         .ledc_channel = LEDC_CHANNEL_0,
         .pixel_format = PIXFORMAT_JPEG,
         .frame_size = s_frame_size,
-        .jpeg_quality = s_has_psram ? CAM_JPEG_QUALITY : CAM_BLE_JPEG_QUALITY,
+        .jpeg_quality = s_jpeg_quality,
         .fb_count = s_frame_buffers,
         .fb_location = s_has_psram ? CAMERA_FB_IN_PSRAM : CAMERA_FB_IN_DRAM,
         .grab_mode = CAMERA_GRAB_LATEST,
@@ -100,29 +107,77 @@ bool camera_is_valid_jpeg(const camera_fb_t *fb)
            protocol_jpeg_valid(fb->buf, fb->len);
 }
 
-esp_err_t camera_set_udp_mode(bool enabled)
+static esp_err_t apply_capture_profile(framesize_t target, int quality)
 {
-    if (!s_ready) {
-        return ESP_ERR_INVALID_STATE;
+    if (!s_ready || quality < 0 || quality > 63) {
+        return ESP_ERR_INVALID_ARG;
     }
-    framesize_t target = enabled && s_has_psram ? CAM_FRAME_SIZE : CAM_BLE_FRAME_SIZE;
-    if (s_frame_size == target) {
+    if (!s_has_psram && target != CAM_BLE_FRAME_SIZE) {
+        target = CAM_BLE_FRAME_SIZE;
+    }
+    if (target == s_frame_size && quality == s_jpeg_quality) {
         return ESP_OK;
     }
+
     sensor_t *sensor = esp_camera_sensor_get();
-    if (sensor == NULL || sensor->set_framesize(sensor, target) != 0 ||
-        sensor->set_quality(sensor, enabled ? CAM_JPEG_QUALITY : CAM_BLE_JPEG_QUALITY) != 0) {
+    if (sensor == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (target != s_frame_size && sensor->set_framesize(sensor, target) != 0) {
         return ESP_FAIL;
     }
+    if (quality != s_jpeg_quality && sensor->set_quality(sensor, quality) != 0) {
+        return ESP_FAIL;
+    }
+
     s_frame_size = target;
-    /* Drain frames captured before the resolution changed. */
+    s_jpeg_quality = quality;
+    /* Drain buffers captured with the previous resolution/quality profile. */
     for (size_t i = 0; i <= s_frame_buffers; ++i) {
         camera_fb_t *fb = esp_camera_fb_get();
         if (fb != NULL) {
             esp_camera_fb_return(fb);
         }
     }
+    ESP_LOGI(TAG,
+             "operation=camera.profile outcome=success frame_size=%d quality=%d psram=%d",
+             (int)s_frame_size, s_jpeg_quality, s_has_psram);
     return ESP_OK;
+}
+
+esp_err_t camera_set_udp_mode(bool enabled)
+{
+    if (!s_ready) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_capture_profile_known && s_udp_mode == enabled) {
+        return ESP_OK;
+    }
+
+    framesize_t target = enabled && s_has_psram
+        ? CAM_FRAME_SIZE : CAM_BLE_FRAME_SIZE;
+    int quality = enabled && s_has_psram
+        ? CAM_JPEG_QUALITY : CAM_BLE_JPEG_QUALITY;
+    esp_err_t err = apply_capture_profile(target, quality);
+    if (err == ESP_OK) {
+        s_udp_mode = enabled;
+        s_capture_profile_known = true;
+    }
+    return err;
+}
+
+esp_err_t camera_set_udp_profile(framesize_t frame_size, int jpeg_quality)
+{
+    if (!s_udp_mode) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (frame_size != FRAMESIZE_XGA &&
+        frame_size != FRAMESIZE_SVGA &&
+        frame_size != FRAMESIZE_VGA &&
+        frame_size != FRAMESIZE_QVGA) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return apply_capture_profile(frame_size, jpeg_quality);
 }
 
 esp_err_t camera_apply_settings(void)

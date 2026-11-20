@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "SpectruLenPor ESP32-CAM Firmware",
+    "version": "3.2.0",
+    "platform": "ESP32",
+    "framework": "ESP-IDF 5.x",
+    "repository": "https://github.com/abdou-da0wew/SpectrulenPor"
+  },
+  "creator": {
+    "name": "Abdoul-Rahman Ayman",
+    "github": "abdou-da0wew",
+    "profile": "https://github.com/abdou-da0wew",
+    "role": "Creator and primary developer"
+  },
+  "maintainers": [
+    {
+      "name": "Abdoul-Rahman Ayman",
+      "github": "abdou-da0wew",
+      "role": "Firmware author and primary maintainer"
+    }
+  ],
+  "hardware": {
+    "target": "AI-Thinker ESP32-CAM",
+    "camera": "OV2640",
+    "spectralSensor": "AS7265x"
+  },
+  "license": "See the repository license file"
+}

@@ -24,6 +24,8 @@ bool camera_is_valid_jpeg(const camera_fb_t *fb);
 esp_err_t camera_apply_settings(void);
 /* Use SVGA for UDP and QVGA for the companion app's BLE fallback. */
 esp_err_t camera_set_udp_mode(bool enabled);
+/* Change JPEG resolution/quality as RSSI changes; frame sizes are hardware JPEG. */
+esp_err_t camera_set_udp_profile(framesize_t frame_size, int jpeg_quality);
 bool camera_is_ready(void);
 size_t camera_psram_bytes(void);
 

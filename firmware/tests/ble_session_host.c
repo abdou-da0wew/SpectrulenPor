@@ -36,6 +36,8 @@ struct ble_gap_event {
 };
 static int gap_event_cb(struct ble_gap_event *event, void *arg);
 typedef struct { uint8_t *buf; size_t len, width, height; } camera_fb_t;
+typedef int framesize_t;
+enum { FRAMESIZE_QVGA = 0, FRAMESIZE_VGA = 1, FRAMESIZE_SVGA = 2, FRAMESIZE_XGA = 3 };
 typedef struct { bool available; unsigned uv_raw, ir_raw; } as7265x_reading_t;
 static const char *scenario;
 static jmp_buf finished;
@@ -43,6 +45,8 @@ static int64_t clock_now;
 static bool flash_on, camera_ready = true, triggered, awaiting_dequeue;
 static bool command_processing;
 static unsigned notify_calls, new_link_notifications, flash_on_calls, resets, save_calls;
+static unsigned ble_init_calls;
+static esp_err_t ble_init_result = ESP_OK;
 static _Thread_local unsigned tx_locked, critical_depth;
 static unsigned queue_head, queue_tail;
 static pthread_mutex_t notification_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -63,6 +67,17 @@ void host_reconnect(void);
 void host_queue(uint8_t code);
 void *host_reconnect_thread(void *arg);
 bool is_case(const char *name) { return strcmp(scenario, name) == 0; }
+esp_err_t ble_init(void)
+{
+    ++ble_init_calls;
+    return ble_init_result;
+}
+
+const char *esp_err_to_name(esp_err_t error)
+{
+    (void)error;
+    return "host-error";
+}
 void host_log(const char *tag, const char *format, ...)
 {
     (void)tag;
@@ -176,6 +191,8 @@ void vTaskDelay(unsigned ticks)
 }
 bool camera_is_ready(void) { return camera_ready; }
 esp_err_t camera_set_udp_mode(bool udp) { (void)udp; return ESP_OK; }
+esp_err_t camera_set_udp_profile(framesize_t size, int quality)
+{ (void)size; (void)quality; return ESP_OK; }
 camera_fb_t *camera_capture(void)
 {
     if (!triggered && is_case("reconnect_before_capture")) { triggered = true; host_reconnect(); }
@@ -217,6 +234,7 @@ esp_err_t wifi_start_station(const firmware_wifi_credentials_t *credentials)
 esp_err_t wifi_stop_station(void) { return ESP_OK; }
 void wifi_maintain(void) {}
 bool wifi_is_connected(void) { return false; }
+int wifi_rssi_dbm(void) { return -65; }
 const char *wifi_status_string(void) { return "disconnected"; }
 void wifi_local_ip_str(char *buffer, size_t capacity)
 {
@@ -226,8 +244,10 @@ void wifi_local_ip_str(char *buffer, size_t capacity)
 void udp_stream_stop(void) { ++resets; }
 esp_err_t udp_stream_start(void) { return ESP_OK; }
 bool udp_stream_has_peer(void) { return false; }
-bool udp_stream_send_frame(const uint8_t *data, size_t length)
-{ (void)data; (void)length; return false; }
+bool udp_stream_send_frame(const uint8_t *data, size_t length, uint32_t packet_pace_ms)
+{ (void)data; (void)length; (void)packet_pace_ms; return false; }
+bool udp_stream_send_control(const uint8_t *data, size_t length)
+{ (void)data; (void)length; return true; }
 bool udp_stream_receive_command(firmware_command_t *out) { (void)out; return false; }
 
 #define TAG BLE_TAG
@@ -315,6 +335,60 @@ int main(int argc, char **argv)
     queue_item_size = sizeof(ble_command_t);
     s_tx_handle = 1;
     s_tx_lock = &notification_mutex;
+    if (is_case("recovery_delayed")) {
+        clock_now = 1000000;
+        maintain_ble_recovery(false);
+        expect(ble_init_calls == 0 && !s_app.ble_started,
+               "BLE recovery must not start before its delay");
+        clock_now += (int64_t)(WIFI_BLE_RECOVERY_DELAY_MS - 1U) * 1000LL;
+        maintain_ble_recovery(false);
+        expect(ble_init_calls == 0 && !s_app.ble_started,
+               "BLE recovery remains delayed until the threshold");
+        clock_now += 1000;
+        maintain_ble_recovery(false);
+        expect(ble_init_calls == 1 && s_app.ble_started,
+               "BLE commissioning starts at the WiFi outage threshold");
+        maintain_ble_recovery(false);
+        expect(ble_init_calls == 1,
+               "successful BLE recovery is not initialized twice");
+        return EXIT_SUCCESS;
+    }
+    if (is_case("recovery_wifi_reset")) {
+        clock_now = 1000000;
+        maintain_ble_recovery(false);
+        clock_now += (int64_t)(WIFI_BLE_RECOVERY_DELAY_MS - 1U) * 1000LL;
+        maintain_ble_recovery(true);
+        clock_now += 1000;
+        maintain_ble_recovery(false);
+        clock_now += (int64_t)(WIFI_BLE_RECOVERY_DELAY_MS - 1U) * 1000LL;
+        maintain_ble_recovery(false);
+        expect(ble_init_calls == 0,
+               "a recovered WiFi link resets the offline recovery timer");
+        clock_now += 1000;
+        maintain_ble_recovery(false);
+        expect(ble_init_calls == 1 && s_app.ble_started,
+               "fresh WiFi outage reaches BLE recovery threshold");
+        return EXIT_SUCCESS;
+    }
+    if (is_case("recovery_init_retry")) {
+        clock_now = 1000000;
+        ble_init_result = ESP_FAIL;
+        maintain_ble_recovery(false);
+        clock_now += (int64_t)WIFI_BLE_RECOVERY_DELAY_MS * 1000LL;
+        maintain_ble_recovery(false);
+        expect(ble_init_calls == 1 && !s_app.ble_started,
+               "failed BLE initialization is recorded without claiming success");
+        clock_now += (int64_t)(WIFI_RETRY_INTERVAL_MS - 1U) * 1000LL;
+        maintain_ble_recovery(false);
+        expect(ble_init_calls == 1,
+               "failed BLE initialization uses a bounded retry interval");
+        clock_now += 1000;
+        ble_init_result = ESP_OK;
+        maintain_ble_recovery(false);
+        expect(ble_init_calls == 2 && s_app.ble_started,
+               "BLE recovery retries and succeeds after transient init failure");
+        return EXIT_SUCCESS;
+    }
     host_connect();
     original_session = ble_session_id();
     s_app.ble_started = true;
@@ -368,10 +442,13 @@ int main(int argc, char **argv)
     }
     if (setjmp(finished) == 0) run_application();
     if (is_case("new_stream_during_drain")) {
-        expect(s_app.ble_session == ble_session_id() && s_app.streaming && resets == 1,
-               "new session must be reconciled before stream_on");
+        expect(s_app.ble_session == ble_session_id() && !s_app.streaming && resets == 1,
+               "new session must be reconciled before rejecting BLE stream_on");
+        expect(strstr(notifications, "$ERROR:VIDEO_AND_RUNTIME_COMMANDS_REQUIRE_UDP\n") != NULL,
+               "BLE stream command must receive an explicit UDP-required error");
         if (setjmp(finished) == 0) run_application();
-        expect(s_app.streaming && resets == 1, "next iteration preserves new-session stream");
+        expect(!s_app.streaming && resets == 1,
+               "next iteration must not turn a BLE stream command into capture");
     } else if (is_case("new_flash_during_drain")) {
         expect(s_app.ble_session == ble_session_id() && flash_on && resets == 1,
                "new session reset must precede flash_on, not erase it later");
