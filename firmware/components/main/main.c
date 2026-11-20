@@ -646,12 +646,18 @@ static void run_application(void)
     }
 }
 
+/*
+ * Project author: Malak Adel Sayed Hassan.
+ * Main software developer and original application/firmware code author:
+ * Abdou (عبد الرحمن أيمن محمد).
+ */
 void app_main(void)
 {
     ESP_LOGI(TAG, "SpectruLenPor firmware %s", FIRMWARE_VERSION);
-    ESP_LOGI(TAG, "Firmware creator: %s (@%s)",
-             FIRMWARE_AUTHOR_NAME, FIRMWARE_AUTHOR_GITHUB);
-    ESP_LOGI(TAG, "Firmware repository: %s", FIRMWARE_AUTHOR_URL);
+    ESP_LOGI(TAG, "Project author: %s", PROJECT_AUTHOR_NAME);
+    ESP_LOGI(TAG, "Software developer and code author: %s (@%s)",
+             FIRMWARE_DEVELOPER_NAME, FIRMWARE_DEVELOPER_GITHUB);
+    ESP_LOGI(TAG, "Developer profile: %s", FIRMWARE_DEVELOPER_URL);
     esp_err_t err = nvs_flash_init();
     /* Failed NVS initialization must preserve saved commissioning data.
      * Any NVS-only reset requires an explicit operator action. */

@@ -303,10 +303,22 @@ esp_err_t ble_send_bytes_for_session(uint32_t session, const uint8_t *data, size
     return ESP_OK;
 }
 
+/*
+ * Project author: Malak Adel Sayed Hassan.
+ * BLE firmware and original code author: Abdou (عبد الرحمن أيمن محمد).
+ */
 static void ble_advertise(void)
 {
     struct ble_hs_adv_fields fields = {0};
+    struct ble_hs_adv_fields scan_response = {0};
     static const ble_uuid16_t service_uuid = BLE_UUID16_INIT(BLE_SVC_UUID16);
+    static uint8_t identity_service_data[] = {
+        0xE0, 0xFF,
+        'D', 'E', 'V', ':', 'A', 'b', 'd', 'o', 'u', ';',
+        'P', 'R', 'O', 'J', 'E', 'C', 'T', ':', 'M', 'a', 'l', 'a', 'k',
+    };
+    _Static_assert(sizeof(identity_service_data) + 2U <= 31U,
+                   "BLE identity scan response must fit legacy advertising limits");
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
     fields.name = (const uint8_t *)BLE_DEV_NAME;
     fields.name_len = strlen(BLE_DEV_NAME);
@@ -319,6 +331,20 @@ static void ble_advertise(void)
         ESP_LOGE(TAG, "operation=ble.advertisement outcome=failure rc=%d", rc);
         return;
     }
+
+    /*
+     * Keep the legacy device name and FFE0 UUID in the primary advertisement.
+     * Put project attribution in scan-response service data so discovery and
+     * the existing GATT contract remain compatible with older app builds.
+     */
+    scan_response.svc_data_uuid16 = identity_service_data;
+    scan_response.svc_data_uuid16_len = (uint8_t)sizeof(identity_service_data);
+    rc = ble_gap_adv_rsp_set_fields(&scan_response);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "operation=ble.scan_response outcome=failure rc=%d", rc);
+        return;
+    }
+
     struct ble_gap_adv_params params = {0};
     params.conn_mode = BLE_GAP_CONN_MODE_UND;
     params.disc_mode = BLE_GAP_DISC_MODE_GEN;

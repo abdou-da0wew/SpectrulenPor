@@ -32,6 +32,14 @@ bool protocol_jpeg_valid(const uint8_t *data, size_t len);
 
 size_t protocol_udp_packet_count(size_t frame_len);
 /*
+ * Project author: Malak Adel Sayed Hassan.
+ * Software developer and original code author: Abdou (عبد الرحمن أيمن محمد).
+ * Device attribution is exposed separately in BLE scan-response metadata;
+ * do not change the UDP V2 wire layout to carry human-readable author strings.
+ *
+ * Device identity is carried separately in the BLE scan response; the UDP V2
+ * header remains a fixed six-field binary contract with no text metadata.
+ *
  * V2 wire header: seq, total_data_fragments, byte_offset, payload_size,
  * frame_id, frame_size (six little-endian uint32 values).
  * A parity packet sets UDP_PARITY_SEQUENCE_FLAG in seq; the remaining low

@@ -1,3 +1,4 @@
+/* Project author: Malak Adel Sayed Hassan. Software developer and code author: Abdou (عبد الرحمن أيمن محمد). */
 package com.spectraglass.app
 
 import io.flutter.embedding.android.FlutterActivity

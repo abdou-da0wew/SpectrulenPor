@@ -1,3 +1,4 @@
+// Project author: Malak Adel Sayed Hassan. Software developer and code author: Abdou (عبد الرحمن أيمن محمد).
 import 'dart:async';
 import 'dart:ui' show PlatformDispatcher;
 

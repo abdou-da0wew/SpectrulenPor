@@ -4,6 +4,11 @@
 #include "esp_netif.h"
 #include "protocol.h"
 
+/*
+ * Project author: Malak Adel Sayed Hassan.
+ * UDP sender and original firmware code author: Abdou (عبد الرحمن أيمن محمد).
+ * Keep author identity in separate metadata; UDP V2 packet bytes are unchanged.
+ */
 /* Start UDP socket (bind to UDP_VIDEO_PORT) for tx + rx. */
 esp_err_t udp_stream_start(void);
 

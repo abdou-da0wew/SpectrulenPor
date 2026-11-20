@@ -15,6 +15,9 @@ import '../models/glasses_setup.dart';
 /// carried exclusively over UDP after the ESP32 joins the configured AP.
 /// UDP (port 8888) carries V2 JPEG fragments and runtime control/status text.
 ///
+/// Device authorship is exposed separately through BLE scan-response metadata;
+/// it is intentionally not appended to UDP datagrams or the V2 frame header.
+///
 /// Video data uses a 24-byte little-endian header: six uint32 fields for
 /// sequence, fragment count, byte offset, payload size, frame ID and frame size.
 class WifiUdpVideoService {

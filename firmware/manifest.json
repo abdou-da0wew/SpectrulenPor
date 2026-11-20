@@ -5,25 +5,47 @@
     "version": "3.2.0",
     "platform": "ESP32",
     "framework": "ESP-IDF 5.x",
-    "repository": "https://github.com/abdou-da0wew/SpectrulenPor"
+    "repository": "https://github.com/abdou-da0wew/SpectrulenPor",
+    "projectAuthor": {
+      "name": "Malak Adel Sayed Hassan",
+      "role": "Project author"
+    }
   },
   "creator": {
-    "name": "Abdoul-Rahman Ayman",
+    "name": "Abdou",
+    "displayName": "Abdou",
+    "nameArabic": "عبد الرحمن أيمن محمد",
     "github": "abdou-da0wew",
     "profile": "https://github.com/abdou-da0wew",
-    "role": "Creator and primary developer"
+    "role": "Software and firmware developer; original firmware code author",
+    "codeAuthorship": "All original firmware source and integration code was written by Abdou."
   },
   "maintainers": [
     {
-      "name": "Abdoul-Rahman Ayman",
+      "name": "Abdou",
+      "displayName": "Abdou",
       "github": "abdou-da0wew",
-      "role": "Firmware author and primary maintainer"
+      "role": "Primary developer and firmware maintainer"
     }
   ],
+  "deviceIdentity": {
+    "bleScanResponse": {
+      "serviceUuid16": "0xFFE0",
+      "serviceData": "DEV:Abdou;PROJECT:Malak",
+      "developer": "Abdou",
+      "developerGithub": "abdou-da0wew"
+    },
+    "udp": {
+      "protocol": "V2",
+      "headerBytes": 24,
+      "attributionInHeader": false,
+      "note": "UDP V2 header layout is kept backward-compatible; attribution remains in metadata and BLE scan-response service data."
+    }
+  },
   "hardware": {
     "target": "AI-Thinker ESP32-CAM",
     "camera": "OV2640",
     "spectralSensor": "AS7265x"
   },
-  "license": "See the repository license file"
+  "thirdPartyNotice": "Third-party libraries, framework components, models, and device SDKs retain their respective authorship and licenses."
 }

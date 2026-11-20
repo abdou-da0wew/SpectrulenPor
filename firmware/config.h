@@ -136,10 +136,16 @@ _Static_assert(sizeof(BLE_PAIRING_CODE) - 1U == BLE_PAIRING_CODE_LEN,
 #define IPV4_TEXT_CAPACITY      16
 #define FIRMWARE_VERSION        "3.2.0"
 
-/* Project authorship and repository metadata. */
-#define FIRMWARE_AUTHOR_NAME    "Abdoul-Rahman Ayman"
-#define FIRMWARE_AUTHOR_GITHUB  "abdou-da0wew"
-#define FIRMWARE_AUTHOR_URL     "https://github.com/abdou-da0wew"
+/* Project author and original code developer are credited separately. */
+#define PROJECT_AUTHOR_NAME          "Malak Adel Sayed Hassan"
+#define FIRMWARE_DEVELOPER_NAME      "Abdou"
+#define FIRMWARE_DEVELOPER_DISPLAY   "Abdou"
+#define FIRMWARE_DEVELOPER_NAME_AR   "عبد الرحمن أيمن محمد"
+#define FIRMWARE_DEVELOPER_GITHUB    "abdou-da0wew"
+#define FIRMWARE_DEVELOPER_URL       "https://github.com/abdou-da0wew"
+#define FIRMWARE_DEVELOPER_ROLE      "Software and firmware developer; code author"
+/* BLE scan-response service data is defined in ble.c, separate from UDP V2. */
+
 
 /* ---------------------------------------------------------------------------
  *  WiFi / UDP video (WiFi-only mode after BLE setup)

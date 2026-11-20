@@ -1,12 +1,10 @@
 name: smart_glass_app
 description: >-
-  SpectruLenPor (v5.5) — Smart scientific glasses & Android app for spectrum
-  analysis and chemical element/compound identification. Local YOLO26-Nano ONNX
-  interactive bounding boxes + user-gated dual capture + Moondream3 Cloud VLM +
-  3-mode RAG (119 elements, 110 compounds, GHS safety, PubChem, Wikipedia, Web) +
-  OpenRouter reasoning chain with inline [n] citations, fact-checking,
-  auto-updating structured scientific context, streamed fish-audio TTS, and a
-  9-table SQLite WAL internal database.
+  SpectruLenPor (v5.5) is a smart-glasses and Android research project authored
+  by Malak Adel Sayed Hassan. Original application and firmware code developed
+  by Abdou (عبد الرحمن أيمن محمد). Features local YOLO26-Nano ONNX detection,
+  user-triggered Moondream3 cloud analysis, three-mode scientific retrieval,
+  OpenRouter responses with inline citations, speech services, and SQLite WAL.
 publish_to: 'none'
 version: 5.5.1+16
 
