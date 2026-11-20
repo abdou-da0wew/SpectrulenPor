@@ -22,7 +22,9 @@ class TtsSink {
   ja.AudioPlayer? _streamPlayer;
   AudioPlayer? _filePlayer;
   StreamSubscription<ja.PlayerState>? _playerStateSub;
+  StreamSubscription<PlayerState>? _filePlayerStateSub;
   StreamSubscription<List<int>>? _byteSub;
+  Completer<void>? _filePlaybackEnded;
 
   /// Flips false if just_audio streaming init fails once — afterwards all
   /// audio goes through the audioplayers file path.
@@ -45,14 +47,15 @@ class TtsSink {
 
       final source = _TtsStreamSource(controller.stream);
       await _streamPlayer!.setAudioSource(source);
+      final completed = _streamPlayer!.processingStateStream.firstWhere(
+        (state) => state == ja.ProcessingState.completed,
+      );
       await _streamPlayer!.play();
-
-      _playerStateSub = _streamPlayer!.playerStateStream.listen((state) {
-        if (state.processingState == ja.ProcessingState.completed) {
-          _byteSub?.cancel();
-          _byteSub = null;
-        }
-      });
+      // Keep segments sequential. Returning before completion caused the next
+      // Fish Audio sentence to replace the one that was still playing.
+      await completed.timeout(const Duration(seconds: 75));
+      await _byteSub?.cancel();
+      _byteSub = null;
     } catch (e) {
       debugPrint('[TtsSink] streamed playback unavailable: $e');
       streamingAvailable = false;
@@ -62,16 +65,49 @@ class TtsSink {
 
   Future<void> playBytes(Uint8List bytes) async {
     final dir = await getTemporaryDirectory();
-    final path =
-        '${dir.path}/tts_${DateTime.now().microsecondsSinceEpoch}.mp3';
-    final f = io.File(path);
-    await f.writeAsBytes(bytes, flush: true);
+    final path = '${dir.path}/tts_${DateTime.now().microsecondsSinceEpoch}.mp3';
+    final file = io.File(path);
+    await file.writeAsBytes(bytes, flush: true);
 
     _filePlayer ??= AudioPlayer();
-    await _filePlayer!.play(DeviceFileSource(path));
+    final player = _filePlayer!;
+    await _filePlayerStateSub?.cancel();
+    _filePlayerStateSub = null;
+    await player.stop();
+
+    final completed = Completer<void>();
+    _filePlaybackEnded = completed;
+    _filePlayerStateSub = player.onPlayerStateChanged.listen((state) {
+      if ((state == PlayerState.completed || state == PlayerState.stopped) &&
+          !completed.isCompleted) {
+        completed.complete();
+      }
+    });
+
+    try {
+      await player.play(DeviceFileSource(path));
+      await completed.future.timeout(const Duration(seconds: 75));
+    } finally {
+      await _filePlayerStateSub?.cancel();
+      _filePlayerStateSub = null;
+      if (identical(_filePlaybackEnded, completed)) {
+        _filePlaybackEnded = null;
+      }
+      if (file.existsSync()) {
+        try {
+          await file.delete();
+        } catch (error) {
+          debugPrint('[TtsSink] temporary audio cleanup failed: $error');
+        }
+      }
+    }
   }
 
   Future<void> stop() async {
+    final filePlayback = _filePlaybackEnded;
+    if (filePlayback != null && !filePlayback.isCompleted) {
+      filePlayback.complete();
+    }
     await _playerStateSub?.cancel();
     _playerStateSub = null;
     await _byteSub?.cancel();
