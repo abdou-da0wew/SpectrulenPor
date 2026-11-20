@@ -12,6 +12,158 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final peer = InternetAddress('192.0.2.10');
 
+  test('socket loss automatically restores the UDP control channel', () async {
+    final first = FakeDatagramSocket();
+    final second = FakeDatagramSocket();
+    final sockets = <FakeDatagramSocket>[first, second];
+    final service = WifiUdpVideoService(
+      socketFactory: () async => sockets.removeAt(0),
+    );
+    addTearDown(service.dispose);
+
+    await service.connect(espIp: peer);
+    first.close();
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+
+    expect(service.isConnected, isTrue);
+    expect(service.espIp?.address, peer.address);
+    expect(sockets, isEmpty);
+  });
+
+  test('start falls back to broadcast discovery when the saved IP is stale',
+      () async {
+    final stale = FakeDatagramSocket()..failSend = true;
+    final discovered = FakeDatagramSocket();
+    final sockets = <FakeDatagramSocket>[stale, discovered];
+    final service = WifiUdpVideoService(
+      socketFactory: () async => sockets.removeAt(0),
+      frameDecoder: decodeFixtureJpeg,
+    );
+    addTearDown(service.dispose);
+
+    final starting = service.start(espIp: peer);
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    for (final packet in packetize(testJpeg())) {
+      discovered.feed(packet);
+    }
+    await starting;
+
+    expect(service.isReady, isTrue);
+    expect(service.espIp?.address, '192.0.2.10');
+    expect(discovered.broadcastEnabled, isTrue);
+  });
+
+  test('auto discovery finds the ESP32 from its UDP keepalive echo', () async {
+    final socket = FakeDatagramSocket();
+    final service = WifiUdpVideoService(socketFactory: () async => socket);
+    addTearDown(service.dispose);
+
+    await service.connect();
+
+    expect(service.isConnected, isTrue);
+    expect(service.espIp?.address, '192.0.2.10');
+    expect(socket.broadcastEnabled, isTrue);
+    expect(
+      socket.sent.any((packet) =>
+          packet.address.address == '255.255.255.255' &&
+          packet.bytes.single == WifiUdpVideoService.cmdPeerKeepalive),
+      isTrue,
+    );
+  });
+
+  test(
+      'connect-only registers UDP peer and allows runtime status/flash commands without video',
+      () async {
+    final socket = FakeDatagramSocket();
+    final service = WifiUdpVideoService(socketFactory: () async => socket);
+    addTearDown(service.dispose);
+
+    await service.connect(espIp: peer);
+    expect(service.isConnected, isTrue);
+    expect(service.isActive, isTrue);
+    expect(service.isStreaming, isFalse);
+    expect(service.isReady, isFalse);
+
+    await service.sendCommandAndWait(
+      WifiUdpVideoService.cmdFlashOn,
+      acknowledgment: r'$CMD:flash_on',
+    );
+    final status = await service.requestStatus();
+    expect(status, startsWith(r'$STATUS:'));
+    await service.disconnect();
+    expect(socket.closed, isTrue);
+  });
+
+  test(
+      'peer registration retries when initial keepalive acknowledgements are lost',
+      () async {
+    final socket = FakeDatagramSocket()..dropPeerKeepaliveAcknowledgements = 2;
+    final service = WifiUdpVideoService(socketFactory: () async => socket);
+    addTearDown(service.dispose);
+
+    await service.connect(espIp: peer);
+
+    final keepaliveAttempts = socket.sent
+        .where((datagram) =>
+            datagram.bytes.length == 1 &&
+            datagram.bytes.single == WifiUdpVideoService.cmdPeerKeepalive)
+        .length;
+    expect(keepaliveAttempts, 3);
+    expect(service.isConnected, isTrue);
+  });
+
+  test('out-of-order fragments are reassembled by frame ID', () async {
+    final socket = FakeDatagramSocket();
+    final service = WifiUdpVideoService(socketFactory: () async => socket);
+    addTearDown(service.dispose);
+    final start = service.start(espIp: peer);
+    await Future<void>.delayed(Duration.zero);
+    final packets = packetize(testJpeg(), frameId: 44);
+    final frame = service.frameStream.first;
+    for (final data in packets.reversed) {
+      socket.feed(data);
+    }
+    await start;
+    final received = await frame;
+    expect(received.jpegBytes, testJpeg());
+    expect(service.isReady, isTrue);
+  });
+
+  test(
+      'one missing fragment per FEC group is recovered without a retry round trip',
+      () async {
+    final socket = FakeDatagramSocket();
+    final service = WifiUdpVideoService(socketFactory: () async => socket);
+    addTearDown(service.dispose);
+    final start = service.start(espIp: peer);
+    await Future<void>.delayed(Duration.zero);
+    final packets = packetize(testJpeg(), frameId: 77);
+    final dataPackets = packets.where((packet) =>
+        (ByteData.sublistView(packet).getUint32(0, Endian.little) &
+            WifiUdpVideoService.paritySequenceFlag) ==
+        0);
+    final firstData = dataPackets.first;
+    final frame = service.frameStream.first;
+    // Intentionally lose the first data datagram; the group's XOR parity
+    // packet reconstructs it after all other datagrams arrive.
+    var skippedFirstData = false;
+    for (final data in packets) {
+      final rawSequence =
+          ByteData.sublistView(data).getUint32(0, Endian.little);
+      if (!skippedFirstData &&
+          (rawSequence & WifiUdpVideoService.paritySequenceFlag) == 0) {
+        skippedFirstData = true;
+        continue;
+      }
+      socket.feed(data);
+    }
+    expect(firstData, isNotEmpty);
+    await start;
+    final received = await frame;
+    expect(received.jpegBytes, testJpeg());
+    expect(service.isReady, isTrue);
+  });
+
   test('bind and peer echo are not readiness; only decoded JPEG is', () async {
     final socket = FakeDatagramSocket();
     final service = WifiUdpVideoService(socketFactory: () async => socket);
@@ -23,8 +175,9 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     expect(service.isActive, isTrue);
     expect(service.isReady, isFalse);
-    expect(statuses, ['connecting']);
-    expect(socket.sent.single.bytes, [0x01]);
+    expect(statuses, contains('connecting'));
+    expect(socket.sent.map((command) => command.bytes.single).take(2),
+        [0x0C, 0x01]);
     socket.feed(Uint8List.fromList([0x01]));
     expect(service.isReady, isFalse);
     final jpeg = testJpeg();
@@ -57,12 +210,13 @@ void main() {
       Uint8List(15),
       packet(seq: 0, total: 0, payload: [1]),
       packet(seq: 1, total: 1, payload: [1]),
-      packet(seq: 0, total: 1025, payload: List.filled(512, 1)),
-      packet(seq: 0, total: 1, payload: List.filled(513, 1)),
+      packet(
+          seq: 0, total: WifiUdpVideoService.maxPacketCount + 1, payload: [1]),
+      packet(seq: 0, total: 1, payload: List.filled(1201, 1)),
       packet(seq: 0, total: 1, payload: [1], size: 512),
       packet(seq: 0, total: 1, payload: [1], size: 0),
       packet(seq: 0, total: 2, payload: [1]),
-      packet(seq: 0, total: 1, payload: [1], offset: 512),
+      packet(seq: 0, total: 1, payload: [1], offset: 1200),
       packet(seq: 1023, total: 1024, payload: [1], offset: 0xFFFFFFFF),
     ]) {
       socket.feed(invalid);
@@ -113,7 +267,8 @@ void main() {
     final socket = FakeDatagramSocket();
     final service = WifiUdpVideoService(
         socketFactory: () async => socket,
-        frameTimeout: const Duration(milliseconds: 30));
+        frameTimeout: const Duration(milliseconds: 30),
+        readinessTimeout: const Duration(seconds: 20));
     addTearDown(service.dispose);
     final start = service.start(espIp: peer);
     await Future<void>.delayed(Duration.zero);
@@ -134,14 +289,14 @@ void main() {
       socket.feed(data);
     }
     expect(service.isReady, isFalse);
-    for (final data in packets) {
+    for (final data in packetize(testJpeg(), frameId: 2)) {
       socket.feed(data);
     }
     await start;
   });
 
   test(
-      'JPEG markers alone cannot declare readiness and first-frame timeout closes socket',
+      'JPEG markers alone cannot declare readiness and first-frame timeout preserves UDP controls',
       () async {
     final socket = FakeDatagramSocket();
     final service = WifiUdpVideoService(
@@ -157,11 +312,13 @@ void main() {
     socket.feed(packet(seq: 0, total: 1, payload: [0xFF, 0xD8, 0xFF, 0xD9]));
     await failure;
     expect(service.isReady, isFalse);
-    expect(service.isActive, isFalse);
-    expect(socket.closed, isTrue);
+    expect(service.isActive, isTrue);
+    expect(service.isConnected, isTrue);
+    expect(socket.closed, isFalse);
+    await service.disconnect();
   });
 
-  test('stream stalls invalidate readiness even if malformed packets arrive',
+  test('stream stalls invalidate readiness but retain UDP command recovery',
       () async {
     final socket = FakeDatagramSocket();
     final service = WifiUdpVideoService(
@@ -169,7 +326,7 @@ void main() {
         stalledTimeout: const Duration(milliseconds: 200));
     addTearDown(service.dispose);
     final stalled =
-        service.statusStream.firstWhere((status) => status == 'failed');
+        service.statusStream.firstWhere((status) => status == 'stalled');
     final start = service.start(espIp: peer);
     await Future<void>.delayed(Duration.zero);
     for (final data in packetize(testJpeg())) {
@@ -180,7 +337,14 @@ void main() {
     await stalled;
     expect(service.lastFailure, GlassesFailure.udpStalled);
     expect(service.isReady, isFalse);
-    expect(service.isActive, isFalse);
+    expect(service.isActive, isTrue);
+    expect(service.isConnected, isTrue);
+    final recovered = service.frameStream.first;
+    for (final data in packetize(testJpeg(), frameId: 2)) {
+      socket.feed(data);
+    }
+    await recovered;
+    expect(service.isReady, isTrue);
   });
 
   test(
@@ -202,22 +366,24 @@ void main() {
     expect(socket.closed, isFalse);
     service.sendCommand(0x02);
     final oneFrame = service.frameStream.first;
-    for (final data in packets) {
+    for (final data in packetize(testJpeg(), frameId: 2)) {
       socket.feed(data);
     }
     await oneFrame;
     expect(service.isStreaming, isFalse);
     service.sendCommand(0x03);
     service.sendCommand(0x04);
-    expect(
-        () => service.sendCommand(0x05),
-        throwsA(isA<GlassesException>()
-            .having((e) => e.code, 'code', GlassesFailure.unsupportedControl)));
+    await service.sendCommandAndWait(0x05, acknowledgment: r'$CMD:restart');
+    await service.sendCommandAndWait(0x06,
+        acknowledgment: r'$CMD:shutdown_complete');
     service.sendCommand(0x01);
     expect(service.isStreaming, isTrue);
     await service.stop();
     expect(socket.sent.map((command) => command.bytes.single),
-        [0x01, 0x00, 0x02, 0x03, 0x04, 0x01, 0x00]);
+        [0x0C, 0x01, 0x00, 0x02, 0x03, 0x04, 0x05, 0x06, 0x01, 0x00]);
+    expect(socket.closed, isFalse);
+    expect(service.isConnected, isTrue);
+    await service.disconnect();
     expect(socket.closed, isTrue);
   });
 
@@ -290,6 +456,7 @@ void main() {
     var calls = 0;
     final service = WifiUdpVideoService(
         socketFactory: () async => socket,
+        readinessTimeout: const Duration(seconds: 20),
         frameDecoder: (_) async {
           if (++calls == 1) throw StateError('private decoder detail');
           return [96, 64];
@@ -303,7 +470,7 @@ void main() {
     }
     await Future<void>.delayed(Duration.zero);
     expect(service.isReady, isFalse);
-    for (final data in packets) {
+    for (final data in packetize(testJpeg(), frameId: 2)) {
       socket.feed(data);
     }
     await start;
@@ -332,7 +499,7 @@ void main() {
     for (final data in packets) {
       firstSocket.feed(data);
     }
-    await service.stop();
+    await service.disconnect();
     await cancelled;
     final next = service.start(espIp: peer);
     await Future<void>.delayed(Duration.zero);
@@ -366,8 +533,10 @@ void main() {
     service.sendCommand(0x00);
     service.sendCommand(0x02);
     expect(service.isStreaming, isFalse);
-    await service.statusStream.firstWhere((status) => status == 'failed');
+    await service.statusStream.firstWhere((status) => status == 'stalled');
     expect(service.lastFailure, GlassesFailure.udpStalled);
     expect(service.isReady, isFalse);
+    expect(service.isConnected, isTrue);
+    await service.disconnect();
   });
 }
