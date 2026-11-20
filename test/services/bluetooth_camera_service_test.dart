@@ -1,92 +1,49 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:smart_glass_app/models/frame_data.dart';
 import 'package:smart_glass_app/models/spectrum_reading.dart';
 import 'package:smart_glass_app/services/bluetooth_camera_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('reassembles multi-chunk QVGA JPEG frames > 8 KB without dropping',
-      () async {
-    final svc = BluetoothCameraService();
-    addTearDown(svc.dispose);
+  test('BLE never publishes camera JPEG frames', () async {
+    final service = BluetoothCameraService();
+    addTearDown(service.dispose);
 
-    final received = <FrameData>[];
-    final sub = svc.frameStream.listen(received.add);
-    addTearDown(sub.cancel);
+    final received = <Object>[];
+    final subscription = service.frameStream.listen(received.add);
+    addTearDown(subscription.cancel);
 
-    // Construct a realistic 12 KB JPEG payload containing an embedded 0xFF 0xD8
-    // inside entropy data to verify SOI isn't reset mid-frame.
-    final payload = BytesBuilder()
-      ..add([0xFF, 0xD8, 0xFF, 0xE0])
-      ..add(List<int>.filled(5000, 0x42))
-      ..add([0xFF, 0xD8]) // spurious sequence inside compressed scan data
-      ..add(List<int>.filled(7000, 0x24))
-      ..add([0xFF, 0xD9]);
-    final fullJpeg = payload.toBytes();
-
-    // Feed in 180-byte BLE MTU chunks plus trailing padding after EOI.
-    for (var i = 0; i < fullJpeg.length; i += 180) {
-      final end = (i + 180).clamp(0, fullJpeg.length);
-      svc.debugFeedNotification(fullJpeg.sublist(i, end));
-    }
+    // A complete JPEG and deliberately fragmented JPEG are both forbidden on
+    // GATT. The camera data channel is WiFi UDP only.
+    final jpeg = <int>[
+      0xFF,
+      0xD8,
+      0xFF,
+      0xE0,
+      ...List<int>.filled(700, 0x42),
+      0xFF,
+      0xD9,
+    ];
+    service.debugFeedNotification(jpeg);
+    service.debugFeedNotification(jpeg.sublist(0, 120));
+    service.debugFeedNotification(jpeg.sublist(120));
 
     await Future<void>.delayed(Duration.zero);
-    expect(received, hasLength(1));
-    expect(received.first.jpegBytes.length, fullJpeg.length);
-    expect(received.first.width, 320);
-    expect(received.first.height, 240);
-    expect(received.first.jpegBytes.first, 0xFF);
-    expect(received.first.jpegBytes[1], 0xD8);
-    expect(received.first.jpegBytes[received.first.jpegBytes.length - 2], 0xFF);
-    expect(received.first.jpegBytes.last, 0xD9);
+    expect(received, isEmpty);
   });
 
-  test('reassembles JPEG when SOI and EOI straddle BLE chunk boundaries',
+  test('parses setup telemetry text without treating it as camera video',
       () async {
-    final svc = BluetoothCameraService();
-    addTearDown(svc.dispose);
-
-    final received = <FrameData>[];
-    final sub = svc.frameStream.listen(received.add);
-    addTearDown(sub.cancel);
-
-    final jpeg = BytesBuilder()
-      ..add([0xFF, 0xD8, 0xFF, 0xE0])
-      ..add(List<int>.filled(600, 0x11))
-      ..add([0xFF, 0xD9]);
-    final full = jpeg.toBytes(); // 606 bytes
-
-    // Split so both SOI (FF|D8) and EOI (FF|D9) straddle notifications.
-    svc.debugFeedNotification(full.sublist(0, 1)); // [FF] — carried
-    svc.debugFeedNotification(full.sublist(1, 2)); // [D8] — SOI completes
-    svc.debugFeedNotification(full.sublist(2, 302)); // header + body
-    svc.debugFeedNotification(full.sublist(302, 604)); // body
-    svc.debugFeedNotification(full.sublist(604, 605)); // [FF] — carried
-    svc.debugFeedNotification(full.sublist(605)); // [D9] — EOI completes
-
-    await Future<void>.delayed(Duration.zero);
-    expect(received, hasLength(1));
-    expect(received.first.jpegBytes.length, full.length);
-    expect(received.first.jpegBytes.first, 0xFF);
-    expect(received.first.jpegBytes[1], 0xD8);
-    expect(received.first.jpegBytes[received.first.jpegBytes.length - 2],
-        0xFF);
-    expect(received.first.jpegBytes.last, 0xD9);
-  });
-
-  test('parses interleaved UV/IR telemetry notifications cleanly', () async {
-    final svc = BluetoothCameraService();
-    addTearDown(svc.dispose);
+    final service = BluetoothCameraService();
+    addTearDown(service.dispose);
 
     final readings = <SpectrumReading>[];
-    final sub = svc.sensorStream.listen(readings.add);
-    addTearDown(sub.cancel);
+    final subscription = service.sensorStream.listen(readings.add);
+    addTearDown(subscription.cancel);
 
-    svc.debugFeedNotification(utf8.encode('\$UV:3100;IR:900\n'));
+    service.debugFeedNotification(utf8.encode(r'$UV:3100;IR:900' '\n'));
     await Future<void>.delayed(Duration.zero);
 
     expect(readings, hasLength(1));

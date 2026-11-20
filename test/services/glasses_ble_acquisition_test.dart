@@ -230,7 +230,6 @@ void main() {
       expect(device.notifications.activeListeners, 0);
       expect(device.disconnectQueues, hasLength(2));
       expect(device.writes.map((bytes) => bytes.first), [
-        BluetoothCameraService.cmdStreamOff,
         BluetoothCameraService.cmdFlashOff,
       ]);
     });
@@ -306,7 +305,6 @@ void main() {
     expect(device.connectionEvents.cancelCalls, 1);
     expect(device.notifications.cancelCalls, 1);
     expect(device.writes.map((bytes) => bytes.first), [
-      BluetoothCameraService.cmdStreamOff,
       BluetoothCameraService.cmdFlashOff,
     ]);
   });
@@ -386,7 +384,6 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     expect(service.isConnected, isFalse);
     expect(device.writes.map((bytes) => bytes.first), [
-      BluetoothCameraService.cmdStreamOff,
       BluetoothCameraService.cmdFlashOff,
     ]);
   });

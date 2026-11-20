@@ -176,7 +176,7 @@ void main() {
     });
   }
 
-  test('WiFi-only controls use UDP, preserve pause and reject restart/standby',
+  test('WiFi-only controls use UDP, preserve pause and runtime power controls',
       () async {
     final socket = FakeDatagramSocket();
     final udp = WifiUdpVideoService(socketFactory: () async => socket);
@@ -193,7 +193,8 @@ void main() {
     final start = state.startUdpVideo('192.0.2.10');
     await Future<void>.delayed(Duration.zero);
     expect(state.setupStage, GlassesSetupStage.waitingForFrame);
-    expect(state.wifiConnected, isFalse);
+    expect(state.wifiConnected, isTrue);
+    expect(state.useUdpVideo, isFalse);
     for (final data in packetize(testJpeg())) {
       socket.feed(data);
     }
@@ -207,14 +208,14 @@ void main() {
     expect(udp.isStreaming, isFalse);
     expect(udp.isActive, isTrue);
     expect(ble.writes, isEmpty);
-    expect(socket.sent.map((command) => command.bytes.single), [1, 0, 2, 3, 4]);
+    expect(socket.sent.map((command) => command.bytes.single),
+        [0x0C, 1, 0, 2, 3, 4]);
     expect(state.canUseBleControls, isFalse);
     await state.restartGlasses();
-    expect(state.glassesFailure, GlassesFailure.unsupportedControl);
     await state.shutdownGlasses();
     expect(state.wifiConnected, isTrue);
     expect(udp.isActive, isTrue);
-    expect(socket.sent, hasLength(5));
+    expect(socket.sent, hasLength(8));
     expect(ble.writes, isEmpty);
   });
 }

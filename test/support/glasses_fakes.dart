@@ -75,8 +75,10 @@ class FakeDatagramSocket extends Stream<RawSocketEvent>
   final _received = Queue<Datagram>();
   final sent = <({List<int> bytes, InternetAddress address, int port})>[];
   bool closed = false;
+  bool broadcastEnabled = false;
   bool failSend = false;
   int? sendResult;
+  int dropPeerKeepaliveAcknowledgements = 0;
 
   void feed(
     Uint8List data, {
@@ -96,6 +98,35 @@ class FakeDatagramSocket extends Stream<RawSocketEvent>
       throw const SocketException('private socket detail');
     }
     sent.add((bytes: List<int>.from(buffer), address: address, port: port));
+    if (address.address == '255.255.255.255' &&
+        buffer.length == 1 &&
+        buffer.single == WifiUdpVideoService.cmdPeerKeepalive) {
+      feed(Uint8List.fromList([WifiUdpVideoService.cmdPeerKeepalive]));
+    }
+    if (buffer.length == 1) {
+      final acknowledgment = switch (buffer.single) {
+        WifiUdpVideoService.cmdPeerKeepalive => r'$CMD:keepalive',
+        WifiUdpVideoService.cmdFlashOn => r'$CMD:flash_on',
+        WifiUdpVideoService.cmdFlashOff => r'$CMD:flash_off',
+        WifiUdpVideoService.cmdRestart => r'$CMD:restart',
+        WifiUdpVideoService.cmdShutdown => r'$CMD:shutdown_complete',
+        WifiUdpVideoService.cmdReboot => r'$CMD:reboot',
+        WifiUdpVideoService.cmdStreamOn => r'$CMD:stream_on',
+        WifiUdpVideoService.cmdStreamOff => r'$CMD:stream_off',
+        WifiUdpVideoService.cmdSingleFrame => r'$CMD:single_frame',
+        WifiUdpVideoService.cmdConnectionStatus =>
+          r'$STATUS:bt=0,wifi=connected,ip=192.0.2.10,flash=0,stream=0',
+        _ => null,
+      };
+      final dropKeepaliveAck =
+          buffer.single == WifiUdpVideoService.cmdPeerKeepalive &&
+              dropPeerKeepaliveAcknowledgements > 0;
+      if (dropKeepaliveAck) {
+        dropPeerKeepaliveAcknowledgements--;
+      } else if (acknowledgment != null) {
+        feed(Uint8List.fromList(utf8.encode('$acknowledgment\n')));
+      }
+    }
     return sendResult ?? buffer.length;
   }
 
@@ -144,20 +175,47 @@ Future<List<int>?> decodeFixtureJpeg(Uint8List jpeg) async {
   return decoded == null ? null : [decoded.width, decoded.height];
 }
 
-List<Uint8List> packetize(Uint8List jpeg) {
-  final total = (jpeg.length + WifiUdpVideoService.payloadBytes - 1) ~/
-      WifiUdpVideoService.payloadBytes;
-  return [
-    for (var seq = 0; seq < total; seq++)
-      packet(
-        seq: seq,
-        total: total,
-        payload: jpeg.sublist(
-          seq * WifiUdpVideoService.payloadBytes,
-          ((seq + 1) * WifiUdpVideoService.payloadBytes).clamp(0, jpeg.length),
-        ),
-      ),
-  ];
+List<Uint8List> packetize(Uint8List jpeg, {int frameId = 1}) {
+  final payloadSize = WifiUdpVideoService.payloadBytes;
+  final groupSize = WifiUdpVideoService.fecGroupSize;
+  final total = (jpeg.length + payloadSize - 1) ~/ payloadSize;
+  final packets = <Uint8List>[];
+
+  for (var seq = 0; seq < total; seq++) {
+    final offset = seq * payloadSize;
+    final chunk =
+        jpeg.sublist(offset, (offset + payloadSize).clamp(0, jpeg.length));
+    packets.add(packet(
+      seq: seq,
+      total: total,
+      payload: chunk,
+      frameId: frameId,
+      frameSize: jpeg.length,
+    ));
+  }
+
+  final groupCount = total < groupSize ? total : groupSize;
+  for (var groupIndex = 0; groupIndex < groupCount; groupIndex++) {
+    final parity = Uint8List(payloadSize);
+    for (var seq = groupIndex; seq < total; seq += groupSize) {
+      final offset = seq * payloadSize;
+      final chunk =
+          jpeg.sublist(offset, (offset + payloadSize).clamp(0, jpeg.length));
+      for (var i = 0; i < chunk.length; i++) {
+        parity[i] ^= chunk[i];
+      }
+    }
+    packets.add(packet(
+      seq: groupIndex,
+      total: total,
+      payload: parity,
+      frameId: frameId,
+      frameSize: jpeg.length,
+      parity: true,
+      offset: groupIndex * payloadSize,
+    ));
+  }
+  return packets;
 }
 
 Uint8List packet({
@@ -166,10 +224,19 @@ Uint8List packet({
   required List<int> payload,
   int? offset,
   int? size,
+  int frameId = 1,
+  int? frameSize,
+  bool parity = false,
 }) {
+  final declaredFrameSize =
+      frameSize ?? total * WifiUdpVideoService.payloadBytes;
   final data = Uint8List(WifiUdpVideoService.udpHeaderLen + payload.length);
   final header = ByteData.sublistView(data);
-  header.setUint32(0, seq, Endian.little);
+  header.setUint32(
+    0,
+    parity ? (WifiUdpVideoService.paritySequenceFlag | seq) : seq,
+    Endian.little,
+  );
   header.setUint32(4, total, Endian.little);
   header.setUint32(
     8,
@@ -177,6 +244,8 @@ Uint8List packet({
     Endian.little,
   );
   header.setUint32(12, size ?? payload.length, Endian.little);
+  header.setUint32(16, frameId, Endian.little);
+  header.setUint32(20, declaredFrameSize, Endian.little);
   data.setRange(WifiUdpVideoService.udpHeaderLen, data.length, payload);
   return data;
 }
