@@ -1,6 +1,18 @@
 # ESP32-CAM firmware hardware validation
 
-Validation date: 2026-11-15. Firmware version: `3.2.0`. These results apply to the ESP-IDF WiFi-only boot flow, not the earlier BLE+WiFi image or the Android application.
+Last updated: 2026-11-20. Firmware version: `3.2.0`. The detailed build/flash inventory below preserves the 2026-11-15 commissioning record; the UDP V2 soak update immediately below supersedes earlier throughput expectations. These results apply to the ESP-IDF WiFi-only boot flow, not the Android application.
+
+## Latest UDP V2 soak update (2026-11-20)
+
+The firmware and Flutter receiver now use the same UDP V2 frame contract: a 24-byte header containing six little-endian 32-bit fields, up to 1200 JPEG bytes per data datagram, frame IDs, out-of-order reassembly and interleaved XOR parity recovery. The sender uses bounded retries for transient Wi-Fi queue exhaustion and RSSI-aware camera/pacing profiles.
+
+| Test | Result | Interpretation |
+|---|---|---|
+| 60-second AMPDU-on soak | 210 decoded frames, about **3.50 FPS**, no incomplete frames or protocol errors | One successful run; subsequent sustained runs were inconsistent |
+| Latest 60-second AMPDU-off soak | About **1.5 FPS**, one incomplete frame and one control timeout | Latest measured profile; not stable enough to call reliable |
+| Requested 20–30 FPS | **Not achieved** | Throughput remains well below the project target |
+
+Earlier selected builds also decoded camera JPEGs successfully, but a successful smoke test does not establish sustained delivery. Resolution, link quality, packet loss and long-run cadence remain open hardware issues. Do not use the 20–30 FPS target or older pre-V2 800×600 delivery test as a current measured result.
 
 ## Build and fixture
 
@@ -83,9 +95,11 @@ The first WiFi-only full run failed during pairing authorization after eight BLE
 
 The first corrected missing-AP run reported `HIL_NO_AP_FAILURE_NOT_OBSERVED` even though UART contained all twenty reason-201 failures and `wifi=failed`. A repeated wildcard regex stalled while only nineteen failures were present. The repaired harness counts independent matches and still requires the exact attempt sequence, exact failure count, exhaustion and a post-exhaustion observation window. An absent BlueZ object after intentional reboot no longer becomes a false cleanup error; real transport failures remain fatal.
 
-### UDP diagnostics and delivery blocker
+### Historical pre-UDP-V2 delivery result (2026-11-16)
 
-The latest completed hardware attempt is `firmware/test-results/comprehensive-udp-20261116T054909Z-14fbe3f6/`, on the reviewed uninstrumented release with UDP delivery fixes. **Complete UDP JPEG delivery fully verified** via comprehensive hardware testing: 5/5 stream frames decoded (all 800x600), UDP controls (flash on/off, stream on/off, single after pause) all work, reset persistence verified (soft reset via DTR, credentials persisted, image decoded after reset), dashboard API verified (7/7 endpoints returned 200/204). Zero send failures, zero cleanup errors, zero credential writes/erasures. Probe report: `ok: true`, `firmware/test-results/comprehensive-udp-20261116T054909Z-14fbe3f6/results.json`.
+The comprehensive pre-V2 hardware attempt was `firmware/test-results/comprehensive-udp-20261116T054909Z-14fbe3f6/`, on the reviewed uninstrumented release with the earlier UDP delivery fixes. That run decoded 5/5 stream frames (800×600), passed flash/stream/pause/single-frame controls, retained credentials across a soft reset and returned 200/204 from all seven dashboard API endpoints. It recorded zero send failures, cleanup errors, credential writes or erasures. Probe report: `ok: true`, `firmware/test-results/comprehensive-udp-20261116T054909Z-14fbe3f6/results.json`.
+
+**This result belongs to the earlier pre-V2 transport. It does not establish current UDP V2 throughput or reliability.** The November 20 V2 soak update at the top of this document is the current physical-performance evidence.
 
 Earlier failed probes (`udp-camdma-01`, `saved-profile-review-20261115T182628Z-082c0917`, `udp-delivery-3x200ms`, etc.) remain retained as historical evidence of what did not work. None decoded a complete UDP JPEG.
 
