@@ -22,7 +22,7 @@ A student walks through a chemistry lab or daily environment, points the camera 
 1. Live bounding boxes drawn fully offline on the phone (YOLO26-Nano ONNX).
 2. A grounded, box-scoped description of exactly the selected object (never "explain the whole table").
 3. Scientific detail anchored to a curated corpus: formula, CAS registry number, density, melting/boiling points, uses, hazards, GHS pictogram advice.
-4. Clickable `[n]` citations and per-claim verification badges.
+4. Clickable `[n]` citations and candidate source-match hints (lexical overlap only, not proof).
 5. Voice narration in the user's language.
 
 ## Glossary
@@ -47,12 +47,18 @@ A student walks through a chemistry lab or daily environment, points the camera 
 - `assets/models/yolo26n.onnx` — 5.04 MB, FP32 `[1,3,640,640] → [1,300,6]`, 80 COCO classes, end2end NMS, Ultralytics 8.4.0 export.
 - Internal DB (9 tables): `chat_sessions`, `chat_messages`, `response_cache`, `app_logs`, `crash_hang_reports`, `telemetry_events`, `pipeline_traces`, `user_data`, `user_activity`.
 
+## Current retrieval semantics
+
+- Claim annotations are candidate lexical source matches against citation titles/snippets. They are not semantic entailment checks or scientific verification; the chat UI states this limitation.
+- Element 119 (Ununennium) is explicitly marked hypothetical, and all listed numerical properties are passed to the model as theoretical predictions rather than measured values.
+- Build source metadata is injected by `tooling/flutter_with_metadata.sh`; the checked-in version asset contains only package version/build number.
+
 ## External services (all optional)
 
 | Service | Use | Missing-key behavior |
 |---|---|---|
 | Moondream3 Cloud | Box-grounded VLM captions | Cascades to local fallbacks (GGUF → ONNX classifier → ML Kit) when Cloud-Only is off; explicit error when on |
-| OpenRouter | LLM reasoning chain (`gemma-4-26b → inkling-small → nemotron-3-nano`) + streamed Fish Audio TTS | Clear user-visible error; local TTS still works |
+| OpenRouter | LLM chain (`nemotron-3.5-super-vl → gemma-4-26b → inkling-small`) + streamed Fish Audio TTS | Clear user-visible error; local TTS still works |
 | PubChem / Wikipedia / DuckDuckGo | Live lookups, TTL-cached in `response_cache` | Corpus-only mode, no failure |
 
 ## Constraints that shape the design
@@ -67,6 +73,7 @@ A student walks through a chemistry lab or daily environment, points the camera 
 - Audit round complete (PR #4): TTL-cache wipe bug, history/telemetry column mismatches, TTS silent failures, BLE reconnect, SSE stall guard, release-signing templates, font declarations.
 - CAS backfill complete (PR #5, #6): 108/110 compounds verified from PubChem, mixtures guarded against single-component CAS poisoning.
 - Documentation overhaul (PR #7): README rebuilt with real screenshots, diagram-design visualizations, honest implementation/benchmark matrix, AGENTS/CONTEXT/WORKLOG added, CI running analyze + test.
+- **BLE service refactor (2026-11-16, uncommitted):** `bluetooth_camera_service.dart` split from 868 LOC into four modules: `ble_session_manager.dart` (session lifecycle), `ble_protocol.dart` (GATT contract), `jpeg_frame_decoder.dart` (JPEG reassembly), and a 616-LOC orchestrator. `flutter analyze` clean on all four files; full test suite not yet re-run after refactor. Uncommitted changes include `ble_session_manager.dart`, `jpeg_frame_decoder.dart`, and `bluetooth_camera_service.dart`.
 
 ## What is deliberately *not* done yet
 

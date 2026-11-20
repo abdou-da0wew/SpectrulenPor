@@ -33,7 +33,7 @@ Local-first object detection · grounded chemistry answers · inline citations
 
 SpectruLenPor is a student research project from Ashmounin Secondary School (Egypt): a pair of **low-cost smart glasses** built around an ESP32-CAM with UV/IR sensors, paired with a **bilingual (English / العربية RTL) Flutter Android app** that turns any Android 12+ phone into a scientific analysis instrument.
 
-Point the camera at an object and the app runs **YOLO26-Nano fully on-device** to draw live, tappable bounding boxes. Lock a target and press *Capture & Analyze*: the app sends the frame to a vision-language model, grounds the answer in a **bundled scientific corpus** (119 elements, 110 compounds with PubChem-sourced CAS registry numbers, GHS lab safety) plus live lookups, and streams back a cited, fact-checked explanation with voice narration — designed to keep working in a school lab on a **2,500–6,000 EGP hardware budget** (actual prototype BOM ≈ 1,750 EGP).
+Point the camera at an object and the app runs **YOLO26-Nano fully on-device** to draw live, tappable bounding boxes. Lock a target and press *Capture & Analyze*: the app sends the frame to a vision-language model, grounds the answer in a **bundled scientific corpus** (119 elements, 110 compounds with PubChem-sourced CAS registry numbers, GHS lab safety) plus live lookups, and streams back a cited explanation with candidate source-match hints (lexical overlap only, not scientific verification) and voice narration — designed to keep working in a school lab on a **2,500–6,000 EGP hardware budget** (actual prototype BOM ≈ 1,750 EGP).
 
 Detection, quality gating, caching, storage and diagnostics all run **locally and privately on the phone**; only the heavy AI steps (VLM, LLM, cloud TTS) are cloud-based, and a **Cloud-Only policy toggle** controls exactly what leaves the device — local YOLO always stays local.
 
@@ -93,12 +93,12 @@ Every chemical answer is grounded against a curated corpus instead of model memo
 | OpenRouter prompt discipline (target-scoped, zero-guessing, citation rules) | **Implemented** · smoke script `tool/real_api_smoke_test.dart` pending a live run |
 | CAS backfill from PubChem (checksum + Common Chemistry anchored) | **Implemented** · 108/110 verified · mixtures explicitly flagged · test-locked |
 | 3-mode scientific RAG (strict / detailed / semantic) + TTL caching | **Implemented** · unit-tested |
-| Inline `[n]` citation chips + claim-level fact checking | **Implemented** · widget-tested |
+| Inline `[n]` citation chips + claim-level candidate source matching | **Implemented** · lexical heuristic labelled as a source-match hint, not scientific verification |
 | TTS: streamed Fish Audio + native Android fallback (sane rate/pitch) | **Implemented** · unit-tested · live voice output untested |
 | 9-table SQLite WAL database + diagnostics screens + HangWatchdog | **Implemented** · unit-tested (file_json fallback engine on web/tests) |
 | BLE ESP32-CAM streaming (QVGA JPEG, optional AS7265x telemetry) | **Implemented** · partial Linux HIL decoded 3 frames at 0.96 received fps · Android and sensor verification pending |
-| Flutter BLE-to-WiFi setup and UDP preview | **Implemented and unit/widget-tested** · exact acknowledgments, cancellation and decoded-frame readiness · real-phone verification pending |
-| ESP32-CAM firmware (`firmware/components/main/main.c`) | **UDP JPEG delivery fully verified** · real 800x600 JPEG over WiFi-only UDP · stream, controls, reset persistence, dashboard API all tested · dynamic TX buffers, fragment redundancy, send pacing · [validation](docs/firmware-hardware-validation.md) |
+| Flutter BLE-to-WiFi setup and UDP preview | **Implemented and unit/widget-tested** · exact acknowledgments, cancellation and decoded-frame readiness · real-phone verification pending · `bluetooth_camera_service.dart` split into `ble_session_manager.dart`, `ble_protocol.dart`, `jpeg_frame_decoder.dart` |
+| ESP32-CAM firmware (firmware/components/main/main.c) | **UDP V2 firmware built and flashed** · BLE GATT verified as setup/basic-control only, stream/single-frame rejected and 0 BLE JPEGs observed · 1200-byte UDP fragments, frame IDs, XOR FEC, RSSI-adaptive profiles · hardware AP provisioning and live UDP distance/soak test pending · [validation](docs/firmware-hardware-validation.md) |
 | Linux dashboard, CLI and shared OpenCV viewer | **Implemented** · latest 304 Python passes retain raw logs/source identities · 5 earlier actual-backend browser groups passed · live UDP preview and full contract verification pending |
 | Release signing & R8 templates | **Configured** · no production keystore yet |
 | CI (analyze + test on every push/PR) | **Implemented** · badge reflects real runs |
@@ -297,7 +297,7 @@ For Linux commissioning, the [firmware README](firmware/README.md#linux-testbenc
 
 - [x] On-device YOLO26-Nano with EP race, instant box clearing, tap-to-lock targets
 - [x] Privacy blur + strict dual capture + Moondream box-bound grounding
-- [x] Citation chips, fact checking, auto-updating conversation context
+- [x] Citation chips, candidate source-match hints (not proof of claim correctness), auto-updating conversation context
 - [x] CAS backfill from PubChem with checksum + Common Chemistry anchoring
 - [x] Audit fixes: TTL cache wipe, column mismatches, TTS errors, BLE reconnect, SSE stall guard, font declarations
 - [x] Analyzer driven to **0 issues** (all warnings fixed, deprecated `Radio`/`speech_to_text` APIs migrated) so CI runs green

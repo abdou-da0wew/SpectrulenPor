@@ -1,6 +1,6 @@
 # SpectruLenPor v5.5.1 — Technical Architecture Reference
 
-This document details the internal engineering of **SpectruLenPor** (`com.spectraglass.app`), covering the vision pipeline, ONNX tensor geometry, user-gated dual capture, 3-mode scientific RAG + fact-checking, auto-updating `ConversationContext`, and the 9-table SQLite WAL internal database.
+This document details the internal engineering of **SpectruLenPor** (`com.spectraglass.app`), covering the vision pipeline, ONNX tensor geometry, user-gated dual capture, 3-mode scientific RAG + candidate lexical source matching, auto-updating `ConversationContext`, and the 9-table SQLite WAL internal database.
 
 ![SpectruLenPor architecture](assets/architecture.png)
 
@@ -30,7 +30,7 @@ Everything else (camera capture, ML Kit fallbacks, TTS, speech input) runs throu
 ## 1. End-to-End Pipeline & Cloud-Only Execution Policy
 
 ### Live Detection Loop (Continuous, Local-Only)
-1. **Frame Acquisition**: `PhoneCameraService` (`ResolutionPreset.high`, background isolate YUV420 → upright JPEG), `BluetoothCameraService` (setup-mode QVGA JPEG reassembly and 1 to 16 s reconnect backoff), or `WifiUdpVideoService` (decoded SVGA JPEGs after WiFi-only handoff). Intentional reboot suppresses BLE reconnection; the UDP service does not discover devices through mDNS.
+1. **Frame Acquisition**: PhoneCameraService (ResolutionPreset.high, background isolate YUV420 to upright JPEG) or WifiUdpVideoService (decoded ESP32 JPEGs over UDP V2 after WiFi provisioning). BluetoothCameraService is commissioning-only: pairing, WiFi credentials, setup status and basic local controls. It discards all binary notifications and never publishes camera frames. The ESP rejects BLE stream/single-frame commands; video and post-provisioning runtime controls use UDP port 8888. Intentional provisioning reboot suppresses BLE reconnection; the UDP service does not discover devices through mDNS.
 2. **VisionGate (`lib/services/vision_gate.dart`)**: Computes mean luminance and pixel standard deviation; auto-torch with hysteresis (ON below 38 mean luma, OFF at ≥ 70 so the boundary never flickers) and drops obstructed/lens-cap frames.
 3. **Local YOLO26-Nano (`lib/services/yolo_detector.dart` → `YoloInferenceChannel.kt`)**: Runs strictly on-device on every gated frame and updates `RecognitionState.currentBoxes`. At session creation the channel benchmarks execution providers (CPU vs NNAPI+FP16 vs XNNPACK) and keeps the fastest working one; `imgsz` is parsed from the ONNX graph. Frames are pipelined latest-wins (a slow inference never queues stale frames), and an 8×8 luma-signature scene-change detector instantly clears boxes on fast camera sweeps (plus a 2.5 s staleness guard). **No cloud calls or dual-image captures happen automatically during live preview.**
 
@@ -41,8 +41,8 @@ Triggered **only** when `selectedBox != null` and the user taps **Capture 2 Fram
    - `withBoxesJpeg`: Isolate-painted copy (`_paintBoxesIsolate`) that first **blurs everything outside the selected box (+15% safety margin)** for privacy, then features subtle lavender context outlines on unselected boxes and a high-contrast dusty-mauve double border, white corner L-brackets, center target reticle, and `SELECTED: <LABEL> (<PCT>%)` banner on the chosen object.
 2. **Moondream3 Cloud VLM (`MoondreamService.analyzeSelected`)**: Inspects the privacy-blurred boxed frame through a tight object crop with a strict WHAT/STATE/TEXT/HAZARD protocol to extract `whatItIs`, `stateOfMatter`, `visibleText`, and `hazards` (with negation-aware hazard parsing). `whatsAround` is kept in the schema for compatibility but is always empty — **surroundings are never analyzed nor reported by policy**.
 3. **3-Mode Scientific Retrieval (`DocsSearchService.searchByMode`)**: Queries local (`periodic_table.json`, `common_compounds.json`, `lab_safety.json`) and cloud (`PubChemService`, `WikipediaService`, `WebSearchService`) sources using `strict`, `detailed`, or `semantic` mode.
-4. **Grounded LLM Synthesis (`OpenRouterService`)**: Streams Markdown with inline `[n]` citations across the fallback chain (`google/gemma-4-26b-a4b-it:free` → `liquid/inkling-small:free` → `nvidia/nemotron-3-nano-30b-a3b:free`).
-5. **Automated Claim Verification (`FactCheckerService`)**: Splits factual claims (EN & AR), checks lexical/numeric overlap against cited `[n]` sources, and annotates claims as verified or unverified.
+4. **Grounded LLM Synthesis (`OpenRouterService`)**: Streams Markdown with inline `[n]` citations across the fallback chain (`nvidia/nemotron-3.5-super-vl:free` → `google/gemma-4-26b-a4b-it:free` → `thinkingmachines/inkling-2-small:free`).
+5. **Candidate Source Matching (`FactCheckerService`)**: Splits factual claims (EN & AR), compares lexical tokens with cited `[n]` source titles/snippets, and annotates possible source matches. This is a retrieval heuristic only; it does not establish semantic entailment or scientific correctness.
 6. **Persistent Anchored Session (`ChatSession` + `InternalDatabaseService`)**: Seeds `ConversationContext`, saves both JPEG files + session + messages to SQLite WAL, and opens `ChatScreen`.
 
 ### `cloudOnly` Policy Semantics
@@ -110,7 +110,7 @@ Implemented natively in `AppDatabaseChannel.kt` (`SQLiteOpenHelper` with `PRAGMA
 | Table | Purpose & Key Columns |
 |---|---|
 | `chat_sessions` | `id`, `title`, `selected_label`, `selected_box_json`, `moondream_json`, `first_context`, `running_context_json`, `clean_jpeg_path`, `boxed_jpeg_path`, `locale`, `message_count`, `created_at`, `updated_at` |
-| `chat_messages` | `id`, `session_id`, `seq`, `role`, `content`, `citations_json`, `verified_count`, `unverified_count`, `model_used`, `latency_ms`, `created_at` |
+| `chat_messages` | `id`, `session_id`, `seq`, `role`, `content`, `citations_json`, legacy `verified_count` / `unverified_count` columns now storing source-match / no-match counts, `model_used`, `latency_ms`, `created_at` |
 | `response_cache` | `cache_key` (`namespace:normalized_query`), `namespace`, `query`, `payload_json`, `hit_count`, `created_at`, `expires_at`. TTL eviction compares with `CAST(? AS INTEGER)` — args bind as TEXT (see below) |
 | `app_logs` | `id`, `level` (`INFO`/`WARN`/`ERROR`), `tag`, `message`, `stack_trace`, `metadata_json`, **`ts`** |
 | `crash_hang_reports` | `id`, `kind` (`flutter_error`, `uncaught_async`, `ui_hang`), `summary`, `stack_trace`, `breadcrumbs_json` (last 40 events), `app_state_json`, `fatal`, **`ts`** |
@@ -172,3 +172,7 @@ The unchanged UDP wire has no frame ID. Ordered assembly reduces mixing risk but
 - `profiles.py` reuses the HIL suites in-process. Firmware/mobile-contract flags require complete current-run UART-backed boot, persistence, decoded BLE/UDP, stream/pause, controls and integrity evidence. Smoke, soak, missing-AP and no-UART mobile-flow passes cannot establish those aggregates. Linux reports always leave Android and sensor verification pending.
 
 `--opencv` reads the worker's frame store; `view --url` consumes loopback HTTP only. Neither owns UART, BLE or a UDP socket. Reports redact credentials/raw UART text; saved JPEG evidence still needs private handling. Live UDP/dashboard/OpenCV verification remains pending, as recorded in [hardware validation](firmware-hardware-validation.md).
+
+## ESP32 camera transport
+
+BLE is restricted to commissioning and the basic-control allowlist. It carries no JPEG data. After WiFi credentials are saved, the ESP reboots into WiFi-only mode. The phone registers its UDP source endpoint with command 0x0C (keepalive), then sends stream, single-frame, flash, restart, shutdown, reboot and status commands over the same UDP socket. Video uses V2 datagrams with frame IDs, 768-byte payloads, XOR parity over four interleaved sequence classes, out-of-order reassembly and RSSI-adaptive OV2640 profiles. Pausing video retains the UDP command socket; only explicit disconnect closes it.

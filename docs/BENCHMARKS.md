@@ -3,7 +3,8 @@
 One rule: **a number either was measured, or it is marked pending.** Nothing in this file is estimated. Re-run the reproduction commands after any pipeline change and update this table in the same PR.
 
 - **CI note:** the committed analyze/test workflow previously failed at runner startup without logs because of an account-level Actions block. These commissioning checks are local and do not claim a new CI pass.
-- **Software environment:** Flutter `3.47.1 stable`, Dart `3.13.1`, framework revision `6655482ec06e547f90abf8ae7590466f4415978d`, Linux x64, 2026-11-15. Results cover successive uncommitted snapshots. The latest Python source-fix runs retain raw logs, timestamps and source identities; the earlier 247 results have inline-only provenance. Software passes do not establish deployment or hardware/Android/sensor verification. Web compile time and corpus/backfill rows retain the earlier 2026-11-05 measurements.
+- **Software environment:** Flutter `3.47.1 stable`, Dart `3.13.1`, framework revision `6655482ec06e547f90abf8ae7590466f4415978d`, Linux x64, 2026-11-15. Results cover successive uncommitted snapshots.
+- **BLE service refactor (2026-11-16, uncommitted):** `bluetooth_camera_service.dart` was split from 868 LOC into `ble_session_manager.dart` (379 LOC), `ble_protocol.dart` (52 LOC), `jpeg_frame_decoder.dart` (108 LOC), and a 616-LOC orchestrator. `flutter analyze` on the four files: **0 errors / 0 warnings**. Full `flutter test` suite **has not been re-run** after the refactor; pre-refactor baseline was 190 passing. Real-phone Android verification remains pending.
 
 ## Software verification (measured)
 

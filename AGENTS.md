@@ -4,15 +4,16 @@ This file orients any AI agent (Claude Code, Codex, Cursor, Copilot, etc.) worki
 
 ## What this project is
 
-A bilingual (English / Arabic RTL) Flutter Android app (`com.spectraglass.app`, package `smart_glass_app`) plus ESP32-CAM smart-glasses firmware. The app runs YOLO26-Nano fully on-device for live object detection, then produces grounded, cited, fact-checked chemistry answers through cloud VLM/LLM services. It is a student research project — correctness of scientific data matters more than feature velocity.
+A bilingual (English / Arabic RTL) Flutter Android app (`com.spectraglass.app`, package `smart_glass_app`) plus ESP32-CAM smart-glasses firmware. The app runs YOLO26-Nano fully on-device for live object detection, then produces grounded, cited chemistry answers through cloud VLM/LLM services. A lexical source matcher may suggest relevant citations but must never be described as proof or scientific verification. It is a student research project — correctness of scientific data matters more than feature velocity.
 
 ## Non-negotiable rules
 
 1. **Never fabricate scientific data.** CAS registry numbers, element properties, hazard classifications: only values that come from the bundled corpus or a verified external query (PubChem). The backfill tool enforces checksum validation and Common Chemistry anchoring — do not bypass it, and never hand-write a CAS into `assets/docs/common_compounds.json`. Mixtures carry `cas_skip: true` + `cas_note`; leave them that way.
-2. **No emojis.** Not in UI code, not in strings, not in docs or comments. In-app iconography is Material Icons (`Icons.*`); documentation uses committed Phosphor SVGs under `docs/assets/icons/`.
+2. **No emojis.** Not in UI code, not in strings, not in docs or comments. Runtime UI iconography uses `AppIcons` from `lib/utils/app_icons.dart`, backed by `phosphoricons_flutter`. Use Phosphor Regular for ordinary actions and Fill only for active/selected states; do not add direct Material `Icons.*` glyphs. Documentation uses committed Phosphor SVGs under `docs/assets/icons/`.
 3. **Bilingual parity.** Every user-facing string goes through `lib/l10n/` ARBs. An English key must have a real (not machine-translated-looking placeholder) Arabic counterpart; the test suite enforces non-empty keys in both locales and that Arabic differs from English.
 4. **Privacy defaults.** Detection stays on-device. The Cloud-Only policy toggle must never disable local YOLO. Do not add telemetry, do not send frame data anywhere except the explicit user-gated Capture & Analyze flow.
-5. **The AI must not narrate beyond the box.** Moondream captions describe only the selected bounding box. Prompt edits in `moondream_service.dart` / `openrouter_service.dart` must preserve the strict target-scoping and zero-guessing rules in both languages.
+5. **Never overstate source matching.** `FactCheckerService` compares token overlap with citation titles/snippets. Its output is a candidate source-match hint only, not semantic entailment, scientific verification, or proof that a claim is correct.
+6. **The AI must not narrate beyond the box.** Moondream captions describe only the selected bounding box. Prompt edits in `moondream_service.dart` / `openrouter_service.dart` must preserve the strict target-scoping and zero-guessing rules in both languages.
 
 ## Commands
 
@@ -33,7 +34,8 @@ There is no Android SDK in the primary dev sandbox — do not assume `flutter bu
 | Area | File |
 |---|---|
 | App bootstrap, locale, routes | `lib/main.dart` (routes: `/`, `/settings`, `/history`, `/diagnostics`) |
-| Recognition state machine, frame pipeline, box clearing | `lib/models/recognition_state.dart` |
+| Recognition state machine, frame pipeline, box clearing | `lib/models/recognition_state.dart` (`frameUpdates` is preview-only; ordinary `notifyListeners()` stays low-frequency) |
+| Home layout and system insets | `lib/screens/home_screen.dart`, `lib/widgets/home_layout.dart` (HomeLayout owns bottom/side SafeArea exactly once; the Scaffold app bar owns the top inset; large transitions respect `MediaQuery.disableAnimations`) |
 | Quality gate + torch hysteresis | `lib/services/vision_gate.dart` |
 | YOLO detector facade | `lib/services/yolo_detector.dart` |
 | Native ONNX inference (EP race, letterbox, NMS) | `android/.../YoloInferenceChannel.kt` via MethodChannel `com.spectraglass/yolo` |
@@ -41,10 +43,10 @@ There is no Android SDK in the primary dev sandbox — do not assume `flutter bu
 | Moondream VLM (strict captions) | `lib/services/moondream_service.dart` |
 | OpenRouter LLM chain + SSE streaming | `lib/services/openrouter_service.dart` |
 | RAG: 3-mode search, CAS matching, corpus formatting | `lib/services/docs_search_service.dart` |
-| Fact checking | `lib/services/fact_checker_service.dart` |
+| Candidate lexical source matching (not proof) | `lib/services/fact_checker_service.dart` |
 | TTS cascade (Fish Audio → native) | `lib/services/openrouter_tts_service.dart`, `native_tts_service.dart` |
 | 9-table DB + fallback engine | `lib/services/internal_db_service.dart`, `android/.../AppDatabaseChannel.kt` (`com.spectraglass/db`) |
-| BLE glasses transport + spectrum parser | `lib/services/bluetooth_camera_service.dart` |
+| BLE glasses transport + spectrum parser | `lib/services/bluetooth_camera_service.dart` (orchestrator), `lib/services/ble_session_manager.dart` (session lifecycle), `lib/services/ble_protocol.dart` (GATT contract), `lib/services/jpeg_frame_decoder.dart` (JPEG reassembly) |
 | Corpus JSONs | `assets/docs/periodic_table.json` (119), `common_compounds.json` (110), `lab_safety.json` (GHS01–09) |
 | Secrets resolution | `lib/config/app_secrets.dart` (Prefs → `assets/config/secrets.json` → `--dart-define`) |
 

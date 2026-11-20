@@ -1,5 +1,32 @@
 # Vision Model Tooling (`tooling/`)
 
+## Build-time version metadata
+
+Use the wrapper for Flutter builds and runs:
+
+- ./tooling/flutter_with_metadata.sh build apk
+- ./tooling/flutter_with_metadata.sh build web --release
+- ./tooling/flutter_with_metadata.sh run
+
+It injects the package version/build number, current Git commit, branch, dirty
+working-tree state, and UTC build timestamp through --dart-define. The
+checked-in assets/version.json intentionally contains only the package
+version and build number. A direct flutter build that bypasses the wrapper
+shows source-control metadata as unavailable instead of displaying a stale
+commit or claiming the tree is clean.
+
+## Live OpenRouter model smoke test
+
+The authenticated smoke test sends one streamed scientific-analysis prompt to each configured model independently and asserts that the requested model actually served the response (rather than a later fallback):
+
+```bash
+export OPENROUTER_TEST_API_KEY='your-rotated-openrouter-key'
+flutter test --no-pub --concurrency=1 test/live_openrouter_models_test.dart
+unset OPENROUTER_TEST_API_KEY
+```
+
+The test is skipped when the environment variable is absent. Never put an API key in source control, test output, or a command transcript.
+
 ## 1. Primary On-Device Object Detector: `assets/models/yolo26n.onnx`
 
 SpectruLenPor ships **YOLO26-Nano** (`assets/models/yolo26n.onnx`, `5,040,902` bytes) pre-bundled in the app assets and executes it locally via `com.microsoft.onnxruntime:onnxruntime-android:1.22.0` (`YoloInferenceChannel.kt`).
