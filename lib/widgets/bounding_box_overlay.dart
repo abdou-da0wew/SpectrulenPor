@@ -4,12 +4,13 @@ import 'package:flutter/material.dart';
 
 import '../models/bounding_box.dart';
 import '../utils/app_theme.dart' as palette;
+import '../utils/app_icons.dart';
 
 /// Custom-designed interactive YOLO26-Nano bounding box overlay.
 ///
 /// Visual & interaction design:
 ///   * Unselected boxes render a subtle precision lavender frame with corner
-///     ticks and a tappable label pill (`Icons.crop_free_rounded`).
+///     ticks and a tappable label pill (`AppIcons.cropFreeRounded`).
 ///   * Tapping any box locks onto it with a smooth 260ms easeOutBack animation,
 ///     rendering a glowing dusty-mauve target frame, bold corner L-brackets,
 ///     a center crosshair target reticle (`+` inside a target ring), and a
@@ -171,10 +172,14 @@ class _BoundingBoxOverlayState extends State<BoundingBoxOverlay>
     final rawW = b.w * proj.renderedW;
     final rawH = b.h * proj.renderedH;
 
-    final double left = rawLeft.clamp(0.0, math.max(0.0, viewW - 28.0)).toDouble();
-    final double top = rawTop.clamp(0.0, math.max(0.0, viewH - 28.0)).toDouble();
-    final double boxW = rawW.clamp(28.0, math.max(28.0, viewW - left)).toDouble();
-    final double boxH = rawH.clamp(28.0, math.max(28.0, viewH - top)).toDouble();
+    final double left =
+        rawLeft.clamp(0.0, math.max(0.0, viewW - 28.0)).toDouble();
+    final double top =
+        rawTop.clamp(0.0, math.max(0.0, viewH - 28.0)).toDouble();
+    final double boxW =
+        rawW.clamp(28.0, math.max(28.0, viewW - left)).toDouble();
+    final double boxH =
+        rawH.clamp(28.0, math.max(28.0, viewH - top)).toDouble();
     final pct = (b.confidence * 100).round().clamp(0, 100);
 
     // Place badge just above the box when space allows, otherwise inside top-left.
@@ -204,85 +209,85 @@ class _BoundingBoxOverlayState extends State<BoundingBoxOverlay>
           behavior: HitTestBehavior.opaque,
           onTap: () => widget.onSelect(isSelected ? null : b),
           child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: math.max(boxW, math.min(220.0, viewW - left)),
+            constraints: BoxConstraints(
+              maxWidth: math.max(boxW, math.min(220.0, viewW - left)),
+            ),
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 8,
+                vertical: 4,
+              ),
+              decoration: BoxDecoration(
+                gradient: isSelected
+                    ? const LinearGradient(
+                        colors: [
+                          palette.AppColors.dustyLavender,
+                          palette.AppColors.dustyMauve,
+                        ],
+                      )
+                    : null,
+                color: isSelected
+                    ? null
+                    : palette.AppColors.inkDark.withValues(alpha: 0.82),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: isSelected
+                      ? Colors.white.withValues(alpha: 0.9)
+                      : palette.AppColors.dustyMauve.withValues(alpha: 0.75),
+                  width: isSelected ? 1.3 : 1.0,
                 ),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
+                boxShadow: isSelected
+                    ? [
+                        BoxShadow(
+                          color: palette.AppColors.dustyMauve
+                              .withValues(alpha: 0.45),
+                          blurRadius: 8,
+                          spreadRadius: 1,
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    isSelected
+                        ? AppIcons.gpsFixedRounded
+                        : AppIcons.cropFreeRounded,
+                    size: 13,
+                    color: Colors.white,
                   ),
-                  decoration: BoxDecoration(
-                    gradient: isSelected
-                        ? const LinearGradient(
-                            colors: [
-                              palette.AppColors.dustyLavender,
-                              palette.AppColors.dustyMauve,
-                            ],
-                          )
-                        : null,
-                    color: isSelected
-                        ? null
-                        : palette.AppColors.inkDark.withValues(alpha: 0.82),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: isSelected
-                          ? Colors.white.withValues(alpha: 0.9)
-                          : palette.AppColors.dustyMauve.withValues(alpha: 0.75),
-                      width: isSelected ? 1.3 : 1.0,
-                    ),
-                    boxShadow: isSelected
-                        ? [
-                            BoxShadow(
-                              color:
-                                  palette.AppColors.dustyMauve.withValues(alpha: 0.45),
-                              blurRadius: 8,
-                              spreadRadius: 1,
-                            ),
-                          ]
-                        : null,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        isSelected
-                            ? Icons.gps_fixed_rounded
-                            : Icons.crop_free_rounded,
-                        size: 13,
+                  const SizedBox(width: 5),
+                  Flexible(
+                    child: Text(
+                      isSelected
+                          ? 'SELECTED · ${b.label} $pct%'
+                          : '${b.label} $pct%',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
                         color: Colors.white,
+                        fontSize: 11,
+                        fontWeight:
+                            isSelected ? FontWeight.w800 : FontWeight.w600,
+                        letterSpacing: isSelected ? 0.3 : 0.1,
                       ),
-                      const SizedBox(width: 5),
-                      Flexible(
-                        child: Text(
-                          isSelected
-                              ? 'SELECTED · ${b.label} $pct%'
-                              : '${b.label} $pct%',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight:
-                                isSelected ? FontWeight.w800 : FontWeight.w600,
-                            letterSpacing: isSelected ? 0.3 : 0.1,
-                          ),
-                        ),
-                      ),
-                      if (isSelected) ...[
-                        const SizedBox(width: 4),
-                        const Icon(
-                          Icons.close_rounded,
-                          size: 12,
-                          color: Colors.white70,
-                        ),
-                      ],
-                    ],
+                    ),
                   ),
-                ),
+                  if (isSelected) ...[
+                    const SizedBox(width: 4),
+                    const Icon(
+                      AppIcons.closeRounded,
+                      size: 12,
+                      color: Colors.white70,
+                    ),
+                  ],
+                ],
               ),
             ),
           ),
+        ),
+      ),
     ];
   }
 }

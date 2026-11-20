@@ -9,7 +9,8 @@ import 'internal_db_service.dart';
 /// Diagnostic status of the on-device YOLO26-Nano ONNX model.
 class YoloModelStatus {
   final bool ready;
-  final String modelSource; // bundled_asset | cached_local | auto_downloaded | uninitialized
+  final String
+      modelSource; // bundled_asset | cached_local | auto_downloaded | uninitialized
   final String modelPath;
   final int modelSizeBytes;
   final bool end2end;
@@ -17,9 +18,12 @@ class YoloModelStatus {
   final String inputShape;
   final String outputShape;
   final int labelCount;
-  final String executionProvider; // cpu | nnapi_fp16 | xnnpack (startup-benchmark winner)
-  final int epBenchmarkMs; // avg warmup inference time of the winning EP
+  final String executionProvider; // cpu | nnapi_fp16 | xnnpack
+  final int epWarmupMs; // one bounded warmup on the selected provider
   final int inputSize; // actual model input resolution (640 by default)
+  final int cpuThreads;
+  final String lastInferenceSkippedReason;
+  final String resourceGovernor;
   final String? error; // e.g. provisioning failure message, null when ready
 
   String get source => modelSource;
@@ -36,8 +40,11 @@ class YoloModelStatus {
     required this.outputShape,
     required this.labelCount,
     this.executionProvider = 'cpu',
-    this.epBenchmarkMs = 0,
+    this.epWarmupMs = 0,
     this.inputSize = 640,
+    this.cpuThreads = 1,
+    this.lastInferenceSkippedReason = 'none',
+    this.resourceGovernor = 'unavailable',
     this.error,
   });
 
@@ -53,8 +60,12 @@ class YoloModelStatus {
       outputShape: (m['outputShape'] as String?) ?? '[1, 300, 6]',
       labelCount: (m['labelCount'] as num?)?.toInt() ?? 80,
       executionProvider: (m['executionProvider'] as String?) ?? 'cpu',
-      epBenchmarkMs: (m['epBenchmarkMs'] as num?)?.toInt() ?? 0,
+      epWarmupMs: (m['epWarmupMs'] as num?)?.toInt() ?? 0,
       inputSize: (m['inputSize'] as num?)?.toInt() ?? 640,
+      cpuThreads: (m['cpuThreads'] as num?)?.toInt() ?? 1,
+      lastInferenceSkippedReason:
+          (m['lastInferenceSkippedReason'] as String?) ?? 'none',
+      resourceGovernor: (m['resourceGovernor'] as String?) ?? 'unavailable',
       error: m['error'] as String?,
     );
   }
@@ -137,7 +148,7 @@ class YoloDetector {
           '[YoloDetector] ready (${_status.modelSource}) — '
           '${(_status.modelSizeBytes / 1024).round()} KB, '
           '${_labels?.length ?? _status.labelCount} classes, '
-          'ep=${_status.executionProvider} (${_status.epBenchmarkMs}ms), '
+          'ep=${_status.executionProvider} (${_status.epWarmupMs}ms), '
           'imgsz=${_status.inputSize} in ${sw.elapsedMilliseconds}ms',
         );
         unawaited(InternalDatabaseService.instance.logInfo(
@@ -148,14 +159,15 @@ class YoloDetector {
             'end2end': _status.end2end,
             'outputShape': _status.outputShape,
             'executionProvider': _status.executionProvider,
-            'epBenchmarkMs': _status.epBenchmarkMs,
+            'epWarmupMs': _status.epWarmupMs,
             'inputSize': _status.inputSize,
             'initMs': sw.elapsedMilliseconds,
           },
         ));
       }
     } on MissingPluginException {
-      debugPrint('[YoloDetector] native channel not registered (non-Android host)');
+      debugPrint(
+          '[YoloDetector] native channel not registered (non-Android host)');
     } catch (e, st) {
       debugPrint('[YoloDetector] ensureModel failed: $e');
       unawaited(InternalDatabaseService.instance.logError(

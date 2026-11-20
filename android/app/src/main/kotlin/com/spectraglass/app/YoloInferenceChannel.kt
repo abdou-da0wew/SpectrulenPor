@@ -4,7 +4,9 @@ import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import ai.onnxruntime.TensorInfo
+import ai.onnxruntime.providers.NNAPIFlags
 import java.util.EnumSet
+import android.app.ActivityManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -12,8 +14,12 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.os.BatteryManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import io.flutter.FlutterInjector
 import io.flutter.embedding.engine.FlutterEngine
@@ -25,6 +31,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.FloatBuffer
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -66,6 +73,13 @@ object YoloInferenceChannel {
     @Volatile private var ortSession: OrtSession? = null
     private val executor = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val detectInFlight = AtomicBoolean(false)
+    @Volatile private var lastBoxes: List<Map<String, Any>> = emptyList()
+    @Volatile private var lastInferenceStartedMs: Long = 0L
+    @Volatile private var lastInferenceSkippedReason: String = "none"
+    @Volatile private var cpuThreadCount: Int = 1
+    private var pixelBuffer = IntArray(0)
+    private var floatBuffer = FloatArray(0)
 
     @Volatile private var modelSource: String = "uninitialized"
     @Volatile private var modelPath: String = ""
@@ -79,9 +93,9 @@ object YoloInferenceChannel {
     /** Actual square input resolution of the loaded model (parsed from ONNX graph). */
     @Volatile private var inputSize: Int = DEFAULT_INPUT_SIZE
 
-    /** Which execution provider won the startup benchmark: cpu | nnapi_fp16 | xnnpack. */
+    /** Selected execution provider: cpu | nnapi_fp16 | xnnpack. */
     @Volatile private var executionProvider: String = "cpu"
-    @Volatile private var epBenchmarkMs: Long = 0L
+    @Volatile private var epWarmupMs: Long = 0L
 
     /** Standard 80 COCO class names matching Ultralytics YOLO26n metadata. */
     private val COCO_LABELS = listOf(
@@ -140,16 +154,40 @@ object YoloInferenceChannel {
                     result.error("BAD_ARGS", "jpgBytes required", null)
                     return
                 }
+                // Never queue detections. A busy inference returns its last stable
+                // result instead of building an unbounded frame backlog.
+                if (!detectInFlight.compareAndSet(false, true)) {
+                    lastInferenceSkippedReason = "busy"
+                    postSuccess(result, stableCachedBoxes(SystemClock.elapsedRealtime()))
+                    return
+                }
                 executor.execute {
                     try {
                         if (ortSession == null) initModel(context)
+                        val budget = inferenceBudget(context)
+                        val now = SystemClock.elapsedRealtime()
+                        if (!budget.allowed) {
+                            lastInferenceSkippedReason = budget.reason
+                            postSuccess(result, emptyList<Map<String, Any>>())
+                            return@execute
+                        }
+                        if (now - lastInferenceStartedMs < budget.minimumIntervalMs) {
+                            lastInferenceSkippedReason = "rate_limited"
+                            postSuccess(result, stableCachedBoxes(now))
+                            return@execute
+                        }
+                        lastInferenceStartedMs = now
                         val t0 = System.nanoTime()
                         val boxes = detectOnFrame(bytes, confThreshold)
                         lastInferenceMs = (System.nanoTime() - t0) / 1_000_000L
+                        lastBoxes = boxes
+                        lastInferenceSkippedReason = "none"
                         postSuccess(result, boxes)
                     } catch (t: Throwable) {
                         Log.e(TAG, "detect failed", t)
                         postError(result, "DETECT_FAILED", t.message)
+                    } finally {
+                        detectInFlight.set(false)
                     }
                 }
             }
@@ -170,8 +208,11 @@ object YoloInferenceChannel {
         "outputShape" to outputShapeStr,
         "labelCount" to activeLabels().size,
         "executionProvider" to executionProvider,
-        "epBenchmarkMs" to epBenchmarkMs,
-        "inputSize" to inputSize
+        "epWarmupMs" to epWarmupMs,
+        "inputSize" to inputSize,
+        "cpuThreads" to cpuThreadCount,
+        "lastInferenceSkippedReason" to lastInferenceSkippedReason,
+        "resourceGovernor" to "thermal-memory-battery-v1"
     )
 
     @Synchronized
@@ -188,70 +229,89 @@ object YoloInferenceChannel {
 
         val env = ortEnv ?: OrtEnvironment.getEnvironment().also { ortEnv = it }
 
-        // ---- Execution-provider auto-selection (speed) ----
-        // Benchmarks CPU vs NNAPI(+FP16, NPU/GPU) vs XNNPACK with the real model
-        // on this exact device and keeps the fastest working session. Any EP that
-        // fails to build or infer is silently skipped; CPU is always the baseline.
-        var bestSession: OrtSession? = null
-        var bestEp = "cpu"
-        var bestMs = Long.MAX_VALUE
+        // Select one accelerator and stop. The old implementation built and
+        // benchmarked CPU, NNAPI and XNNPACK sessions at once, running six
+        // warmups with four CPU threads each during startup.
+        cpuThreadCount = Runtime.getRuntime().availableProcessors().coerceIn(1, 2)
+        var selectedSession: OrtSession? = null
+        var selectedProvider = "cpu"
+        var selectedWarmupMs = 0L
 
         try {
-            val cpuOpts = OrtSession.SessionOptions().apply {
-                setIntraOpNumThreads(4)
-                setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-            }
-            val s = env.createSession(modelFile.absolutePath, cpuOpts)
-            val ms = warmupInferenceMs(env, s)
-            if (ms != null) {
-                bestSession = s; bestEp = "cpu"; bestMs = ms
-            } else {
-                s.close()
-            }
-        } catch (t: Throwable) {
-            Log.w(TAG, "CPU session benchmark failed: ${t.message}")
-        }
-
-        try {
-            val nnapiOpts = OrtSession.SessionOptions().apply {
-                addNnapi()
-                setIntraOpNumThreads(4) // CPU partition fallback inside the NNAPI graph
-                setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-            }
-            val s = env.createSession(modelFile.absolutePath, nnapiOpts)
-            val ms = warmupInferenceMs(env, s)
-            if (ms != null && ms < bestMs) {
-                bestSession?.close(); bestSession = s; bestEp = "nnapi_fp16"; bestMs = ms
-            } else {
-                s.close()
+            val options = OrtSession.SessionOptions()
+            try {
+                options.addNnapi(EnumSet.of(NNAPIFlags.USE_FP16))
+                options.setIntraOpNumThreads(cpuThreadCount)
+                options.setInterOpNumThreads(1)
+                options.setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL)
+                options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                val candidate = env.createSession(modelFile.absolutePath, options)
+                val warmup = warmupInferenceMs(env, candidate)
+                if (warmup != null) {
+                    selectedSession = candidate
+                    selectedProvider = "nnapi_fp16"
+                    selectedWarmupMs = warmup
+                } else {
+                    candidate.close()
+                }
+            } finally {
+                options.close()
             }
         } catch (t: Throwable) {
-            Log.w(TAG, "NNAPI session benchmark failed: ${t.message}")
+            Log.w(TAG, "NNAPI FP16 unavailable; trying XNNPACK: ${t.message}")
         }
 
-        try {
-            val xnnOpts = OrtSession.SessionOptions().apply {
-                addXnnpack(mapOf("intra_op_num_threads" to "4"))
-                setIntraOpNumThreads(4)
-                setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+        if (selectedSession == null) {
+            try {
+                val options = OrtSession.SessionOptions()
+                try {
+                    options.addXnnpack(mapOf("intra_op_num_threads" to cpuThreadCount.toString()))
+                    options.setIntraOpNumThreads(cpuThreadCount)
+                    options.setInterOpNumThreads(1)
+                    options.setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL)
+                    options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                    val candidate = env.createSession(modelFile.absolutePath, options)
+                    val warmup = warmupInferenceMs(env, candidate)
+                    if (warmup != null) {
+                        selectedSession = candidate
+                        selectedProvider = "xnnpack"
+                        selectedWarmupMs = warmup
+                    } else {
+                        candidate.close()
+                    }
+                } finally {
+                    options.close()
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "XNNPACK unavailable; trying bounded CPU: ${t.message}")
             }
-            val s = env.createSession(modelFile.absolutePath, xnnOpts)
-            val ms = warmupInferenceMs(env, s)
-            if (ms != null && ms < bestMs) {
-                bestSession?.close(); bestSession = s; bestEp = "xnnpack"; bestMs = ms
-            } else {
-                s.close()
-            }
-        } catch (t: Throwable) {
-            Log.w(TAG, "XNNPACK session benchmark failed: ${t.message}")
         }
 
-        val session = bestSession
+        if (selectedSession == null) {
+            val options = OrtSession.SessionOptions()
+            try {
+                options.setIntraOpNumThreads(cpuThreadCount)
+                options.setInterOpNumThreads(1)
+                options.setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL)
+                options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                val candidate = env.createSession(modelFile.absolutePath, options)
+                val warmup = warmupInferenceMs(env, candidate)
+                    ?: throw IllegalStateException("CPU inference warmup failed")
+                selectedSession = candidate
+                selectedProvider = "cpu"
+                selectedWarmupMs = warmup
+            } finally {
+                options.close()
+            }
+        }
+
+        val session = selectedSession
             ?: throw IllegalStateException("No ONNX Runtime execution provider could open the model")
+        executionProvider = selectedProvider
+        epWarmupMs = selectedWarmupMs
+
         ortSession?.close()
         ortSession = session
-        executionProvider = bestEp
-        epBenchmarkMs = if (bestMs == Long.MAX_VALUE) 0L else bestMs
 
         // Inspect embedded ONNX metadata, shapes & parameterized input size.
         try {
@@ -280,15 +340,11 @@ object YoloInferenceChannel {
             TAG,
             "YOLO26-Nano ready ($modelSource): ${modelSizeBytes / 1024} KB, " +
                 "end2end=$isEnd2End, labels=${activeLabels().size}, out=$outputShapeStr, " +
-                "ep=$executionProvider (${epBenchmarkMs}ms), imgsz=$inputSize"
+                "ep=$executionProvider (${epWarmupMs}ms), imgsz=$inputSize"
         )
     }
 
-    /**
-     * Runs two zero-filled warmup inferences (first run includes EP graph
-     * compilation/partitioning) and returns the average per-inference time,
-     * or null if the session cannot run this model on the given EP.
-     */
+    /** Runs one bounded warmup to verify that the selected provider can execute. */
     private fun warmupInferenceMs(env: OrtEnvironment, session: OrtSession): Long? = try {
         val inputName = session.inputNames.iterator().next()
         val sz = readModelInputSize(session)
@@ -297,12 +353,50 @@ object YoloInferenceChannel {
         val t0 = System.nanoTime()
         OnnxTensor.createTensor(env, FloatBuffer.wrap(zeros), shape).use { tensor ->
             session.run(mapOf(inputName to tensor)).use { }
-            session.run(mapOf(inputName to tensor)).use { }
         }
-        (System.nanoTime() - t0) / 2_000_000L
+        (System.nanoTime() - t0) / 1_000_000L
     } catch (t: Throwable) {
         Log.w(TAG, "Warmup inference failed: ${t.message}")
         null
+    }
+
+    private fun stableCachedBoxes(nowMs: Long): List<Map<String, Any>> =
+        if (lastInferenceStartedMs > 0L && nowMs - lastInferenceStartedMs <= 1_500L) {
+            lastBoxes
+        } else {
+            emptyList()
+        }
+
+    private data class InferenceBudget(
+        val allowed: Boolean,
+        val minimumIntervalMs: Long,
+        val reason: String
+    )
+
+    private fun inferenceBudget(context: Context): InferenceBudget {
+        val power = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        val thermal = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && power != null) {
+            power.currentThermalStatus
+        } else {
+            PowerManager.THERMAL_STATUS_NONE
+        }
+        if (thermal >= PowerManager.THERMAL_STATUS_SEVERE) {
+            return InferenceBudget(false, 1_500L, "thermal_severe")
+        }
+
+        val activity = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        val memory = ActivityManager.MemoryInfo()
+        activity?.getMemoryInfo(memory)
+        if (memory.lowMemory || (activity != null && memory.availMem < 128L * 1024L * 1024L)) {
+            return InferenceBudget(false, 1_500L, "low_memory")
+        }
+
+        val battery = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+        val level = battery?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+        var interval = if (executionProvider == "cpu") 450L else 250L
+        if (thermal >= PowerManager.THERMAL_STATUS_MODERATE) interval = max(interval, 850L)
+        if (level in 1..10) interval = max(interval, 1_000L)
+        return InferenceBudget(true, interval, "none")
     }
 
     /** Reads the fixed square input resolution from the session's graph info. */
@@ -459,8 +553,16 @@ object YoloInferenceChannel {
      * Reads JPEG EXIF orientation tag (0x0112) without external AndroidX ExifInterface dep
      * so sideways camera JPEGs with EXIF orientation metadata are rotated upright.
      */
-    private fun decodeUprightBitmap(jpegBytes: ByteArray): Bitmap? {
-        val raw = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size) ?: return null
+    private fun decodeUprightBitmap(jpegBytes: ByteArray, modelInputSize: Int): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size, bounds)
+        val maxSide = max(bounds.outWidth, bounds.outHeight)
+        val sampleSize = if (maxSide > modelInputSize * 2) 2 else 1
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val raw = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size, options) ?: return null
         val degrees = readJpegExifRotationDegrees(jpegBytes)
         if (degrees == 0) return raw
         val matrix = Matrix().apply { postRotate(degrees.toFloat()) }
@@ -528,8 +630,10 @@ object YoloInferenceChannel {
         val env = ortEnv ?: throw IllegalStateException("Env not initialized")
         val labels = activeLabels()
 
-        // 1. Decode JPEG (honoring EXIF orientation if present)
-        val orig = decodeUprightBitmap(jpegBytes) ?: return emptyList()
+        // 1. Decode JPEG (honoring EXIF orientation) without allocating a
+        // full-resolution bitmap for camera images far larger than the model.
+        val inputSize = this.inputSize
+        val orig = decodeUprightBitmap(jpegBytes, inputSize) ?: return emptyList()
         val origW = orig.width
         val origH = orig.height
         if (origW <= 0 || origH <= 0) {
@@ -538,7 +642,6 @@ object YoloInferenceChannel {
         }
 
         // 2. Letterbox resize to model input size (aspect ratio preserved, gray 114 padding)
-        val inputSize = this.inputSize
         val scale = min(inputSize.toFloat() / origW, inputSize.toFloat() / origH)
         val newW = (origW * scale).roundToInt().coerceAtLeast(1)
         val newH = (origH * scale).roundToInt().coerceAtLeast(1)
@@ -556,11 +659,15 @@ object YoloInferenceChannel {
 
         // 3. Bulk pixel extraction -> NCHW float32 RGB normalized [0..1]
         val planeSize = inputSize * inputSize
-        val pixels = IntArray(planeSize)
+        val pixels = if (pixelBuffer.size == planeSize) pixelBuffer else IntArray(planeSize).also {
+            pixelBuffer = it
+        }
         letterboxed.getPixels(pixels, 0, inputSize, 0, 0, inputSize, inputSize)
         letterboxed.recycle()
 
-        val floatData = FloatArray(3 * planeSize)
+        val floatData = if (floatBuffer.size == 3 * planeSize) floatBuffer else FloatArray(3 * planeSize).also {
+            floatBuffer = it
+        }
         val inv255 = 1.0f / 255.0f
         for (idx in 0 until planeSize) {
             val px = pixels[idx]
@@ -572,6 +679,7 @@ object YoloInferenceChannel {
         val inputName = session.inputNames.iterator().next()
         val shape = longArrayOf(1, 3, inputSize.toLong(), inputSize.toLong())
         val raw = ArrayList<Detection>()
+        var nmsFreeOutput = false
 
         OnnxTensor.createTensor(env, FloatBuffer.wrap(floatData), shape).use { inputTensor ->
             session.run(mapOf(inputName to inputTensor)).use { output ->
@@ -581,26 +689,19 @@ object YoloInferenceChannel {
                 if (batch.isEmpty() || batch[0].isEmpty()) return emptyList()
 
                 if (batch[0].size == 6) {
-                    // YOLO26n end-to-end head: [300, 6] -> [x1, y1, x2, y2, score, class_id]
-                    // Check max coordinate across valid rows: Ultralytics end2end outputs 0..640 px.
-                    var maxCoord = 0f
-                    for (row in batch) {
-                        if (row[4] >= confThreshold) {
-                            maxCoord = max(maxCoord, max(row[2], row[3]))
-                        }
-                    }
-                    val normalizedCoords = maxCoord in 0.0001f..1.05f
-                    val coordScale = if (normalizedCoords) inputSize.toFloat() else 1f
-
+                    // YOLO26 is NMS-free and already returns its top detections
+                    // as pixel coordinates. A second NMS pass can suppress two
+                    // distinct, tightly adjacent objects and hurt tagging recall.
+                    nmsFreeOutput = isEnd2End
                     for (row in batch) {
                         val score = row[4]
                         if (score < confThreshold) continue
                         val clsIdx = row[5].roundToInt()
                         if (clsIdx !in labels.indices) continue
-                        val x1 = row[0] * coordScale
-                        val y1 = row[1] * coordScale
-                        val x2 = row[2] * coordScale
-                        val y2 = row[3] * coordScale
+                        val x1 = row[0]
+                        val y1 = row[1]
+                        val x2 = row[2]
+                        val y2 = row[3]
                         addUnletterboxed(
                             raw, x1, y1, x2, y2, padX, padY, scale, origW, origH, clsIdx, score
                         )
@@ -658,7 +759,7 @@ object YoloInferenceChannel {
         }
 
         // 4. Class-aware NMS safety net (handles both classic heads and duplicate overlaps)
-        val kept = nms(raw, IOU_THRESHOLD)
+        val kept = if (nmsFreeOutput) raw.sortedByDescending { it.score } else nms(raw, IOU_THRESHOLD)
         return kept.map { d ->
             mapOf(
                 "x" to d.x.toDouble(),

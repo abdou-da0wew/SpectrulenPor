@@ -20,5 +20,7 @@ class MainActivity : FlutterActivity() {
         MoondreamChannel.register(flutterEngine, applicationContext)
         FlashlightChannel.register(flutterEngine, applicationContext)
         YoloInferenceChannel.register(flutterEngine, applicationContext)
+        VoskSpeechChannel.register(flutterEngine, applicationContext)
+        SupertonicTtsChannel.register(flutterEngine, applicationContext)
     }
 }

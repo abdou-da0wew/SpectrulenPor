@@ -16,12 +16,15 @@ import '../services/chat_session.dart';
 import '../services/docs_search_service.dart';
 import '../services/flashlight_service.dart';
 import '../services/internal_db_service.dart';
+import '../services/home_screen_widget_service.dart';
 import '../services/local_vision_service.dart';
 import '../services/mic_service.dart';
 import '../services/moondream_service.dart';
 import '../services/native_tts_service.dart';
+import '../services/notification_service.dart';
 import '../services/openrouter_service.dart';
 import '../services/openrouter_tts_service.dart';
+import '../services/supertonic_tts_service.dart';
 import '../services/phone_camera_service.dart';
 import '../services/vision_gate.dart';
 import '../services/wifi_udp_video_service.dart';
@@ -103,7 +106,11 @@ class RecognitionState extends ChangeNotifier {
       !_configurationUncertain &&
       !_udpVideo.isActive;
   bool get canUseBleControls =>
-      !_disposed && bluetooth.isConnected && !setupBusy && !_udpVideo.isActive;
+      !_disposed &&
+      bluetooth.isConnected &&
+      !setupBusy &&
+      !_credentialsSaved &&
+      !_udpVideo.isActive;
 
   RecognitionState({
     required this.bluetooth,
@@ -121,13 +128,22 @@ class RecognitionState extends ChangeNotifier {
         : BluetoothStatus.disconnected;
     _wireSources();
     _loadSettings();
+    AppNotificationService.instance.configureSpeechActions(
+      repeatSpeech: speakText,
+      stopSpeech: stopSpeech,
+    );
+  }
+
+  Future<void> stopSpeech() async {
+    await openRouterTts.stop();
+    await nativeTts.stop();
+    await SupertonicTtsService.instance.stop();
   }
 
   // ----------------------------- Settings -----------------------------
   bool _liveSpeak = true;
   bool _deepReasonEnabled = true;
-  bool _useOpenRouterTts =
-      true; // Fish Audio cloud TTS is the preferred narrator
+  String _ttsEngine = 'fish';
   bool _captureReasoningTokens = true;
   int _fps = 2;
   int _upstreamStartModel = 0;
@@ -136,7 +152,8 @@ class RecognitionState extends ChangeNotifier {
 
   bool get liveSpeak => _liveSpeak;
   bool get deepReasonEnabled => _deepReasonEnabled;
-  bool get useOpenRouterTts => _useOpenRouterTts;
+  bool get useOpenRouterTts => _ttsEngine == 'fish';
+  String get ttsEngine => _ttsEngine;
   bool get captureReasoningTokens => _captureReasoningTokens;
   int get fps => _fps;
   int get upstreamStartModel => _upstreamStartModel;
@@ -164,6 +181,7 @@ class RecognitionState extends ChangeNotifier {
     if (!v) {
       nativeTts.stop();
       openRouterTts.stop();
+      unawaited(SupertonicTtsService.instance.stop());
     }
     notifyListeners();
   }
@@ -174,11 +192,57 @@ class RecognitionState extends ChangeNotifier {
     notifyListeners();
   }
 
-  set useOpenRouterTts(bool v) {
-    _useOpenRouterTts = v;
-    prefs.setBool('use_or_tts', v);
-    if (!v) openRouterTts.stop();
+  set useOpenRouterTts(bool v) => ttsEngine = v ? 'fish' : 'native';
+
+  set ttsEngine(String value) {
+    if (!const {'fish', 'native', 'supertonic'}.contains(value)) return;
+    _ttsEngine = value;
+    prefs.setString('tts_engine', value);
+    prefs.setBool('use_or_tts', value == 'fish');
+    if (value != 'fish') openRouterTts.stop();
+    if (value != 'supertonic') unawaited(SupertonicTtsService.instance.stop());
     notifyListeners();
+  }
+
+  Future<void> speakText(String text) async {
+    final clean = _cleanForSpeech(text);
+    if (clean.isEmpty) return;
+    if (_ttsEngine == 'supertonic') {
+      final spoken = await SupertonicTtsService.instance.speak(
+        clean,
+        languageCode: _localeCode,
+      );
+      if (spoken) return;
+      await nativeTts.speak(clean);
+      return;
+    }
+    final preferCloud = _ttsEngine == 'fish' ||
+        (_cloudOnly &&
+            _ttsEngine != 'supertonic' &&
+            openRouterTts.isConfigured);
+    if (preferCloud && openRouterTts.isConfigured) {
+      final spoken = await openRouterTts.speakMarkdown(text);
+      if (spoken) return;
+    }
+    if (preferCloud || _ttsEngine == 'supertonic') {
+      await _speakLocalFallback(clean);
+      return;
+    }
+    await nativeTts.speak(clean);
+  }
+
+  Future<void> _speakLocalFallback(String text) async {
+    final clean = _cleanForSpeech(text);
+    if (clean.isEmpty) return;
+    final supertonic = SupertonicTtsService.instance;
+    try {
+      if (supertonic.isReady || await supertonic.hasInstalledModels()) {
+        if (await supertonic.speak(clean, languageCode: _localeCode)) return;
+      }
+    } catch (error) {
+      debugPrint('[TTS] Supertonic fallback unavailable: $error');
+    }
+    await nativeTts.speak(clean);
   }
 
   set captureReasoningTokens(bool v) {
@@ -194,7 +258,7 @@ class RecognitionState extends ChangeNotifier {
   }
 
   set upstreamStartModel(int v) {
-    _upstreamStartModel = v.clamp(0, OpenRouterService.modelChain.length - 1);
+    _upstreamStartModel = v.clamp(0, openRouter.activeModelChain.length - 1);
     prefs.setInt('upstream_start_model', _upstreamStartModel);
     notifyListeners();
   }
@@ -223,12 +287,14 @@ class RecognitionState extends ChangeNotifier {
     _cloudOnly = prefs.getBool('cloud_only') ?? false;
     _liveSpeak = prefs.getBool('live_speak') ?? true;
     _deepReasonEnabled = prefs.getBool('deep_reason') ?? true;
-    _useOpenRouterTts = prefs.getBool('use_or_tts') ?? true;
+    final legacyCloudTts = prefs.getBool('use_or_tts') ?? true;
+    _ttsEngine =
+        prefs.getString('tts_engine') ?? (legacyCloudTts ? 'fish' : 'native');
     _captureReasoningTokens = prefs.getBool('capture_reasoning') ?? true;
     _fps = (prefs.getInt('fps') ?? 2).clamp(1, 4);
     _upstreamStartModel = (prefs.getInt('upstream_start_model') ?? 0).clamp(
       0,
-      OpenRouterService.modelChain.length - 1,
+      openRouter.activeModelChain.length - 1,
     );
     _localeCode = prefs.getString('locale') ?? 'en';
 
@@ -299,6 +365,8 @@ class RecognitionState extends ChangeNotifier {
   Future<void> switchSource(CameraSource s) async {
     if (s == _source || setupBusy) return;
     _source = s;
+    _lastFrame = null;
+    _frameUpdates.value = null;
     await phoneCamera.stop();
     await stopUdpVideo();
     if (s == CameraSource.phone) {
@@ -374,7 +442,7 @@ class RecognitionState extends ChangeNotifier {
 
   Future<void> disconnect() async {
     ++_setupGeneration;
-    await stopUdpVideo();
+    await disconnectUdp();
     await bluetooth.disconnect();
   }
 
@@ -383,7 +451,8 @@ class RecognitionState extends ChangeNotifier {
     _autoFlashOn = false;
     if (_source == CameraSource.glasses) {
       try {
-        if (_udpVideo.isActive) {
+        if (_udpVideo.isActive || _credentialsSaved) {
+          await _ensureUdpControlChannel();
           _udpVideo.sendCommand(
             on
                 ? WifiUdpVideoService.cmdFlashOn
@@ -434,7 +503,6 @@ class RecognitionState extends ChangeNotifier {
       _configurationUncertain = true;
       await bluetooth.wifiConfigPut(ssid, pass);
       if (!_currentSetup(generation)) return;
-      _configurationUncertain = false;
       _credentialsSaved = true;
       _wifiSsid = ssid;
       // No password is retained in state, preferences, database or logs.
@@ -444,6 +512,7 @@ class RecognitionState extends ChangeNotifier {
       if (!_currentSetup(generation)) return;
       await prefs.setString('glasses_hostname', bluetooth.espHostname!);
       if (!_currentSetup(generation)) return;
+      _configurationUncertain = false;
       await prefs.setBool('glasses_wifi_configured', true);
       if (!_currentSetup(generation)) return;
       await _rebootProvisionedGlasses(generation);
@@ -487,57 +556,136 @@ class RecognitionState extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   }
 
-  /// Request current WiFi config + status from the glasses over BLE.
+  /// Read device status on UDP after provisioning, BLE only while commissioning.
   Future<void> requestWifiStatus() async {
     if (_disposed || setupBusy) return;
-    if (!canUseBleControls) {
-      _failGlasses(const GlassesException(GlassesFailure.unsupportedControl));
-    } else {
-      try {
+    try {
+      String statusLine;
+      if (_credentialsSaved || _udpVideo.isActive) {
+        await _ensureUdpControlChannel();
+        statusLine = await _udpVideo.requestStatus();
+      } else if (canUseBleControls) {
         await bluetooth.wifiConfigGet();
-        await bluetooth.connectionStatusGet();
-      } catch (e) {
-        _failGlasses(e);
+        statusLine = await bluetooth.connectionStatusGet();
+      } else {
+        throw const GlassesException(GlassesFailure.udpUnavailable);
       }
+      _applyDeviceStatusLine(statusLine);
+    } catch (error) {
+      _failGlasses(error, fallback: GlassesFailure.udpUnavailable);
     }
     if (!_disposed) notifyListeners();
   }
 
-  /// Restart the ESP32-CAM (0x05).
+  void _applyDeviceStatusLine(String line) {
+    if (!line.startsWith(r'$STATUS:')) return;
+    final fields = <String, String>{};
+    for (final entry in line.substring(8).split(',')) {
+      final separator = entry.indexOf('=');
+      if (separator > 0) {
+        fields[entry.substring(0, separator)] = entry.substring(separator + 1);
+      }
+    }
+    _wifiStatus = fields['wifi'] ?? _wifiStatus;
+    _flashOn = fields['flash'] == '1';
+    final ip = fields['ip'];
+    if (ip != null &&
+        ip != '0.0.0.0' &&
+        WifiUdpVideoService.parsePeerAddress(ip) != null) {
+      _wifiIp = ip;
+    }
+  }
+
+  /// Reboot the ESP32-CAM using the Wi-Fi runtime control channel.
   Future<void> restartGlasses() async {
     if (_disposed || setupBusy) return;
-    if (!canUseBleControls) {
-      _failGlasses(const GlassesException(GlassesFailure.unsupportedControl));
-    } else {
-      try {
+    try {
+      if (_credentialsSaved || _udpVideo.isActive) {
+        await _ensureUdpControlChannel();
+        await _udpVideo.sendCommandAndWait(
+          WifiUdpVideoService.cmdRestart,
+          acknowledgment: r'$CMD:restart',
+        );
+      } else if (canUseBleControls) {
         await bluetooth.restart();
-      } catch (e) {
-        _failGlasses(e);
+      } else {
+        throw const GlassesException(GlassesFailure.udpUnavailable);
       }
+    } catch (error) {
+      _failGlasses(error, fallback: GlassesFailure.udpUnavailable);
     }
     if (!_disposed) notifyListeners();
   }
 
-  /// Shut down the ESP32-CAM (0x06).
+  /// Shut down the ESP32-CAM (0x06) over the active runtime transport.
+  /// BLE is used only while commissioning before WiFi credentials are saved.
   Future<void> shutdownGlasses() async {
     if (_disposed || setupBusy) return;
-    if (!canUseBleControls) {
-      _failGlasses(const GlassesException(GlassesFailure.unsupportedControl));
-    } else {
-      try {
+    try {
+      if (_udpVideo.isActive || _credentialsSaved) {
+        await _ensureUdpControlChannel();
+        await _udpVideo.sendCommandAndWait(
+          WifiUdpVideoService.cmdShutdown,
+          acknowledgment: r'$CMD:shutdown_complete',
+        );
+      } else if (canUseBleControls) {
         await bluetooth.shutdown();
-      } catch (e) {
-        _failGlasses(e);
+      } else {
+        throw const GlassesException(GlassesFailure.udpUnavailable);
       }
+    } catch (error) {
+      _failGlasses(error, fallback: GlassesFailure.udpUnavailable);
     }
     if (!_disposed) notifyListeners();
   }
 
-  /// Start UDP video to the glasses (requires WiFi IP known).
+  /// Open the UDP command channel without starting camera capture.
+  Future<void> connectUdpControl(String ip) async {
+    if (_disposed || setupBusy || _udpVideo.isActive) return;
+    final trimmedIp = ip.trim();
+    final address = trimmedIp.isEmpty
+        ? null
+        : WifiUdpVideoService.parsePeerAddress(trimmedIp);
+    if (trimmedIp.isNotEmpty && address == null) {
+      _failGlasses(const GlassesException(GlassesFailure.invalidIp));
+      notifyListeners();
+      return;
+    }
+    final generation = ++_udpGeneration;
+    _wifiStatus = 'connecting';
+    _glassesFailure = null;
+    notifyListeners();
+    try {
+      if (address == null) {
+        await _udpVideo.connect();
+      } else {
+        try {
+          await _udpVideo.connect(espIp: address);
+        } catch (_) {
+          await _udpVideo.connect();
+        }
+      }
+      if (_disposed || generation != _udpGeneration) return;
+      _wifiIp = _udpVideo.espIp?.address ?? '';
+      await prefs.setString('glasses_wifi_ip', _wifiIp);
+      _wifiStatus = 'connected';
+      _setupStage = GlassesSetupStage.ready;
+    } catch (error) {
+      if (_disposed || generation != _udpGeneration) return;
+      _wifiStatus = 'disconnected';
+      _failGlasses(error, fallback: GlassesFailure.udpUnavailable);
+    }
+    if (!_disposed) notifyListeners();
+  }
+
+  /// Start UDP video (or resume it) over the already-established command socket.
   Future<void> startUdpVideo(String ip) async {
-    if (_disposed || _udpVideo.isActive || setupBusy) return;
-    final addr = WifiUdpVideoService.parsePeerAddress(ip.trim());
-    if (addr == null) {
+    if (_disposed || setupBusy) return;
+    final trimmedIp = ip.trim();
+    final address = trimmedIp.isEmpty
+        ? null
+        : WifiUdpVideoService.parsePeerAddress(trimmedIp);
+    if (trimmedIp.isNotEmpty && address == null) {
       _failGlasses(const GlassesException(GlassesFailure.invalidIp));
       notifyListeners();
       return;
@@ -548,31 +696,46 @@ class RecognitionState extends ChangeNotifier {
     _glassesFailure = null;
     notifyListeners();
     try {
-      await _udpVideo.start(espIp: addr);
+      await _udpVideo.start(espIp: address);
       if (_disposed || generation != _udpGeneration || !_udpVideo.isReady) {
         return;
       }
-      _wifiIp = addr.address;
+      _wifiIp = _udpVideo.espIp?.address ?? '';
       await prefs.setString('glasses_wifi_ip', _wifiIp);
       if (_disposed || generation != _udpGeneration || !_udpVideo.isReady) {
         return;
       }
       _setupStage = GlassesSetupStage.ready;
-    } catch (e) {
+      _wifiStatus = 'connected';
+    } catch (error) {
       if (_disposed || generation != _udpGeneration) return;
-      _wifiStatus = 'disconnected';
-      _failGlasses(e, fallback: GlassesFailure.udpUnavailable);
+      _wifiStatus = _udpVideo.isConnected ? 'connected' : 'disconnected';
+      _failGlasses(error, fallback: GlassesFailure.udpUnavailable);
     }
     if (!_disposed) notifyListeners();
   }
 
-  /// Stop UDP video.
+  /// Pause camera traffic while retaining the UDP socket for runtime commands.
   Future<void> stopUdpVideo() async {
+    try {
+      await _udpVideo.pause();
+      _wifiStatus = _udpVideo.isConnected ? 'paused' : 'disconnected';
+      if (_udpVideo.isConnected) {
+        _setupStage = GlassesSetupStage.ready;
+      }
+    } catch (error) {
+      _failGlasses(error, fallback: GlassesFailure.udpUnavailable);
+    }
+    if (!_disposed) notifyListeners();
+  }
+
+  /// Explicitly close the WiFi command/video channel.
+  Future<void> disconnectUdp() async {
     ++_udpGeneration;
     try {
-      await _udpVideo.stop();
-    } catch (e) {
-      _failGlasses(e, fallback: GlassesFailure.udpUnavailable);
+      await _udpVideo.disconnect();
+    } catch (error) {
+      _failGlasses(error, fallback: GlassesFailure.udpUnavailable);
     }
     _wifiStatus = 'disconnected';
     if (_glassesFailure == null) {
@@ -584,28 +747,42 @@ class RecognitionState extends ChangeNotifier {
   }
 
   Future<void> pauseGlassesStream() =>
-      _controlGlasses(WifiUdpVideoService.cmdStreamOff, bluetooth.pauseStream);
+      _controlGlasses(WifiUdpVideoService.cmdStreamOff);
 
   Future<void> resumeGlassesStream() =>
-      _controlGlasses(WifiUdpVideoService.cmdStreamOn, bluetooth.resumeStream);
+      _controlGlasses(WifiUdpVideoService.cmdStreamOn);
 
-  Future<void> requestGlassesFrame() => _controlGlasses(
-        WifiUdpVideoService.cmdSingleFrame,
-        bluetooth.requestOneFrame,
-      );
+  Future<void> requestGlassesFrame() =>
+      _controlGlasses(WifiUdpVideoService.cmdSingleFrame);
 
-  Future<void> _controlGlasses(int command, Future<void> Function() ble) async {
+  Future<void> _controlGlasses(int command) async {
     if (_disposed || setupBusy) return;
     try {
-      if (_udpVideo.isActive) {
-        _udpVideo.sendCommand(command);
-      } else {
-        await ble();
-      }
-    } catch (e) {
-      _failGlasses(e);
+      await _ensureUdpControlChannel();
+      _udpVideo.sendCommand(command);
+    } catch (error) {
+      _failGlasses(error, fallback: GlassesFailure.udpUnavailable);
     }
     if (!_disposed) notifyListeners();
+  }
+
+  Future<void> _ensureUdpControlChannel() async {
+    if (_udpVideo.isConnected) return;
+    final storedIp = _wifiIp.isNotEmpty
+        ? _wifiIp
+        : (prefs.getString('glasses_wifi_ip') ?? '');
+    final address = WifiUdpVideoService.parsePeerAddress(storedIp);
+    if (address == null) {
+      await _udpVideo.connect();
+    } else {
+      try {
+        await _udpVideo.connect(espIp: address);
+      } catch (_) {
+        await _udpVideo.connect();
+      }
+    }
+    _wifiIp = _udpVideo.espIp?.address ?? '';
+    _wifiStatus = 'connected';
   }
 
   void _failGlasses(
@@ -695,11 +872,6 @@ class RecognitionState extends ChangeNotifier {
       _btStatus = s;
       notifyListeners();
     });
-    _btFrameSub = bluetooth.frameStream.listen((frame) {
-      if (_source == CameraSource.glasses && !useUdpVideo) {
-        _onFrame(frame);
-      }
-    });
     _phoneFrameSub = phoneCamera.frameStream.listen((frame) {
       if (_source == CameraSource.phone) {
         _onFrame(frame);
@@ -712,8 +884,28 @@ class RecognitionState extends ChangeNotifier {
     _udpStatusSub = _udpVideo.statusStream.listen((status) {
       if (_disposed) return;
       _wifiStatus = status;
-      if (status == 'connected' || status == 'paused') {
+      if (status == 'paused' ||
+          status == 'failed' ||
+          status == 'disconnected' ||
+          status == 'stalled') {
+        _currentBoxes = const [];
+        _selectedBox = null;
+        _hasUnanalyzedSelection = false;
+        _lastDetectionAt = null;
+        _lastFrameSignature = null;
+        _lastLabel = null;
+      }
+      if (status == 'connected') {
+        _glassesFailure = null;
+        _setupStage = _udpVideo.isReady || !_udpVideo.isStreaming
+            ? GlassesSetupStage.ready
+            : GlassesSetupStage.waitingForFrame;
+      } else if (status == 'connecting' && _udpVideo.isStreaming) {
+        _setupStage = GlassesSetupStage.waitingForFrame;
+      } else if (status == 'paused') {
         _setupStage = GlassesSetupStage.ready;
+      } else if (status == 'stalled') {
+        _setupStage = GlassesSetupStage.waitingForFrame;
       } else if (status == 'failed') {
         _failGlasses(
           GlassesException(
@@ -779,11 +971,11 @@ class RecognitionState extends ChangeNotifier {
   String get wifiPass => '';
   String get wifiStatus => _wifiStatus;
   String get wifiIp => _wifiIp;
-  bool get wifiConnected => _udpVideo.isReady;
+  bool get wifiConnected => _udpVideo.isConnected;
 
-  /// Prefer UDP video (SVGA) when on the same LAN as the glasses, else fall
-  /// back to BLE video (QVGA).
-  bool get useUdpVideo => _source == CameraSource.glasses && wifiConnected;
+  /// Render the glasses feed only after a complete JPEG has been decoded.
+  /// BLE never carries camera frames.
+  bool get useUdpVideo => _source == CameraSource.glasses && _udpVideo.isReady;
 
   bool _hazardActive = false;
   bool get hazardActive => _hazardActive;
@@ -793,6 +985,9 @@ class RecognitionState extends ChangeNotifier {
   // ----------------------------- Frame handling -----------------------------
   FrameData? _lastFrame;
   FrameData? get lastFrame => _lastFrame;
+
+  final ValueNotifier<FrameData?> _frameUpdates = ValueNotifier(null);
+  ValueListenable<FrameData?> get frameUpdates => _frameUpdates;
 
   String? _lastLabel;
   String? get lastLabel => _lastLabel;
@@ -804,6 +999,7 @@ class RecognitionState extends ChangeNotifier {
   VisionSource get visionSource => _visionSource;
 
   DateTime? _lastProcessAt;
+  bool _visionPipelineInFlight = false;
 
   void _onFrame(FrameData frame) {
     if (_disposed) return;
@@ -813,10 +1009,14 @@ class RecognitionState extends ChangeNotifier {
     // Prevents over-computation when user is in settings/history/etc.
     final isStreaming =
         (_source == CameraSource.phone && phoneCamera.isStreaming) ||
-        (_source == CameraSource.glasses && _udpVideo.isActive);
+            (_source == CameraSource.glasses && _udpVideo.isActive);
     if (!isStreaming) return;
 
-    notifyListeners();
+    _frameUpdates.value = frame;
+
+    // Never queue CPU/GPU work behind an in-flight frame. The preview keeps
+    // receiving frames, while analysis waits for the next fresh frame.
+    if (_visionPipelineInFlight) return;
 
     final throttleMs = 1000 ~/ _fps;
     final now = DateTime.now();
@@ -829,6 +1029,8 @@ class RecognitionState extends ChangeNotifier {
   }
 
   Future<void> _runGatedPipeline(FrameData frame) async {
+    if (_visionPipelineInFlight || _disposed) return;
+    _visionPipelineInFlight = true;
     try {
       final gate = await VisionGate.check(frame.jpegBytes);
       if (_disposed) return;
@@ -928,6 +1130,8 @@ class RecognitionState extends ChangeNotifier {
         ),
       );
       if (!_disposed) notifyListeners();
+    } finally {
+      _visionPipelineInFlight = false;
     }
   }
 
@@ -954,16 +1158,7 @@ class RecognitionState extends ChangeNotifier {
             .map((p) => (p.label, p.confidence))
             .toList(growable: false);
 
-        if (_liveSpeak) {
-          if (_cloudOnly && openRouterTts.isConfigured) {
-            // A cloud TTS failure must never leave the user in silence —
-            // fall back to native TTS instead of surfacing as a no-op.
-            final spoken = await openRouterTts.speakMarkdown(desc);
-            if (!spoken) await nativeTts.speak(desc);
-          } else {
-            await nativeTts.speak(desc);
-          }
-        }
+        if (_liveSpeak) await speakText(desc);
 
         if (_deepReasonEnabled) {
           unawaited(_runUpstream(desc));
@@ -996,10 +1191,23 @@ class RecognitionState extends ChangeNotifier {
 
     final sw = Stopwatch()..start();
     var firstTokenAt = 0;
+    _spokenUpTo = 0;
+    final preferCloudTts =
+        (_ttsEngine == 'fish' || (_cloudOnly && _ttsEngine != 'supertonic')) &&
+            openRouterTts.isConfigured;
+    StreamController<String>? speechController;
+    Future<void>? speechTask;
 
     try {
       final buffer = StringBuffer();
       final telemetry = _lastReading?.telemetryLine(_localeCode);
+      if (_liveSpeak && preferCloudTts) {
+        speechController = StreamController<String>();
+        speechTask = openRouterTts.speakResponseStream(
+          speechController.stream,
+          fallback: _speakLocalFallback,
+        );
+      }
 
       await for (final chunk in openRouter.streamAnalysis(
         labelSentence: localDescription,
@@ -1018,9 +1226,9 @@ class RecognitionState extends ChangeNotifier {
         _upstreamStatus = UpstreamStatus.streaming;
         notifyListeners();
 
-        final preferCloudTts =
-            _useOpenRouterTts || (_cloudOnly && openRouterTts.isConfigured);
-        if (_liveSpeak && !preferCloudTts) {
+        if (_liveSpeak && preferCloudTts) {
+          speechController?.add(chunk);
+        } else if (_liveSpeak) {
           await _speakCompletedSentences(buffer);
         }
 
@@ -1029,26 +1237,40 @@ class RecognitionState extends ChangeNotifier {
         }
       }
 
+      if (_liveSpeak && !preferCloudTts) {
+        await _speakCompletedSentences(buffer, flush: true);
+      }
+
       final st = matterStateFromText(_deepReasoningMarkdown);
       if (st != MatterState.unknown) {
         _matterState = st;
       }
 
+      if (speechController != null && !speechController.isClosed) {
+        await speechController.close();
+      }
+      if (speechTask != null) await speechTask;
+
       _upstreamStatus = UpstreamStatus.done;
       _upstreamMs = sw.elapsedMilliseconds;
+      unawaited(HomeScreenWidgetService.instance.update(
+        status: _lastLabel ?? 'Analysis complete',
+        model: lastModelUsed,
+      ));
+      unawaited(AppNotificationService.instance.showAnalysisCompleted(
+        title: isArabic ? 'اكتمل التحليل' : 'Analysis complete',
+        body: _cleanForSpeech(_deepReasoningMarkdown).trim().isEmpty
+            ? (isArabic ? 'اكتمل التحليل.' : 'Analysis finished.')
+            : _cleanForSpeech(_deepReasoningMarkdown).trim(),
+      ));
       notifyListeners();
-
-      final preferCloudTts =
-          _useOpenRouterTts || (_cloudOnly && openRouterTts.isConfigured);
-      if (_liveSpeak && preferCloudTts) {
-        final spoken = await openRouterTts.speakMarkdown(
-          _deepReasoningMarkdown,
-        );
-        if (!spoken) {
-          await nativeTts.speak(_cleanForSpeech(_deepReasoningMarkdown));
-        }
-      }
     } catch (e) {
+      if (speechController != null && !speechController.isClosed) {
+        await speechController.close();
+      }
+      try {
+        await speechTask;
+      } catch (_) {}
       _upstreamStatus = UpstreamStatus.error;
       _deepReasoningMarkdown = 'Upstream error: $e';
       notifyListeners();
@@ -1058,19 +1280,19 @@ class RecognitionState extends ChangeNotifier {
   }
 
   int _spokenUpTo = 0;
-  Future<void> _speakCompletedSentences(StringBuffer buffer) async {
+  Future<void> _speakCompletedSentences(
+    StringBuffer buffer, {
+    bool flush = false,
+  }) async {
     final text = buffer.toString();
     if (text.length <= _spokenUpTo) return;
     final pending = text.substring(_spokenUpTo);
-
     final match = RegExp(r'[.!?؟][^.!?؟]*$').firstMatch(pending);
-    if (match == null) return;
-
-    final speakable = pending.substring(0, match.end).trim();
-    _spokenUpTo = text.length - (pending.length - match.end);
-    if (speakable.isNotEmpty) {
-      await nativeTts.speak(_cleanForSpeech(speakable));
-    }
+    if (match == null && !flush) return;
+    final end = match?.end ?? pending.length;
+    final speakable = pending.substring(0, end).trim();
+    _spokenUpTo = text.length - (pending.length - end);
+    if (speakable.isNotEmpty) await speakText(speakable);
   }
 
   String _cleanForSpeech(String s) {
@@ -1081,7 +1303,8 @@ class RecognitionState extends ChangeNotifier {
       ),
       ' ',
     );
-    out = out.replaceAll(RegExp(r'\[VERIFIED\s+\d+\]'), '');
+    out = out.replaceAll(RegExp(r'\[(?:SOURCE MATCH|VERIFIED)\s+\d+\]'), '');
+    out = out.replaceAll('[NO SOURCE MATCH]', '');
     out = out.replaceAll('[UNVERIFIED]', '');
     out = out.replaceAll(RegExp(r'\[\d+\]'), '');
     out = out.replaceAll(RegExp(r'^#{1,6}\s*', multiLine: true), '');
@@ -1101,15 +1324,11 @@ class RecognitionState extends ChangeNotifier {
       final msg = isArabic
           ? 'تحذير! تم اكتشاف مادة خطرة. تراجع بحذر.'
           : 'Warning! Hazardous material detected. Step back carefully.';
-      if (_cloudOnly && openRouterTts.isConfigured) {
-        unawaited(
-          openRouterTts.speakMarkdown(msg).then((spoken) {
-            if (!spoken) unawaited(nativeTts.speak(msg));
-          }),
-        );
-      } else {
-        unawaited(nativeTts.speak(msg));
-      }
+      unawaited(AppNotificationService.instance.showHazardAlert(
+        title: isArabic ? 'تحذير من خطر' : 'Hazard alert',
+        body: msg,
+      ));
+      unawaited(speakText(msg));
     }
     unawaited(
       InternalDatabaseService.instance.recordActivity(
@@ -1168,39 +1387,25 @@ class RecognitionState extends ChangeNotifier {
   /// Set in [dispose]; async pipeline stages check it after every await so a
   /// screen teardown mid-frame never touches the notifier after disposal.
   bool _disposed = false;
-  FrameData? _yoloPendingFrame;
 
-  /// Runs YOLO26-Nano with **latest-frame pipelining**: while one inference
-  /// is in flight, any newly arriving frame supersedes queued ones (newest
-  /// wins), so detection always reflects the live camera view. The boxes
-  /// currently on screen stay until the newest result replaces them — the
-  /// overlay never lags behind fast camera movements with stale markers.
+  /// One inference at a time. Frames arriving during inference are deliberately
+  /// dropped; the next inference always starts from a fresh camera frame.
   Future<void> _runYoloDetection(FrameData frame) async {
-    if (!_yolo.isReady) return;
-    if (_yoloInFlight) {
-      _yoloPendingFrame = frame;
-      return;
-    }
+    if (!_yolo.isReady || _yoloInFlight) return;
     _yoloInFlight = true;
     try {
-      var target = frame;
-      while (true) {
-        final boxes = await _yolo.detect(target.jpegBytes);
-        _currentBoxes = boxes;
-        _lastDetectionAt = DateTime.now();
-        if (boxes.isNotEmpty && _lastLabel == null) {
-          final top = boxes.first;
-          final pct = (top.confidence * 100).round().clamp(0, 100);
-          _lastLabel = isArabic
-              ? 'تم رصد: ${top.label} ($pct%)'
-              : 'Detected: ${top.label} ($pct%)';
-        }
-        notifyListeners();
-        final next = _yoloPendingFrame;
-        _yoloPendingFrame = null;
-        if (next == null) break;
-        target = next;
+      final boxes = await _yolo.detect(frame.jpegBytes);
+      if (_disposed) return;
+      _currentBoxes = boxes;
+      _lastDetectionAt = DateTime.now();
+      if (boxes.isNotEmpty && _lastLabel == null) {
+        final top = boxes.first;
+        final pct = (top.confidence * 100).round().clamp(0, 100);
+        _lastLabel = isArabic
+            ? 'تم رصد: ${top.label} ($pct%)'
+            : 'Detected: ${top.label} ($pct%)';
       }
+      notifyListeners();
     } finally {
       _yoloInFlight = false;
     }
@@ -1360,8 +1565,8 @@ class RecognitionState extends ChangeNotifier {
         firstLlmContext: _firstLlmContext ?? '',
         openRouter: openRouter,
         initialCitations: annotated.citations,
-        initialVerifiedCount: annotated.verifiedCount,
-        initialUnverifiedCount: annotated.unverifiedCount,
+        initialSourceMatchCount: annotated.sourceMatchCount,
+        initialNoSourceMatchCount: annotated.noSourceMatchCount,
         lang: _localeCode,
         searchMode: _searchMode,
       );
@@ -1377,7 +1582,7 @@ class RecognitionState extends ChangeNotifier {
             'sessionId': _chatSession!.sessionId,
             'durationMs': sw.elapsedMilliseconds,
             'citations': annotated.citations.length,
-            'verified': annotated.verifiedCount,
+            'sourceMatches': annotated.sourceMatchCount,
             'cloudOnly': _cloudOnly,
           },
         ),
@@ -1386,18 +1591,7 @@ class RecognitionState extends ChangeNotifier {
 
       if (_liveSpeak && annotated.body.trim().isNotEmpty) {
         final cleanSpeech = _cleanForSpeech(annotated.body);
-        // Fish Audio (OpenRouter cloud TTS) is the preferred narrator whenever
-        // its key is configured; native Android TTS is the automatic fallback
-        // when the cloud stream fails or is unavailable.
-        if (openRouterTts.isConfigured && (_useOpenRouterTts || _cloudOnly)) {
-          unawaited(
-            openRouterTts.speakMarkdown(annotated.body).then((spoken) {
-              if (!spoken) unawaited(nativeTts.speak(cleanSpeech));
-            }),
-          );
-        } else {
-          unawaited(nativeTts.speak(cleanSpeech));
-        }
+        unawaited(speakText(cleanSpeech));
       }
       return true;
     } catch (e, st) {
@@ -1519,6 +1713,7 @@ class RecognitionState extends ChangeNotifier {
     _udpStatusSub?.cancel();
     _udpVideo.dispose();
     _chatSession?.dispose();
+    _frameUpdates.dispose();
     super.dispose();
   }
 }

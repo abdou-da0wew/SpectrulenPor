@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -34,6 +35,7 @@ Uint8List _makeCheckeredJpeg() {
 Future<RecognitionState> buildState({
   Map<String, Object> initialPrefs = const {},
   OpenRouterService? openRouter,
+  PhoneCameraService? phoneCamera,
   void Function(String)? onLocaleChanged,
 }) async {
   SharedPreferences.setMockInitialValues(initialPrefs);
@@ -41,7 +43,7 @@ Future<RecognitionState> buildState({
   await InternalDatabaseService.instance.init();
   return RecognitionState(
     bluetooth: BluetoothCameraService(),
-    phoneCamera: PhoneCameraService(),
+    phoneCamera: phoneCamera ?? PhoneCameraService(),
     vision: LocalVisionService.forTest(
       moondream: MoondreamService()..apiKey = '',
     ),
@@ -53,8 +55,53 @@ Future<RecognitionState> buildState({
   );
 }
 
+class _StreamingPhoneCameraService extends PhoneCameraService {
+  final StreamController<FrameData> _frames =
+      StreamController<FrameData>.broadcast(sync: true);
+
+  @override
+  bool get isStreaming => true;
+
+  @override
+  Stream<FrameData> get frameStream => _frames.stream;
+
+  void push(FrameData frame) => _frames.add(frame);
+
+  Future<void> close() => _frames.close();
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('camera frames update the preview channel without notifying app state',
+      () async {
+    final phoneCamera = _StreamingPhoneCameraService();
+    final state = await buildState(phoneCamera: phoneCamera);
+    addTearDown(state.dispose);
+    addTearDown(phoneCamera.close);
+
+    var appNotifications = 0;
+    var previewNotifications = 0;
+    state.addListener(() => appNotifications++);
+    state.frameUpdates.addListener(() => previewNotifications++);
+
+    final frame = FrameData(
+      jpegBytes: _makeCheckeredJpeg(),
+      width: 64,
+      height: 64,
+      capturedAt: DateTime.now(),
+    );
+    phoneCamera.push(frame);
+
+    expect(state.lastFrame, same(frame));
+    expect(state.frameUpdates.value, same(frame));
+    expect(previewNotifications, 1);
+    expect(appNotifications, 0);
+
+    await state.switchSource(CameraSource.glasses);
+    expect(state.lastFrame, isNull);
+    expect(state.frameUpdates.value, isNull);
+  });
 
   test('defaults load from empty prefs including semantic DocsSearchMode',
       () async {
@@ -63,7 +110,8 @@ void main() {
 
     expect(state.liveSpeak, isTrue);
     expect(state.deepReasonEnabled, isTrue);
-    expect(state.useOpenRouterTts, isTrue); // Fish Audio is the default narrator
+    expect(
+        state.useOpenRouterTts, isTrue); // Fish Audio is the default narrator
     expect(state.cloudOnly, isFalse);
     expect(state.searchMode, DocsSearchMode.semantic);
     expect(state.fps, 2);
@@ -134,7 +182,8 @@ void main() {
     MoondreamService.instance.apiKey = '';
   });
 
-  test('strict capture gating: refuses capture when no bounding box is selected',
+  test(
+      'strict capture gating: refuses capture when no bounding box is selected',
       () async {
     final state = await buildState();
     addTearDown(state.dispose);
@@ -158,18 +207,18 @@ void main() {
       () async {
     final sseResponse = [
       'data: ${jsonEncode({
-        'id': 'c1',
-        'model': OpenRouterService.modelChain.first,
-        'choices': [
-          {
-            'delta': {
-              'content':
-                  'Copper sulfate is a blue solid crystalline compound. Warning: toxic if ingested [1].\n<context_update>{"chemicalFormula":"CuSO4·5H2O","stateOfMatter":"solid"}</context_update>'
-            },
-            'index': 0,
-          }
-        ],
-      })}',
+            'id': 'c1',
+            'model': OpenRouterService.modelChain.first,
+            'choices': [
+              {
+                'delta': {
+                  'content':
+                      'Copper sulfate is a blue solid crystalline compound. Warning: toxic if ingested [1].\n<context_update>{"chemicalFormula":"CuSO4·5H2O","stateOfMatter":"solid"}</context_update>'
+                },
+                'index': 0,
+              }
+            ],
+          })}',
       'data: [DONE]',
     ].join('\n\n');
 
@@ -230,9 +279,9 @@ void main() {
     final savedId = state.chatSession!.sessionId;
     var persisted = false;
     for (var i = 0; i < 50 && !persisted; i++) {
-      persisted = await InternalDatabaseService.instance
-              .loadChatSession(savedId) !=
-          null;
+      persisted =
+          await InternalDatabaseService.instance.loadChatSession(savedId) !=
+              null;
       if (!persisted) {
         await Future<void>.delayed(const Duration(milliseconds: 20));
       }
