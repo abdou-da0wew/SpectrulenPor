@@ -8,6 +8,7 @@ import 'package:smart_glass_app/l10n/app_localizations_ar.dart';
 import 'package:smart_glass_app/l10n/app_localizations_en.dart';
 import 'package:smart_glass_app/l10n/glasses_messages.dart';
 import 'package:smart_glass_app/models/glasses_setup.dart';
+import 'package:smart_glass_app/services/openrouter_service.dart';
 
 AppLocalizations get _en => AppLocalizationsEn();
 AppLocalizations get _ar => AppLocalizationsAr();
@@ -16,6 +17,24 @@ void main() {
   test('EN and AR both resolve', () {
     expect(_en.appName, 'SpectruLenPor');
     expect(_ar.appName, 'سبكترو لِن بور');
+  });
+
+  test('localized model labels follow the configured OpenRouter chain', () {
+    expect(_en.modelNemotron, startsWith(OpenRouterService.modelChain[0]));
+    expect(_en.modelGemma26, startsWith(OpenRouterService.modelChain[1]));
+    expect(_en.modelInkling, startsWith(OpenRouterService.modelChain[2]));
+    expect(_ar.modelNemotron, startsWith(OpenRouterService.modelChain[0]));
+    expect(_ar.modelGemma26, startsWith(OpenRouterService.modelChain[1]));
+    expect(_ar.modelInkling, startsWith(OpenRouterService.modelChain[2]));
+    expect(_en.modelNemotron, contains('Nemotron 3.5 Super VL'));
+    expect(_ar.modelNemotron, contains('Nemotron 3.5 Super VL'));
+    expect(_en.modelGemma26, contains('Gemma 4 26B A4B'));
+    expect(_ar.modelGemma26, contains('Gemma 4 26B A4B'));
+    expect(_en.modelInkling, contains('Inkling 2 Small'));
+    expect(_ar.modelInkling, contains('Inkling 2 Small'));
+    expect(_en.factCheckSourceMatchSummary(2, 1), contains('2'));
+    expect(_ar.factCheckSourceMatchSummary(2, 1), contains('1'));
+    expect(_ar.factCheckMethodHint, isNot(_en.factCheckMethodHint));
   });
 
   test('every key is non-empty in BOTH locales', () async {
@@ -87,6 +106,9 @@ void main() {
       'modelGemma26': (l) => l.modelGemma26,
       'modelInkling': (l) => l.modelInkling,
       'modelNemotron': (l) => l.modelNemotron,
+      'factCheckHeader': (l) => l.factCheckHeader,
+      'factCheckMethodHint': (l) => l.factCheckMethodHint,
+      'factCheckSourceMatchSummary': (l) => l.factCheckSourceMatchSummary(2, 1),
       'reasoningTokensLabel': (l) => l.reasoningTokensLabel,
       'reasoningTokensHint': (l) => l.reasoningTokensHint,
       'aboutBody': (l) => l.aboutBody,

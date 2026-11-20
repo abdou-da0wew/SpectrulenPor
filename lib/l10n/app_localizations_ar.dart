@@ -210,13 +210,28 @@ class AppLocalizationsAr extends AppLocalizations {
       'سلسلة OpenRouter النصية + الاستدلال البديلة';
 
   @override
-  String get modelGemma26 => 'google/gemma-4-26b-a4b-it:free — رئيسي';
+  String get factCheckHeader => 'تطابقات المصادر المحتملة';
 
   @override
-  String get modelInkling => 'liquid/inkling-small:free — بديل ١';
+  String get factCheckMethodHint =>
+      'تداخل الكلمات يشير فقط إلى مصدر قد يكون ذا صلة؛ ولا يثبت صحة الادعاء أو صحته العلمية.';
 
   @override
-  String get modelNemotron => 'nvidia/nemotron-3-nano-30b-a3b:free — بديل ٢';
+  String factCheckSourceMatchSummary(int matched, int unmatched) {
+    return '$matched تطابقات مصدر محتملة · $unmatched ادعاءات بلا تطابق';
+  }
+
+  @override
+  String get modelGemma26 =>
+      'google/gemma-4-26b-a4b-it:free — Gemma 4 26B A4B (بديل ١)';
+
+  @override
+  String get modelInkling =>
+      'thinkingmachines/inkling-2-small:free — Inkling 2 Small (بديل ٢)';
+
+  @override
+  String get modelNemotron =>
+      'nvidia/nemotron-3.5-super-vl:free — Nemotron 3.5 Super VL (رئيسي)';
 
   @override
   String get reasoningTokensLabel => 'التقاط رموز الاستدلال';
@@ -319,7 +334,7 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get setupManualIpHint =>
-      'اعثر على عنوان IP في قائمة الأجهزة المتصلة بالراوتر باستخدام عنوان MAC المحفوظ. هذا الإصدار لا يدعم الاكتشاف التلقائي أو قراءة الحالة بالبلوتوث بعد إعادة التشغيل.';
+      'أدخل عنوان IP الخاص بـ ESP32، أو اترك الحقل فارغًا لاكتشاف الكاميرا تلقائيًا على شبكة Wi-Fi نفسها.';
 
   @override
   String get setupRecoveryHint =>
@@ -1099,5 +1114,5 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get aboutBody =>
-      'سبكترو لِن بور v5.5 — رصد الكائنات المحلي عبر YOLO26-Nano ONNX (مرفق بالتطبيق مع تنزيل/تحقق تلقائي) + خيار النماذج السحابية فقط (مع بقاء YOLO محلياً) + رؤية موندريم ٣ السحابية + سلسلة OpenRouter الاستدلالية (gemma←inkling←nemotron) + بث صوت fish-audio/s2.1-pro-free:free + بحث علمي بثلاثة أوضاع (صارم / مفصل / دلالي عبر 119 عنصراً كيميائياً و110 مركبات ومعايير السلامة GHS وPubChem وويكيبيديا والويب) + استشهادات مرقمة [n] وتدقيق الحقائق + سياق علمي مهيكل ذاتي التحديث + قاعدة بيانات داخلية SQLite WAL من 9 جداول لحفظ المحادثات والكاش والسجلات والأعطال والقياسات.\n\nالخط التشغيلي: كاميرا الهاتف أو نظارة ESP32-CAM ← صناديق YOLO26-Nano التفاعلية ← لمس الصندوق لوضع علامة الهدف ← الضغط على التقاط وتحليل لأخذ صورتين (نظيفة + معلمة) ← تحليل موندريم ٣ ← سياق علمي موثق وتدقيق الحقائق ← محادثة مستمرة محفوظة تلقائياً.\n\nملك عادل سيد حسن (طالبة) · عبد الرحمن أيمن محمد (مطور) · الصف الأول الثانوي ٣/١ · مدرسة الأشمونين الثانوية · الميزانية: ٢٬٥٠٠–٦٬٠٠٠ جنيه.';
+      'سبكترو لِن بور v5.5 — رصد الكائنات المحلي عبر YOLO26-Nano ONNX (مرفق بالتطبيق مع تنزيل/تحقق تلقائي) + خيار النماذج السحابية فقط (مع بقاء YOLO محلياً) + رؤية موندريم ٣ السحابية + سلسلة OpenRouter الاستدلالية (nemotron←gemma←inkling) + بث صوت fish-audio/s2.1-pro-free:free + بحث علمي بثلاثة أوضاع (صارم / مفصل / دلالي عبر 119 عنصراً كيميائياً و110 مركبات ومعايير السلامة GHS وPubChem وويكيبيديا والويب) + استشهادات مرقمة [n] ومؤشرات تطابق مصادر محتملة (تشابه لفظي فقط، وليست إثباتًا لصحة الادعاء) + سياق علمي مهيكل ذاتي التحديث + قاعدة بيانات داخلية SQLite WAL من 9 جداول لحفظ المحادثات والكاش والسجلات والأعطال والقياسات.\n\nالخط التشغيلي: كاميرا الهاتف أو نظارة ESP32-CAM ← صناديق YOLO26-Nano التفاعلية ← لمس الصندوق لوضع علامة الهدف ← الضغط على التقاط وتحليل لأخذ صورتين (نظيفة + معلمة) ← تحليل موندريم ٣ ← سياق علمي موثق ومؤشرات تطابق المصادر ← محادثة مستمرة محفوظة تلقائياً.\n\nملك عادل سيد حسن (طالبة) · عبد الرحمن أيمن محمد (مطور) · الصف الأول الثانوي ٣/١ · مدرسة الأشمونين الثانوية · الميزانية: ٢٬٥٠٠–٦٬٠٠٠ جنيه.';
 }

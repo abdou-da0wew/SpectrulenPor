@@ -482,22 +482,40 @@ abstract class AppLocalizations {
   /// **'OpenRouter text+reasoning fallback chain'**
   String get upstreamFallbackHeader;
 
+  /// No description provided for @factCheckHeader.
+  ///
+  /// In en, this message translates to:
+  /// **'Candidate source matches'**
+  String get factCheckHeader;
+
+  /// No description provided for @factCheckMethodHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Text overlap only suggests a possibly relevant source. It does not verify the claim or its scientific correctness.'**
+  String get factCheckMethodHint;
+
+  /// No description provided for @factCheckSourceMatchSummary.
+  ///
+  /// In en, this message translates to:
+  /// **'{matched} possible source matches · {unmatched} claims without a match'**
+  String factCheckSourceMatchSummary(int matched, int unmatched);
+
   /// No description provided for @modelGemma26.
   ///
   /// In en, this message translates to:
-  /// **'google/gemma-4-26b-a4b-it:free — primary'**
+  /// **'google/gemma-4-26b-a4b-it:free — Gemma 4 26B A4B (fallback 1)'**
   String get modelGemma26;
 
   /// No description provided for @modelInkling.
   ///
   /// In en, this message translates to:
-  /// **'liquid/inkling-small:free — fallback 1'**
+  /// **'thinkingmachines/inkling-2-small:free — Inkling 2 Small (fallback 2)'**
   String get modelInkling;
 
   /// No description provided for @modelNemotron.
   ///
   /// In en, this message translates to:
-  /// **'nvidia/nemotron-3-nano-30b-a3b:free — fallback 2'**
+  /// **'nvidia/nemotron-3.5-super-vl:free — Nemotron 3.5 Super VL (primary)'**
   String get modelNemotron;
 
   /// No description provided for @reasoningTokensLabel.
@@ -689,7 +707,7 @@ abstract class AppLocalizations {
   /// No description provided for @setupManualIpHint.
   ///
   /// In en, this message translates to:
-  /// **'Find the IP in your router\'s connected-device list using the saved MAC. This firmware has no automatic discovery and no BLE status after reboot.'**
+  /// **'Enter the ESP32 IP, or leave this field empty to discover the camera automatically on the same Wi-Fi network.'**
   String get setupManualIpHint;
 
   /// No description provided for @setupRecoveryHint.
@@ -2081,7 +2099,7 @@ abstract class AppLocalizations {
   /// No description provided for @aboutBody.
   ///
   /// In en, this message translates to:
-  /// **'SpectruLenPor v5.5 — Local YOLO26-Nano ONNX object detection (bundled + auto-download) + Cloud-only policy toggle (keeping YOLO local) + Moondream3 Cloud VLM + OpenRouter gemma→inkling→nemotron reasoning chain + streamed fish-audio/s2.1-pro-free:free TTS + 3-mode scientific RAG (Strict / Detailed / Semantic across 119 Periodic Table elements, 110 chemical compounds/materials, GHS lab safety, PubChem, Wikipedia & Web Search) + Google-Search-style inline [n] citations + claim fact-checking + auto-updating structured ConversationContext + 9-table SQLite WAL Internal Database (saved chats, TTL response cache, logs, hangs/crashes, traces & telemetry).\n\nPipeline: phone camera / ESP32-CAM → local YOLO26-Nano interactive boxes → tap box to lock target marker → press Capture & Analyze for dual JPEG capture (clean + marked) → Moondream3 analyzeSelected → grounded LLM context + fact-checking → persistent chat session with auto-updating context.\n\nMalak Adel Sayed Hassan (student) · Abdoul-Rahman Ayman Mohamed (developer) · Grade 1 secondary, Class 3/1 · Ashmounin Secondary School · Budget: 2,500–6,000 EGP.'**
+  /// **'SpectruLenPor v5.5 — Local YOLO26-Nano ONNX object detection (bundled + auto-download) + Cloud-only policy toggle (keeping YOLO local) + Moondream3 Cloud VLM + OpenRouter nemotron→gemma→inkling reasoning chain + streamed fish-audio/s2.1-pro-free:free TTS + 3-mode scientific RAG (Strict / Detailed / Semantic across 119 Periodic Table elements, 110 chemical compounds/materials, GHS lab safety, PubChem, Wikipedia & Web Search) + Google-Search-style inline [n] citations + candidate lexical source-match hints (not proof of correctness) + auto-updating structured ConversationContext + 9-table SQLite WAL Internal Database (saved chats, TTL response cache, logs, hangs/crashes, traces & telemetry).\n\nPipeline: phone camera / ESP32-CAM → local YOLO26-Nano interactive boxes → tap box to lock target marker → press Capture & Analyze for dual JPEG capture (clean + marked) → Moondream3 analyzeSelected → grounded LLM context + candidate source matching → persistent chat session with auto-updating context.\n\nMalak Adel Sayed Hassan (student) · Abdoul-Rahman Ayman Mohamed (developer) · Grade 1 secondary, Class 3/1 · Ashmounin Secondary School · Budget: 2,500–6,000 EGP.'**
   String get aboutBody;
 }
 
