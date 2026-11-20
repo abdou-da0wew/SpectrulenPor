@@ -20,11 +20,12 @@ val keystoreProperties = Properties().apply {
 val hasReleaseKeystore = keystoreProperties["storeFile"] != null
 
 android {
+    ndkVersion = "25.2.9519653"
     namespace = "com.spectraglass.app"
-    compileSdk = 36
-    ndkVersion = flutter.ndkVersion
+    compileSdk = 37
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -44,8 +45,8 @@ android {
         applicationId = "com.spectraglass.app"
         minSdk = 31
         targetSdk = 36
-        versionCode = 15
-        versionName = "5.5.0"
+        versionCode = 16
+        versionName = "5.5.1"
     }
 
     buildTypes {
@@ -76,9 +77,11 @@ flutter {
 }
 
 dependencies {
-    implementation("androidx.core:core-ktx:1.13.1")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    implementation("androidx.core:core-ktx:1.19.0")
     // ONNX Runtime for YOLO26-Nano on-device inference. Direct Maven dep
     // (NOT via flutter_onnxruntime plugin — that had a gradle subproject
     // build conflict on AGP 9.x). The native .so files are bundled in the AAR.
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.22.0")
+    implementation("com.alphacephei:vosk-android:0.3.75")
 }
