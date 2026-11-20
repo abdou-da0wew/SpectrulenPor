@@ -44,8 +44,8 @@ class ChatSession extends ChangeNotifier {
     required String firstLlmContext,
     required OpenRouterService openRouter,
     List<Citation> initialCitations = const [],
-    int initialVerifiedCount = 0,
-    int initialUnverifiedCount = 0,
+    int initialSourceMatchCount = 0,
+    int initialNoSourceMatchCount = 0,
     String lang = 'en',
     this.searchMode = DocsSearchMode.semantic,
     bool persistToDb = true,
@@ -84,8 +84,8 @@ class ChatSession extends ChangeNotifier {
           content: cleanedInitial,
           at: frames.capturedAt,
           citations: initialCitations,
-          verifiedCount: initialVerifiedCount,
-          unverifiedCount: initialUnverifiedCount,
+          sourceMatchCount: initialSourceMatchCount,
+          noSourceMatchCount: initialNoSourceMatchCount,
         ),
       );
     }
@@ -223,18 +223,18 @@ class ChatSession extends ChangeNotifier {
         _runningContext = _runningContext.merge(contextDelta);
       }
 
-      // Run fact-checking against retrieved sources when available.
+      // Add candidate lexical source matches against retrieved sources.
       String finalMarkdown = visibleReply;
-      int verified = 0;
-      int unverified = 0;
+      int sourceMatches = 0;
+      int unmatchedClaims = 0;
       if (sources.isNotEmpty && visibleReply.isNotEmpty) {
         final fc = await FactCheckerService.instance.check(
           llmMarkdown: visibleReply,
           sources: sources,
         );
         finalMarkdown = fc.annotatedMarkdown;
-        verified = fc.verifiedCount;
-        unverified = fc.unverifiedCount;
+        sourceMatches = fc.sourceMatchCount;
+        unmatchedClaims = fc.noSourceMatchCount;
       }
 
       final assistantMsg = ChatMessage(
@@ -242,8 +242,8 @@ class ChatSession extends ChangeNotifier {
         content: finalMarkdown,
         at: DateTime.now(),
         citations: sources,
-        verifiedCount: verified,
-        unverifiedCount: unverified,
+        sourceMatchCount: sourceMatches,
+        noSourceMatchCount: unmatchedClaims,
       );
       final assistantSeq = _history.length;
       _history.add(assistantMsg);
@@ -259,13 +259,14 @@ class ChatSession extends ChangeNotifier {
       unawaited(InternalDatabaseService.instance.recordSpan(
         traceId: sessionId,
         spanName: 'openrouter.chatTurn',
-        startedAtMs: DateTime.now().millisecondsSinceEpoch - sw.elapsedMilliseconds,
+        startedAtMs:
+            DateTime.now().millisecondsSinceEpoch - sw.elapsedMilliseconds,
         durationMs: sw.elapsedMilliseconds,
         status: 'ok',
         attributes: {
           'model': _openRouter.lastModelUsed,
           'citations': sources.length,
-          'verified': verified,
+          'sourceMatches': sourceMatches,
         },
       ));
     } catch (e, st) {
@@ -328,9 +329,8 @@ class ChatSession extends ChangeNotifier {
         stateOfMatter: analysis.stateOfMatter,
         hazards: analysis.hazards,
         sceneContext: analysis.whatsAround,
-        labFindings: analysis.whatItIs.isNotEmpty
-            ? analysis.whatItIs
-            : analysis.caption,
+        labFindings:
+            analysis.whatItIs.isNotEmpty ? analysis.whatItIs : analysis.caption,
         referencedEntities: [selectedLabel],
       ),
     );

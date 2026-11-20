@@ -1,17 +1,18 @@
 import '../models/citation.dart';
 
-/// Fact-checker — extracts factual claims from LLM output and verifies
-/// each against the supplied sources (Wikipedia summaries + bundled docs).
+/// Candidate source matcher — extracts factual claims from LLM output and
+/// compares their tokens with the supplied citation titles and snippets.
 ///
-/// Output: per-claim confidence score (0..1) + the matched source citation.
-/// Claims with no source match are flagged as "unverified" in the UI.
+/// A match is lexical evidence that a source may be relevant. It does NOT
+/// verify the claim's meaning, scientific correctness, or whether the source
+/// actually entails the claim. The UI deliberately calls this a "source match".
 class FactCheckerService {
   FactCheckerService._();
   static final FactCheckerService instance = FactCheckerService._();
 
-  /// Run fact-checking on [llmMarkdown] using [sources] as the reference DB.
+  /// Find candidate lexical source matches in [sources] for [llmMarkdown].
   /// Returns a [FactCheckResult] with per-claim verdicts + an annotated
-  /// version of the markdown (claims flagged with [VERIFIED n] / [UNVERIFIED]
+  /// version of the markdown (claims flagged with [SOURCE MATCH n] / [NO SOURCE MATCH]
   /// inline markers).
   Future<FactCheckResult> check({
     required String llmMarkdown,
@@ -22,8 +23,8 @@ class FactCheckerService {
       return FactCheckResult(
         annotatedMarkdown: llmMarkdown,
         verdicts: const [],
-        verifiedCount: 0,
-        unverifiedCount: claims.length,
+        sourceMatchCount: 0,
+        noSourceMatchCount: claims.length,
       );
     }
     final verdicts = <ClaimVerdict>[];
@@ -37,32 +38,33 @@ class FactCheckerService {
       final match = _matchClaim(claim.text, sources);
       if (match != null) {
         annotatedBuffer.write(claim.text);
-        annotatedBuffer.write(' [VERIFIED ${match.index}]');
+        annotatedBuffer.write(' [SOURCE MATCH ${match.index}]');
         verdicts.add(ClaimVerdict(
           text: claim.text,
-          confidence: match.confidence,
+          matchScore: match.matchScore,
           citationIndex: match.index,
-          status: VerdictStatus.verified,
+          status: VerdictStatus.sourceMatched,
         ));
       } else {
         annotatedBuffer.write(claim.text);
-        annotatedBuffer.write(' [UNVERIFIED]');
+        annotatedBuffer.write(' [NO SOURCE MATCH]');
         verdicts.add(ClaimVerdict(
           text: claim.text,
-          confidence: 0.0,
+          matchScore: 0.0,
           citationIndex: null,
-          status: VerdictStatus.unverified,
+          status: VerdictStatus.noSourceMatch,
         ));
       }
       cursor = startIdx + claim.text.length;
     }
     annotatedBuffer.write(llmMarkdown.substring(cursor));
-    final verified = verdicts.where((v) => v.status == VerdictStatus.verified).length;
+    final matched =
+        verdicts.where((v) => v.status == VerdictStatus.sourceMatched).length;
     return FactCheckResult(
       annotatedMarkdown: annotatedBuffer.toString(),
       verdicts: verdicts,
-      verifiedCount: verified,
-      unverifiedCount: verdicts.length - verified,
+      sourceMatchCount: matched,
+      noSourceMatchCount: verdicts.length - matched,
     );
   }
 
@@ -76,14 +78,13 @@ class FactCheckerService {
     for (final line in lines) {
       final trimmed = line.trim();
       if (trimmed.isEmpty) continue;
-      if (trimmed.startsWith('#')) continue;             // header
+      if (trimmed.startsWith('#')) continue; // header
       if (trimmed.startsWith('-') || trimmed.startsWith('*')) continue;
-      if (trimmed.startsWith('[')) continue;             // pure link
+      if (trimmed.startsWith('[')) continue; // pure link
       // Split by sentence boundary — including Arabic terminators
       // (؟ question mark, ہ/۔ full stop, … ellipsis) so Arabic claims are
       // segmented as reliably as English ones.
-      final sentences =
-          trimmed.split(RegExp(r'(?<=[.!?؟۔…])\s+'));
+      final sentences = trimmed.split(RegExp(r'(?<=[.!?؟۔…])\s+'));
       for (final s in sentences) {
         final clean = s.trim();
         if (clean.length < 12) continue;
@@ -99,12 +100,47 @@ class FactCheckerService {
   }
 
   static final _keywords = <String>{
-    'mass', 'density', 'temperature', 'melting', 'boiling', 'atomic',
-    'molar', 'formula', 'compound', 'element', 'oxidation', 'reduction',
-    'acid', 'base', 'polar', 'covalent', 'ionic', 'solubility', 'reactive',
-    'inert', 'isotope', 'valence', 'ph', 'solution', 'concentration',
-    'crystal', 'liquid', 'gas', 'solid', 'metal', 'nonmetal', 'halogen',
-    'كتلة', 'كثافة', 'انصهار', 'غليان', 'ذري', 'مركب', 'عنصر', 'حمض', 'محلول',
+    'mass',
+    'density',
+    'temperature',
+    'melting',
+    'boiling',
+    'atomic',
+    'molar',
+    'formula',
+    'compound',
+    'element',
+    'oxidation',
+    'reduction',
+    'acid',
+    'base',
+    'polar',
+    'covalent',
+    'ionic',
+    'solubility',
+    'reactive',
+    'inert',
+    'isotope',
+    'valence',
+    'ph',
+    'solution',
+    'concentration',
+    'crystal',
+    'liquid',
+    'gas',
+    'solid',
+    'metal',
+    'nonmetal',
+    'halogen',
+    'كتلة',
+    'كثافة',
+    'انصهار',
+    'غليان',
+    'ذري',
+    'مركب',
+    'عنصر',
+    'حمض',
+    'محلول',
   };
 
   bool _hasKeyword(String s) {
@@ -119,8 +155,10 @@ class FactCheckerService {
     return false;
   }
 
-  /// Match a claim to the best source — returns null if no source has >40%
-  /// keyword overlap with the claim text.
+  /// Find a candidate source using lexical token overlap.
+  ///
+  /// The 0.40 threshold is a retrieval heuristic only, not a verification
+  /// threshold. Shared words can occur without the source supporting the claim.
   _SourceMatch? _matchClaim(String claim, List<Citation> sources) {
     _SourceMatch? best;
     final lowerClaim = claim.toLowerCase();
@@ -128,8 +166,8 @@ class FactCheckerService {
       final refText = '${s.title} ${s.snippet}'.toLowerCase();
       final score = _keywordOverlap(lowerClaim, refText);
       if (score > 0.40) {
-        if (best == null || score > best.confidence) {
-          best = _SourceMatch(index: s.index, confidence: score);
+        if (best == null || score > best.matchScore) {
+          best = _SourceMatch(index: s.index, matchScore: score);
         }
       }
     }
@@ -161,40 +199,41 @@ class Claim {
   const Claim({required this.text});
 }
 
-/// Verdict for one claim — verified/unverified + matched citation index.
+/// Candidate lexical source match for one extracted claim.
 class ClaimVerdict {
   final String text;
-  final double confidence;       // 0..1, keyword overlap
+  final double matchScore; // 0..1 lexical overlap; not claim confidence
   final int? citationIndex;
   final VerdictStatus status;
   const ClaimVerdict({
     required this.text,
-    required this.confidence,
+    required this.matchScore,
     required this.citationIndex,
     required this.status,
   });
 }
 
-enum VerdictStatus { verified, unverified, partial }
+enum VerdictStatus { sourceMatched, noSourceMatch, partial }
 
-/// Result of fact-checking one LLM message.
+/// Candidate source-match results for one LLM message.
 class FactCheckResult {
-  final String annotatedMarkdown;   // original markdown + [VERIFIED n] / [UNVERIFIED] inline
+  final String
+      annotatedMarkdown; // original markdown + candidate source-match markers
   final List<ClaimVerdict> verdicts;
-  final int verifiedCount;
-  final int unverifiedCount;
+  final int sourceMatchCount;
+  final int noSourceMatchCount;
   const FactCheckResult({
     required this.annotatedMarkdown,
     required this.verdicts,
-    required this.verifiedCount,
-    required this.unverifiedCount,
+    required this.sourceMatchCount,
+    required this.noSourceMatchCount,
   });
 
-  bool get allVerified => unverifiedCount == 0 && verifiedCount > 0;
+  bool get hasSourceMatches => sourceMatchCount > 0;
 }
 
 class _SourceMatch {
   final int index;
-  final double confidence;
-  const _SourceMatch({required this.index, required this.confidence});
+  final double matchScore;
+  const _SourceMatch({required this.index, required this.matchScore});
 }

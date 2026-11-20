@@ -14,12 +14,15 @@ String sseBody({
   final buf = StringBuffer();
   for (final d in deltas) {
     buf.writeln('data: ${jsonEncode({
-      'id': 'c1',
-      'model': model,
-      'choices': [
-        {'delta': {'content': d}, 'index': 0}
-      ],
-    })}');
+          'id': 'c1',
+          'model': model,
+          'choices': [
+            {
+              'delta': {'content': d},
+              'index': 0
+            }
+          ],
+        })}');
   }
   final usage = <String, dynamic>{
     'prompt_tokens': 10,
@@ -29,16 +32,24 @@ String sseBody({
     usage['completion_tokens_details'] = {'reasoning_tokens': reasoningTokens};
   }
   buf.writeln('data: ${jsonEncode({
-    'id': 'c1',
-    'model': model,
-    'choices': <dynamic>[],
-    'usage': usage,
-  })}');
+        'id': 'c1',
+        'model': model,
+        'choices': <dynamic>[],
+        'usage': usage,
+      })}');
   buf.writeln('data: [DONE]');
   return buf.toString();
 }
 
 void main() {
+  test('fallback chain uses the currently listed OpenRouter model IDs', () {
+    expect(OpenRouterService.modelChain, <String>[
+      'nvidia/nemotron-3.5-super-vl:free',
+      'google/gemma-4-26b-a4b-it:free',
+      'thinkingmachines/inkling-2-small:free',
+    ]);
+  });
+
   test('not-configured service yields a hint instead of a network call',
       () async {
     final svc = OpenRouterService(apiKey: '');
@@ -51,10 +62,12 @@ void main() {
     final svc = OpenRouterService(
       apiKey: 'k',
       clientFactory: () => MockClient.streaming((req, _) async {
-        final body = jsonDecode((req as http.Request).body) as Map<String, dynamic>;
+        final body =
+            jsonDecode((req as http.Request).body) as Map<String, dynamic>;
         seenModel = body['model'] as String;
         return http.StreamedResponse(
-          http.ByteStream.fromBytes(utf8.encode(sseBody(model: seenModel!, deltas: ['Hello ', 'lab']))),
+          http.ByteStream.fromBytes(utf8
+              .encode(sseBody(model: seenModel!, deltas: ['Hello ', 'lab']))),
           200,
         );
       }),
@@ -74,7 +87,8 @@ void main() {
     final svc = OpenRouterService(
       apiKey: 'k',
       clientFactory: () => MockClient.streaming((req, _) async {
-        final body = jsonDecode((req as http.Request).body) as Map<String, dynamic>;
+        final body =
+            jsonDecode((req as http.Request).body) as Map<String, dynamic>;
         final model = body['model'] as String;
         requested.add(model);
         if (model == OpenRouterService.modelChain[0]) {
@@ -82,15 +96,14 @@ void main() {
               http.ByteStream.fromBytes(utf8.encode('upstream error')), 500);
         }
         return http.StreamedResponse(
-          http.ByteStream.fromBytes(utf8.encode(
-              sseBody(model: model, deltas: ['Fallback works']))),
+          http.ByteStream.fromBytes(
+              utf8.encode(sseBody(model: model, deltas: ['Fallback works']))),
           200,
         );
       }),
     );
 
-    final out =
-        await svc.streamAnalysis(labelSentence: 'a beaker').toList();
+    final out = await svc.streamAnalysis(labelSentence: 'a beaker').toList();
     expect(out.join(), 'Fallback works');
     expect(requested.first, OpenRouterService.modelChain[0]);
     expect(svc.lastChainIndex, 1);
@@ -99,13 +112,12 @@ void main() {
   test('whole chain failing yields a readable error line', () async {
     final svc = OpenRouterService(
       apiKey: 'k',
-      clientFactory: () => MockClient.streaming(
-          (req, _) async => http.StreamedResponse(
+      clientFactory: () => MockClient.streaming((req, _) async =>
+          http.StreamedResponse(
               http.ByteStream.fromBytes(utf8.encode('nope')), 503)),
     );
 
-    final out =
-        await svc.streamAnalysis(labelSentence: 'a beaker').toList();
+    final out = await svc.streamAnalysis(labelSentence: 'a beaker').toList();
     expect(out.join(), contains('Could not reach any presentation model'));
   });
 
@@ -113,7 +125,8 @@ void main() {
     final svc = OpenRouterService(
       apiKey: 'k',
       clientFactory: () => MockClient.streaming((req, _) async {
-        final body = jsonDecode((req as http.Request).body) as Map<String, dynamic>;
+        final body =
+            jsonDecode((req as http.Request).body) as Map<String, dynamic>;
         return http.StreamedResponse(
           http.ByteStream.fromBytes(utf8.encode(sseBody(
               model: body['model'] as String,
@@ -133,7 +146,8 @@ void main() {
     final svc = OpenRouterService(
       apiKey: 'k',
       clientFactory: () => MockClient.streaming((req, _) async {
-        final body = jsonDecode((req as http.Request).body) as Map<String, dynamic>;
+        final body =
+            jsonDecode((req as http.Request).body) as Map<String, dynamic>;
         seenModel = body['model'] as String;
         return http.StreamedResponse(
           http.ByteStream.fromBytes(
@@ -148,13 +162,15 @@ void main() {
     expect(svc.lastChainIndex, 2);
   });
 
-  test('system prompt requires a hazard line and the user prompt embeds '
+  test(
+      'system prompt requires a hazard line and the user prompt embeds '
       'the analyst output', () async {
     String? sys, user;
     final svc = OpenRouterService(
       apiKey: 'k',
       clientFactory: () => MockClient.streaming((req, _) async {
-        final body = jsonDecode((req as http.Request).body) as Map<String, dynamic>;
+        final body =
+            jsonDecode((req as http.Request).body) as Map<String, dynamic>;
         sys = body['messages'][0]['content'] as String;
         user = body['messages'][1]['content'] as String;
         return http.StreamedResponse(
@@ -167,14 +183,16 @@ void main() {
 
     await svc
         .streamAnalysis(
-      labelSentence: 'a beaker',
-      moondreamAnalysis: 'clear glass beaker',
-      telemetry: r'$UV:10;IR:20',
-    )
+          labelSentence: 'a beaker',
+          moondreamAnalysis: 'clear glass beaker',
+          telemetry: r'$UV:10;IR:20',
+        )
         .toList();
 
     expect(sys, contains('SpectruLenPor'));
     expect(sys, contains('Warning:'));
+    expect(sys, contains('CAS 25038-59-9'));
+    expect(sys, isNot(contains('25038-54-4')));
     expect(user, contains('a beaker'));
     expect(user, contains('clear glass beaker'));
   });
@@ -200,7 +218,8 @@ void main() {
       }),
     );
 
-    final out = await svc.streamAnalysis(labelSentence: 'x', startModel: 99).toList();
+    final out =
+        await svc.streamAnalysis(labelSentence: 'x', startModel: 99).toList();
     expect(out.join(), 'clamped');
     expect(seenModel, OpenRouterService.modelChain.last);
   });

@@ -54,9 +54,25 @@ class DocsSearchService {
       'silicon dioxide',
       'ethanol',
     ],
-    'wine glass': ['borosilicate glass', 'silicon dioxide', 'ethanol', 'tartaric acid'],
-    'cup': ['borosilicate glass', 'water', 'caffeine', 'silicon dioxide', 'sucrose'],
-    'bowl': ['borosilicate glass', 'silicon dioxide', 'sodium chloride', 'water'],
+    'wine glass': [
+      'borosilicate glass',
+      'silicon dioxide',
+      'ethanol',
+      'tartaric acid'
+    ],
+    'cup': [
+      'borosilicate glass',
+      'water',
+      'caffeine',
+      'silicon dioxide',
+      'sucrose'
+    ],
+    'bowl': [
+      'borosilicate glass',
+      'silicon dioxide',
+      'sodium chloride',
+      'water'
+    ],
     'fork': ['stainless steel', 'iron', 'chromium', 'nickel'],
     'knife': ['stainless steel', 'iron', 'chromium', 'carbon'],
     'spoon': ['stainless steel', 'iron', 'chromium', 'silver'],
@@ -80,8 +96,19 @@ class DocsSearchService {
     'mouse': ['polycarbonate', 'polypropylene', 'silicon'],
     'remote': ['polypropylene', 'manganese dioxide', 'zinc', 'silicon'],
     'book': ['cellulose', 'carbon', 'calcium carbonate', 'titanium dioxide'],
-    'potted plant': ['chlorophyll a', 'cellulose', 'water', 'carbon dioxide', 'magnesium'],
-    'vase': ['silicon dioxide', 'borosilicate glass', 'aluminum oxide', 'water'],
+    'potted plant': [
+      'chlorophyll a',
+      'cellulose',
+      'water',
+      'carbon dioxide',
+      'magnesium'
+    ],
+    'vase': [
+      'silicon dioxide',
+      'borosilicate glass',
+      'aluminum oxide',
+      'water'
+    ],
     'apple': ['ascorbic acid', 'malic acid', 'glucose', 'water', 'potassium'],
     'orange': ['citric acid', 'ascorbic acid', 'glucose', 'water'],
     'banana': ['potassium', 'glucose', 'sucrose', 'ascorbic acid'],
@@ -89,7 +116,12 @@ class DocsSearchService {
     'carrot': ['glucose', 'cellulose', 'potassium', 'water'],
     'cake': ['sucrose', 'sodium bicarbonate', 'glucose'],
     'donut': ['sucrose', 'glucose', 'sodium bicarbonate'],
-    'sink': ['stainless steel', 'water', 'sodium hypochlorite', 'calcium carbonate'],
+    'sink': [
+      'stainless steel',
+      'water',
+      'sodium hypochlorite',
+      'calcium carbonate'
+    ],
     'refrigerator': ['stainless steel', 'aluminum', 'copper', 'polypropylene'],
     'microwave': ['stainless steel', 'borosilicate glass', 'copper'],
     'oven': ['stainless steel', 'iron', 'borosilicate glass'],
@@ -113,7 +145,12 @@ class DocsSearchService {
     'epsom salt': ['magnesium sulfate'],
     'lye': ['sodium hydroxide'],
     'caustic soda': ['sodium hydroxide'],
-    'battery': ['lithium cobalt oxide', 'lithium iron phosphate', 'sulfuric acid', 'zinc'],
+    'battery': [
+      'lithium cobalt oxide',
+      'lithium iron phosphate',
+      'sulfuric acid',
+      'zinc'
+    ],
     'steel': ['stainless steel', 'iron', 'chromium', 'carbon'],
   };
 
@@ -371,7 +408,8 @@ class DocsSearchService {
     final results = <_DocHit>[];
 
     // Direct + fuzzy scoring on the raw query.
-    results.addAll(_scoreBundledDocs(trimmed, detailedSnippets: true, fuzzy: true));
+    results.addAll(
+        _scoreBundledDocs(trimmed, detailedSnippets: true, fuzzy: true));
 
     // Concept / YOLO-label semantic expansion (e.g. "cup" -> Borosilicate glass, Water, Caffeine).
     final expandedTerms = <String>{};
@@ -393,7 +431,8 @@ class DocsSearchService {
     }
 
     // Parallel external enrichment (PubChem + Wikipedia + DuckDuckGo Web Search)
-    final needWiki = fetchWiki && results.where((r) => r.score > 0.85).length < 3;
+    final needWiki =
+        fetchWiki && results.where((r) => r.score > 0.85).length < 3;
     final needPubChem = fetchPubChem;
     final primaryLookupTerm =
         expandedTerms.isNotEmpty && results.where((r) => r.score > 0.9).isEmpty
@@ -489,7 +528,8 @@ class DocsSearchService {
       final phase = (e['phase'] as String?)?.toLowerCase() ?? '';
       final discoveredBy = (e['discovered_by'] as String?)?.toLowerCase() ?? '';
       final eConfig =
-          (e['electron_configuration_semantic'] as String?)?.toLowerCase() ?? '';
+          (e['electron_configuration_semantic'] as String?)?.toLowerCase() ??
+              '';
       final numStr = e['num']?.toString() ?? '';
 
       double score = 0;
@@ -516,7 +556,8 @@ class DocsSearchService {
           (category.contains(q) || q.contains(category))) {
         score = 0.55;
       } else if (words.isNotEmpty &&
-          words.any((w) => w.length >= 3 && (name == w || name.startsWith(w)))) {
+          words
+              .any((w) => w.length >= 3 && (name == w || name.startsWith(w)))) {
         score = 0.78;
       } else if (words.isNotEmpty &&
           words.where((w) => w.length >= 4).any(summary.contains)) {
@@ -561,7 +602,9 @@ class DocsSearchService {
           '';
 
       double score = 0;
-      if (casDigits.length >= 5 && qDigits.length >= 5 && casDigits == qDigits) {
+      if (casDigits.length >= 5 &&
+          qDigits.length >= 5 &&
+          casDigits == qDigits) {
         // CAS Registry Number is a unique identifier: exact digit match wins.
         score = 0.995;
       } else if (formula.isNotEmpty && formula == q) {
@@ -646,6 +689,13 @@ class DocsSearchService {
 
   static String _formatElementDetailed(Map<String, dynamic> e) {
     final parts = <String>[];
+    if (e['status'] == 'hypothetical' ||
+        e['property_data_status'] == 'predicted') {
+      parts.add(
+        'DATA STATUS: Hypothetical element; all listed numerical properties '
+        'are theoretical predictions, not experimentally measured values.',
+      );
+    }
     parts.add('Atomic #${e['num']}, Symbol ${e['sym']}, Mass ${e['mass']} u');
     if (e['category'] != null) parts.add('Category: ${e['category']}');
     if (e['phase'] != null) parts.add('Phase (STP): ${e['phase']}');
@@ -672,7 +722,8 @@ class DocsSearchService {
       parts.add('Electron config: ${e['electron_configuration_semantic']}');
     }
     if (e['electronegativity_pauling'] != null) {
-      parts.add('Electronegativity (Pauling): ${e['electronegativity_pauling']}');
+      parts.add(
+          'Electronegativity (Pauling): ${e['electronegativity_pauling']}');
     }
     if (e['discovered_by'] != null) {
       parts.add('Discovered by: ${e['discovered_by']}');
@@ -696,8 +747,10 @@ class DocsSearchService {
     if (c['density_g_cm3'] != null) {
       parts.add('Density: ${c['density_g_cm3']} g/cm³');
     }
-    if (c['melting_C'] != null) parts.add('Melting point: ${c['melting_C']} °C');
-    if (c['boiling_C'] != null) parts.add('Boiling point: ${c['boiling_C']} °C');
+    if (c['melting_C'] != null)
+      parts.add('Melting point: ${c['melting_C']} °C');
+    if (c['boiling_C'] != null)
+      parts.add('Boiling point: ${c['boiling_C']} °C');
     final summary = (c['summary'] as String?) ?? '';
     final uses = (c['uses'] as List?)?.join(', ') ?? '';
     final hazards = (c['hazards'] as List?)?.join(', ') ?? '';
@@ -745,12 +798,15 @@ class DocsSearchService {
   }) {
     results.sort((a, b) => b.score.compareTo(a.score));
     final seen = <String>{};
-    final deduped = results.where((r) {
-      final key = r.title.toLowerCase();
-      if (seen.contains(key)) return false;
-      seen.add(key);
-      return true;
-    }).take(limit).toList(growable: false);
+    final deduped = results
+        .where((r) {
+          final key = r.title.toLowerCase();
+          if (seen.contains(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .take(limit)
+        .toList(growable: false);
 
     var i = startIndex;
     return deduped.map((h) {

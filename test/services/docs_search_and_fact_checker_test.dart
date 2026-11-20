@@ -34,7 +34,8 @@ void main() {
       expect(corrosive, isNotEmpty);
     });
 
-    test('strict mode matches exact symbols, formulas & CAS without fuzzy noise',
+    test(
+        'strict mode matches exact symbols, formulas & CAS without fuzzy noise',
         () async {
       final docs = DocsSearchService.instance;
       await docs.init();
@@ -70,6 +71,26 @@ void main() {
       expect(uranium, isNotEmpty);
       expect(uranium.first.snippet, contains('Atomic #92'));
       expect(uranium.first.snippet, contains('Electron config'));
+    });
+
+    test(
+        'Ununennium numerical properties are labelled as theoretical predictions',
+        () async {
+      final docs = DocsSearchService.instance;
+      await docs.init();
+
+      final ununennium = await docs.searchByMode(
+        'Ununennium',
+        mode: DocsSearchMode.detailed,
+        allowNetwork: false,
+      );
+      expect(ununennium, isNotEmpty);
+      expect(ununennium.first.snippet, contains('Hypothetical element'));
+      expect(ununennium.first.snippet, contains('theoretical predictions'));
+      expect(
+        ununennium.first.snippet,
+        contains('not experimentally measured values'),
+      );
     });
 
     test('semantic mode expands YOLO object labels into constituent materials',
@@ -148,10 +169,9 @@ void main() {
         return total % 10 == check;
       }
 
-      final raw = await rootBundle
-          .loadString('assets/docs/common_compounds.json');
-      final compounds =
-          (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
+      final raw =
+          await rootBundle.loadString('assets/docs/common_compounds.json');
+      final compounds = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
 
       final withCas = compounds.where((c) => c['cas'] != null).toList();
       // 108 of 110 carry a CAS; the 2 true mixtures (glass, steel) do not.
@@ -185,7 +205,8 @@ void main() {
       expect(byName['Borosilicate glass']!['cas_skip'], isTrue);
       expect(byName['Borosilicate glass']!['cas_note'], isNotEmpty);
       expect(byName['Stainless steel (304 austenitic)']!['cas_skip'], isTrue);
-      expect(byName['Stainless steel (304 austenitic)']!['cas_note'], isNotEmpty);
+      expect(
+          byName['Stainless steel (304 austenitic)']!['cas_note'], isNotEmpty);
     });
 
     test('detailed mode surfaces CAS numbers and mixture cas_note for the AI',
@@ -239,7 +260,8 @@ void main() {
   });
 
   group('FactCheckerService', () {
-    test('verifies English & Arabic factual claims against sources', () async {
+    test('identifies candidate source matches for English and Arabic claims',
+        () async {
       final checker = FactCheckerService.instance;
       const sources = [
         Citation(
@@ -264,15 +286,41 @@ void main() {
             'Water has formula H2O and boiling point 100 °C. Pure water has neutral pH 7.',
         sources: sources,
       );
-      expect(enRes.verifiedCount, greaterThanOrEqualTo(2));
-      expect(enRes.annotatedMarkdown, contains('[VERIFIED 1]'));
+      expect(enRes.sourceMatchCount, greaterThanOrEqualTo(2));
+      expect(enRes.annotatedMarkdown, contains('[SOURCE MATCH 1]'));
+      expect(enRes.annotatedMarkdown, isNot(contains('[VERIFIED')));
+      expect(enRes.verdicts.first.status, VerdictStatus.sourceMatched);
+      expect(enRes.verdicts.first.matchScore, greaterThan(0.40));
 
       final arRes = await checker.check(
         llmMarkdown: 'الماء مركب كيميائي ودرجة غليان الماء 100 مئوية.',
         sources: sources,
       );
-      expect(arRes.verifiedCount, 1);
-      expect(arRes.annotatedMarkdown, contains('[VERIFIED 2]'));
+      expect(arRes.sourceMatchCount, 1);
+      expect(arRes.annotatedMarkdown, contains('[SOURCE MATCH 2]'));
+      expect(arRes.annotatedMarkdown, isNot(contains('[VERIFIED')));
+    });
+
+    test('a lexical miss is reported as no source match, not as a failed proof',
+        () async {
+      final result = await FactCheckerService.instance.check(
+        llmMarkdown: 'Mercury density is 13.5 g/cm3 at room temperature.',
+        sources: const [
+          Citation(
+            index: 1,
+            title: 'Water (H2O)',
+            url: 'https://en.wikipedia.org/wiki/Water',
+            snippet:
+                'Formula H2O · molar mass 18.015 g/mol · boiling point 100 °C',
+            type: CitationType.bundledDoc,
+          ),
+        ],
+      );
+
+      expect(result.sourceMatchCount, 0);
+      expect(result.noSourceMatchCount, 1);
+      expect(result.annotatedMarkdown, contains('[NO SOURCE MATCH]'));
+      expect(result.annotatedMarkdown, isNot(contains('[UNVERIFIED]')));
     });
   });
 }

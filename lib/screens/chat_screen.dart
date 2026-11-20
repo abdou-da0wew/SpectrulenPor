@@ -1,6 +1,8 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+
+import '../l10n/app_localizations.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -13,10 +15,10 @@ import '../models/citation.dart';
 import '../models/conversation_context.dart';
 import '../models/recognition_state.dart';
 import '../services/docs_search_service.dart';
-import '../services/openrouter_tts_service.dart';
 import '../utils/app_theme.dart' as palette;
 import '../utils/app_typography.dart';
 import 'history_screen.dart';
+import '../utils/app_icons.dart';
 
 /// Grounded scientific chat screen:
 ///   * Dual-frame visual anchor (`Clean` + `Marked Target` JPEGs with zoom viewer)
@@ -97,9 +99,8 @@ class _ChatScreenState extends State<ChatScreen> {
     final reason = state.mic.lastError ?? '';
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(isAr
-            ? 'تعذّر تشغيل المايك: $reason'
-            : 'Mic unavailable: $reason'),
+        content: Text(
+            isAr ? 'تعذّر تشغيل المايك: $reason' : 'Mic unavailable: $reason'),
         duration: const Duration(seconds: 4),
       ),
     );
@@ -112,23 +113,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _speakMessage(RecognitionState state, String content) async {
-    final cloudConfigured = state.openRouterTts.isConfigured;
-    final preferCloud = cloudConfigured &&
-        (state.useOpenRouterTts || state.cloudOnly);
-    if (preferCloud) {
-      // Fish Audio first; native Android TTS is the automatic fallback when
-      // the cloud stream fails — the user always hears the answer.
-      final spoken = await state.openRouterTts.speakMarkdown(content);
-      if (!spoken) {
-        await state.nativeTts.speak(
-          OpenRouterTtsService.stripMarkdownForTts(content),
-        );
-      }
-    } else {
-      await state.nativeTts.speak(
-        OpenRouterTtsService.stripMarkdownForTts(content),
-      );
-    }
+    await state.speakText(content);
   }
 
   Future<void> _promptAddNote(RecognitionState state) async {
@@ -142,7 +127,7 @@ class _ChatScreenState extends State<ChatScreen> {
         title: Row(
           children: [
             const Icon(
-              Icons.edit_note_rounded,
+              AppIcons.editNoteRounded,
               color: palette.AppColors.dustyLavender,
             ),
             const SizedBox(width: 8),
@@ -172,7 +157,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           FilledButton.icon(
             onPressed: () => Navigator.pop(ctx, ctl.text.trim()),
-            icon: const Icon(Icons.check_rounded, size: 16),
+            icon: const Icon(AppIcons.checkRounded, size: 16),
             label: Text(isAr ? 'حفظ في السياق' : 'Pin to Context'),
           ),
         ],
@@ -199,7 +184,7 @@ class _ChatScreenState extends State<ChatScreen> {
               Row(
                 children: [
                   const Icon(
-                    Icons.compare_rounded,
+                    AppIcons.compareRounded,
                     color: palette.AppColors.dustyLavender,
                   ),
                   const SizedBox(width: 8),
@@ -215,7 +200,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close_rounded),
+                    icon: const Icon(AppIcons.closeRounded),
                     onPressed: () => Navigator.pop(ctx),
                   ),
                 ],
@@ -262,7 +247,7 @@ class _ChatScreenState extends State<ChatScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               const Icon(
-                Icons.forum_outlined,
+                AppIcons.forumOutlined,
                 size: 46,
                 color: palette.AppColors.dustyMauve,
               ),
@@ -274,7 +259,7 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
               const SizedBox(height: 12),
               OutlinedButton.icon(
-                icon: const Icon(Icons.history_edu_rounded, size: 18),
+                icon: const Icon(AppIcons.historyEduRounded, size: 18),
                 label: Text(
                   state.isArabic
                       ? 'فتح المحادثات المحفوظة'
@@ -314,15 +299,17 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
             actions: [
               PopupMenuButton<DocsSearchMode>(
-                tooltip: state.isArabic ? 'وضع البحث العلمي' : 'Docs Search Mode',
-                icon: const Icon(Icons.manage_search_rounded, color: Colors.white),
+                tooltip:
+                    state.isArabic ? 'وضع البحث العلمي' : 'Docs Search Mode',
+                icon: const Icon(AppIcons.manageSearchRounded,
+                    color: Colors.white),
                 initialValue: state.searchMode,
                 onSelected: (m) => state.searchMode = m,
                 itemBuilder: (_) => [
                   PopupMenuItem(
                     value: DocsSearchMode.strict,
                     child: _modeMenuRow(
-                      Icons.gavel_rounded,
+                      AppIcons.gavelRounded,
                       state.isArabic ? 'بحث صارم (Strict)' : 'Strict Search',
                       state.searchMode == DocsSearchMode.strict,
                     ),
@@ -330,16 +317,20 @@ class _ChatScreenState extends State<ChatScreen> {
                   PopupMenuItem(
                     value: DocsSearchMode.detailed,
                     child: _modeMenuRow(
-                      Icons.list_alt_rounded,
-                      state.isArabic ? 'بحث مفصل (Detailed)' : 'Detailed Search',
+                      AppIcons.listAltRounded,
+                      state.isArabic
+                          ? 'بحث مفصل (Detailed)'
+                          : 'Detailed Search',
                       state.searchMode == DocsSearchMode.detailed,
                     ),
                   ),
                   PopupMenuItem(
                     value: DocsSearchMode.semantic,
                     child: _modeMenuRow(
-                      Icons.hub_rounded,
-                      state.isArabic ? 'بحث دلالي (Semantic)' : 'Semantic Search',
+                      AppIcons.hubRounded,
+                      state.isArabic
+                          ? 'بحث دلالي (Semantic)'
+                          : 'Semantic Search',
                       state.searchMode == DocsSearchMode.semantic,
                     ),
                   ),
@@ -351,8 +342,8 @@ class _ChatScreenState extends State<ChatScreen> {
                     : 'Anchored Scientific Context',
                 icon: Icon(
                   _showContextPanel
-                      ? Icons.psychology_rounded
-                      : Icons.psychology_alt_outlined,
+                      ? AppIcons.psychologyRounded
+                      : AppIcons.psychologyAltOutlined,
                   color: Colors.white,
                 ),
                 onPressed: () =>
@@ -362,7 +353,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 tooltip: state.isArabic
                     ? 'إعادة الالتقاط (تحليل جديد)'
                     : 'Re-capture (new Moondream analysis)',
-                icon: const Icon(Icons.camera_alt_rounded, color: Colors.white),
+                icon:
+                    const Icon(AppIcons.cameraAltRounded, color: Colors.white),
                 onPressed: () => state.recaptureFromChat(),
               ),
             ],
@@ -454,7 +446,7 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         if (active)
           const Icon(
-            Icons.check_rounded,
+            AppIcons.checkRounded,
             size: 16,
             color: palette.AppColors.dustyLavender,
           ),
@@ -490,7 +482,7 @@ class _FramePreviewCard extends StatelessWidget {
               fit: BoxFit.contain,
               errorBuilder: (_, __, ___) => const SizedBox(
                 height: 100,
-                child: Center(child: Icon(Icons.broken_image_outlined)),
+                child: Center(child: Icon(AppIcons.brokenImageOutlined)),
               ),
             ),
           )
@@ -502,7 +494,7 @@ class _FramePreviewCard extends StatelessWidget {
               color: palette.AppColors.dustGrey,
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Icon(Icons.image_not_supported_outlined),
+            child: const Icon(AppIcons.imageNotSupportedOutlined),
           ),
       ],
     );
@@ -526,9 +518,8 @@ class _AnchorBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final frames = state.capturedFrames;
     final session = state.chatSession;
-    final label = frames?.selectedBox.label ??
-        session?.anchor.selectedLabel ??
-        '—';
+    final label =
+        frames?.selectedBox.label ?? session?.anchor.selectedLabel ?? '—';
     final mdText = state.moondreamAnalysis?.whatItIs.isNotEmpty == true
         ? state.moondreamAnalysis!.whatItIs
         : (state.moondreamAnalysis?.caption.isNotEmpty == true
@@ -545,9 +536,9 @@ class _AnchorBar extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _thumb(frames?.withBoxesJpeg, Icons.gps_fixed_rounded),
+                _thumb(frames?.withBoxesJpeg, AppIcons.gpsFixedRounded),
                 const SizedBox(width: 6),
-                _thumb(frames?.cleanJpeg, Icons.photo_outlined),
+                _thumb(frames?.cleanJpeg, AppIcons.photoOutlined),
               ],
             ),
           ),
@@ -560,16 +551,14 @@ class _AnchorBar extends StatelessWidget {
                 Row(
                   children: [
                     const Icon(
-                      Icons.gps_fixed_rounded,
+                      AppIcons.gpsFixedRounded,
                       size: 14,
                       color: palette.AppColors.dustyLavender,
                     ),
                     const SizedBox(width: 4),
                     Expanded(
                       child: Text(
-                        state.isArabic
-                            ? 'المحدد: $label'
-                            : 'Selected: $label',
+                        state.isArabic ? 'المحدد: $label' : 'Selected: $label',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppTypography.bodyOf(
@@ -612,7 +601,7 @@ class _AnchorBar extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const Icon(
-                    Icons.auto_awesome_mosaic_rounded,
+                    AppIcons.autoAwesomeMosaicRounded,
                     size: 14,
                     color: palette.AppColors.dustyLavender,
                   ),
@@ -627,8 +616,8 @@ class _AnchorBar extends StatelessWidget {
                   ),
                   Icon(
                     contextOpen
-                        ? Icons.expand_less_rounded
-                        : Icons.expand_more_rounded,
+                        ? AppIcons.expandLessRounded
+                        : AppIcons.expandMoreRounded,
                     size: 15,
                     color: palette.AppColors.dustyLavender,
                   ),
@@ -678,7 +667,7 @@ class _AnchorBar extends StatelessWidget {
         height: 54,
         color: palette.AppColors.silver,
         child: const Icon(
-          Icons.image_outlined,
+          AppIcons.imageOutlined,
           size: 18,
           color: Colors.white,
         ),
@@ -700,27 +689,71 @@ class _RunningContextDrawer extends StatelessWidget {
   Widget build(BuildContext context) {
     final fields = <(IconData, String, String)>[
       if (ctx.objectIdentified.isNotEmpty)
-        (Icons.category_rounded, isArabic ? 'العنصر' : 'Object', ctx.objectIdentified),
+        (
+          AppIcons.categoryRounded,
+          isArabic ? 'العنصر' : 'Object',
+          ctx.objectIdentified
+        ),
       if (ctx.chemicalFormula.isNotEmpty)
-        (Icons.functions_rounded, isArabic ? 'الصيغة' : 'Formula', ctx.chemicalFormula),
+        (
+          AppIcons.functionsRounded,
+          isArabic ? 'الصيغة' : 'Formula',
+          ctx.chemicalFormula
+        ),
       if (ctx.stateOfMatter.isNotEmpty)
-        (Icons.blur_on_rounded, isArabic ? 'الحالة' : 'State', ctx.stateOfMatter),
+        (
+          AppIcons.blurOnRounded,
+          isArabic ? 'الحالة' : 'State',
+          ctx.stateOfMatter
+        ),
       if (ctx.composition.isNotEmpty)
-        (Icons.science_rounded, isArabic ? 'التركيب' : 'Composition', ctx.composition),
+        (
+          AppIcons.scienceRounded,
+          isArabic ? 'التركيب' : 'Composition',
+          ctx.composition
+        ),
       if (ctx.physicalProperties.isNotEmpty)
-        (Icons.straighten_rounded, isArabic ? 'فيزيائياً' : 'Physical', ctx.physicalProperties),
+        (
+          AppIcons.straightenRounded,
+          isArabic ? 'فيزيائياً' : 'Physical',
+          ctx.physicalProperties
+        ),
       if (ctx.chemicalProperties.isNotEmpty)
-        (Icons.biotech_rounded, isArabic ? 'كيميائياً' : 'Chemical', ctx.chemicalProperties),
+        (
+          AppIcons.biotechRounded,
+          isArabic ? 'كيميائياً' : 'Chemical',
+          ctx.chemicalProperties
+        ),
       if (ctx.hazards.isNotEmpty)
-        (Icons.warning_amber_rounded, isArabic ? 'المخاطر' : 'Hazards', ctx.hazards),
+        (
+          AppIcons.warningAmberRounded,
+          isArabic ? 'المخاطر' : 'Hazards',
+          ctx.hazards
+        ),
       if (ctx.commonUses.isNotEmpty)
-        (Icons.handyman_rounded, isArabic ? 'الاستخدامات' : 'Uses', ctx.commonUses.join(', ')),
+        (
+          AppIcons.handymanRounded,
+          isArabic ? 'الاستخدامات' : 'Uses',
+          ctx.commonUses.join(', ')
+        ),
       if (ctx.establishedFacts.isNotEmpty)
-        (Icons.verified_rounded, isArabic ? 'حقائق مثبتة' : 'Facts', ctx.establishedFacts.join(' · ')),
+        (
+          AppIcons.verifiedRounded,
+          isArabic ? 'حقائق مثبتة' : 'Facts',
+          ctx.establishedFacts.join(' · ')
+        ),
       if (ctx.openQuestions.isNotEmpty)
-        (Icons.help_outline_rounded, isArabic ? 'أسئلة مفتوحة' : 'Open Qs', ctx.openQuestions.join(' · ')),
+        (
+          AppIcons.helpOutlineRounded,
+          isArabic ? 'أسئلة مفتوحة' : 'Open Qs',
+          ctx.openQuestions.join(' · ')
+        ),
       if (ctx.userNotes.isNotEmpty)
-        (Icons.sticky_note_2_outlined, isArabic ? 'ملاحظاتك' : 'Lab Notes', ctx.userNotes.join(' · ')),
+        (
+          AppIcons.stickyNote2Outlined,
+          isArabic ? 'ملاحظاتك' : 'Lab Notes',
+          ctx.userNotes.join(' · ')
+        ),
     ];
 
     return Container(
@@ -729,7 +762,8 @@ class _RunningContextDrawer extends StatelessWidget {
       decoration: BoxDecoration(
         color: palette.AppColors.surfaceLight,
         border: Border(
-          bottom: BorderSide(color: palette.AppColors.silver.withValues(alpha: 0.8)),
+          bottom: BorderSide(
+              color: palette.AppColors.silver.withValues(alpha: 0.8)),
         ),
       ),
       child: Column(
@@ -740,7 +774,7 @@ class _RunningContextDrawer extends StatelessWidget {
             child: Row(
               children: [
                 const Icon(
-                  Icons.psychology_rounded,
+                  AppIcons.psychologyRounded,
                   size: 16,
                   color: palette.AppColors.dustyLavender,
                 ),
@@ -759,7 +793,7 @@ class _RunningContextDrawer extends StatelessWidget {
                 ),
                 TextButton.icon(
                   onPressed: onAddNote,
-                  icon: const Icon(Icons.add_comment_rounded, size: 14),
+                  icon: const Icon(AppIcons.addCommentRounded, size: 14),
                   label: Text(
                     isArabic ? 'ملاحظة' : 'Add Note',
                     style: const TextStyle(fontSize: 11.5),
@@ -827,15 +861,27 @@ class _MessageBubble extends StatelessWidget {
     required this.isArabic,
   });
 
-  /// Formats raw `[VERIFIED n]` / `[UNVERIFIED]` inline markers into clean
-  /// readable inline tags without any emojis.
-  static String _prettifyVerificationMarkers(String raw) {
+  /// Formats candidate source-match markers for display; legacy markers are
+  /// accepted when rendering older saved conversations.
+  static String _prettifySourceMatchMarkers(
+    String raw, {
+    required bool isArabic,
+  }) {
     return raw
         .replaceAllMapped(
-          RegExp(r'\[VERIFIED\s+(\d+)\]'),
-          (m) => '`[Verified #${m.group(1)}]`',
+          RegExp(r'\[(?:SOURCE MATCH|VERIFIED)\s+(\d+)\]'),
+          (m) => isArabic
+              ? '[تطابق مصدر #' + m.group(1)! + ']'
+              : '[Source match #' + m.group(1)! + ']',
         )
-        .replaceAll('[UNVERIFIED]', '`[Unverified]`');
+        .replaceAll(
+          '[NO SOURCE MATCH]',
+          isArabic ? '[لا يوجد تطابق مصدر]' : '[No source match]',
+        )
+        .replaceAll(
+          '[UNVERIFIED]',
+          isArabic ? '[لا يوجد تطابق مصدر]' : '[No source match]',
+        );
   }
 
   @override
@@ -850,8 +896,9 @@ class _MessageBubble extends StatelessWidget {
             : Colors.white;
     final fg = isUser ? Colors.white : palette.AppColors.inkDark;
 
-    final displayMarkdown =
-        isUser ? msg.content : _prettifyVerificationMarkers(msg.content);
+    final displayMarkdown = isUser
+        ? msg.content
+        : _prettifySourceMatchMarkers(msg.content, isArabic: isArabic);
 
     return Align(
       alignment: isUser
@@ -887,10 +934,10 @@ class _MessageBubble extends StatelessWidget {
                   height: 1.48,
                 ),
                 code: GoogleFonts.spaceMono(
-                  color: isUser ? Colors.white : palette.AppColors.dustyLavender,
-                  backgroundColor: isUser
-                      ? Colors.white24
-                      : palette.AppColors.alabasterGrey,
+                  color:
+                      isUser ? Colors.white : palette.AppColors.dustyLavender,
+                  backgroundColor:
+                      isUser ? Colors.white24 : palette.AppColors.alabasterGrey,
                   fontSize: 11,
                 ),
                 h2: AppTypography.display(
@@ -919,15 +966,15 @@ class _MessageBubble extends StatelessWidget {
               const SizedBox(height: 6),
               _SourcesBlock(
                 citations: msg.citations,
-                verifiedCount: msg.verifiedCount,
-                unverifiedCount: msg.unverifiedCount,
+                sourceMatchCount: msg.sourceMatchCount,
+                noSourceMatchCount: msg.noSourceMatchCount,
               ),
             ],
             if (!isUser && !isSystem)
               Align(
                 alignment: AlignmentDirectional.centerEnd,
                 child: IconButton(
-                  icon: const Icon(Icons.volume_up_rounded, size: 18),
+                  icon: const Icon(AppIcons.volumeUpRounded, size: 18),
                   onPressed: onSpeak,
                   tooltip: isArabic ? 'نطق صوتي' : 'Talk out loud',
                   padding: EdgeInsets.zero,
@@ -967,12 +1014,12 @@ class _CitationChipsStrip extends StatelessWidget {
   }
 
   static IconData _iconForType(CitationType type) => switch (type) {
-        CitationType.bundledDoc => Icons.menu_book_rounded,
-        CitationType.pubchem => Icons.science_rounded,
-        CitationType.wikipedia => Icons.travel_explore_rounded,
-        CitationType.web => Icons.language_rounded,
-        CitationType.factCheck => Icons.verified_rounded,
-        CitationType.moondream => Icons.visibility_rounded,
+        CitationType.bundledDoc => AppIcons.menuBookRounded,
+        CitationType.pubchem => AppIcons.scienceRounded,
+        CitationType.wikipedia => AppIcons.travelExploreRounded,
+        CitationType.web => AppIcons.languageRounded,
+        CitationType.factCheck => AppIcons.verifiedRounded,
+        CitationType.moondream => AppIcons.visibilityRounded,
       };
 
   static Color _brandColor(CitationType type) => switch (type) {
@@ -1059,7 +1106,7 @@ class _CitationChipsStrip extends StatelessWidget {
                     SnackBar(content: Text('Source URL copied: ${c.url}')),
                   );
                 },
-                icon: const Icon(Icons.copy_rounded, size: 16),
+                icon: const Icon(AppIcons.copyRounded, size: 16),
                 label: Text(
                   c.url,
                   maxLines: 1,
@@ -1093,7 +1140,8 @@ class _GoogleStyleChip extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: palette.AppColors.silver.withValues(alpha: 0.7)),
+          border: Border.all(
+              color: palette.AppColors.silver.withValues(alpha: 0.7)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -1141,13 +1189,13 @@ class _GoogleStyleChip extends StatelessWidget {
 
 class _SourcesBlock extends StatelessWidget {
   final List<Citation> citations;
-  final int verifiedCount;
-  final int unverifiedCount;
+  final int sourceMatchCount;
+  final int noSourceMatchCount;
 
   const _SourcesBlock({
     required this.citations,
-    required this.verifiedCount,
-    required this.unverifiedCount,
+    required this.sourceMatchCount,
+    required this.noSourceMatchCount,
   });
 
   @override
@@ -1157,7 +1205,8 @@ class _SourcesBlock extends StatelessWidget {
       decoration: BoxDecoration(
         color: palette.AppColors.alabasterGrey,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: palette.AppColors.silver.withValues(alpha: 0.5)),
+        border:
+            Border.all(color: palette.AppColors.silver.withValues(alpha: 0.5)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1165,13 +1214,13 @@ class _SourcesBlock extends StatelessWidget {
           Row(
             children: [
               const Icon(
-                Icons.menu_book_rounded,
+                AppIcons.menuBookRounded,
                 size: 14,
                 color: palette.AppColors.dustyLavender,
               ),
               const SizedBox(width: 5),
               Text(
-                'Sources & Fact Check',
+                AppLocalizations.of(context).factCheckHeader,
                 style: GoogleFonts.jaro(
                   fontSize: 12.5,
                   color: palette.AppColors.dustyLavender,
@@ -1179,12 +1228,19 @@ class _SourcesBlock extends StatelessWidget {
               ),
               const Spacer(),
               _FactCheckBadge(
-                verified: verifiedCount,
-                unverified: unverifiedCount,
+                sourceMatches: sourceMatchCount,
+                unmatched: noSourceMatchCount,
               ),
             ],
           ),
-          const SizedBox(height: 5),
+          const SizedBox(height: 4),
+          Text(
+            AppLocalizations.of(context).factCheckMethodHint,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: palette.AppColors.inkSoft,
+                ),
+          ),
+          const SizedBox(height: 6),
           ...citations.map((c) => _SourceRow(c: c)),
         ],
       ),
@@ -1299,32 +1355,32 @@ class _TypeBadge extends StatelessWidget {
     final (color, icon, label) = switch (type) {
       CitationType.wikipedia => (
           const Color(0xFF2B8CBE),
-          Icons.travel_explore_rounded,
+          AppIcons.travelExploreRounded,
           'WIKI'
         ),
       CitationType.bundledDoc => (
           palette.AppColors.dustyMauve,
-          Icons.menu_book_rounded,
+          AppIcons.menuBookRounded,
           'DOCS'
         ),
       CitationType.pubchem => (
           const Color(0xFF2E7D32),
-          Icons.science_rounded,
+          AppIcons.scienceRounded,
           'PUBCHEM'
         ),
       CitationType.web => (
           const Color(0xFF6A51A3),
-          Icons.language_rounded,
+          AppIcons.languageRounded,
           'WEB'
         ),
       CitationType.factCheck => (
-          palette.AppColors.success,
-          Icons.verified_rounded,
-          'CHECK'
+          palette.AppColors.dustyLavender,
+          AppIcons.manageSearchRounded,
+          'MATCH'
         ),
       CitationType.moondream => (
           palette.AppColors.dustyLavender,
-          Icons.visibility_rounded,
+          AppIcons.visibilityRounded,
           'VLM'
         ),
     };
@@ -1355,25 +1411,30 @@ class _TypeBadge extends StatelessWidget {
 }
 
 class _FactCheckBadge extends StatelessWidget {
-  final int verified;
-  final int unverified;
-  const _FactCheckBadge({required this.verified, required this.unverified});
+  final int sourceMatches;
+  final int unmatched;
+
+  const _FactCheckBadge({
+    required this.sourceMatches,
+    required this.unmatched,
+  });
+
   @override
   Widget build(BuildContext context) {
-    if (verified == 0 && unverified == 0) return const SizedBox.shrink();
-    final allVerified = unverified == 0;
-    final color =
-        allVerified ? palette.AppColors.success : palette.AppColors.warning;
-    final icon =
-        allVerified ? Icons.verified_rounded : Icons.warning_amber_rounded;
+    if (sourceMatches == 0 && unmatched == 0) return const SizedBox.shrink();
+    final color = palette.AppColors.dustyLavender;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 13, color: color),
+        Icon(AppIcons.manageSearchRounded, size: 13, color: color),
         const SizedBox(width: 4),
-        Text(
-          '$verified verified${unverified > 0 ? ", $unverified unverified" : ""}',
-          style: GoogleFonts.spaceMono(fontSize: 10, color: color),
+        Flexible(
+          child: Text(
+            AppLocalizations.of(context)
+                .factCheckSourceMatchSummary(sourceMatches, unmatched),
+            textAlign: TextAlign.end,
+            style: GoogleFonts.spaceMono(fontSize: 10, color: color),
+          ),
         ),
       ],
     );
@@ -1459,7 +1520,7 @@ class _InputRow extends StatelessWidget {
         children: [
           IconButton(
             icon: Icon(
-              micListening ? Icons.mic_rounded : Icons.mic_none_rounded,
+              micListening ? AppIcons.micRounded : AppIcons.micNoneRounded,
               color: micListening
                   ? palette.AppColors.danger
                   : palette.AppColors.dustyLavender,
@@ -1496,7 +1557,7 @@ class _InputRow extends StatelessWidget {
           ),
           const SizedBox(width: 4),
           IconButton.filled(
-            icon: const Icon(Icons.send_rounded, color: Colors.white),
+            icon: const Icon(AppIcons.sendRounded, color: Colors.white),
             onPressed: onSend,
             style: IconButton.styleFrom(
               backgroundColor: palette.AppColors.dustyLavender,

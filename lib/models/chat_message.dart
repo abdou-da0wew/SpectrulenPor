@@ -5,11 +5,12 @@ class ChatMessage {
   final String role; // 'user' | 'assistant' | 'system' | 'tool'
   final String content; // markdown text
   final DateTime at;
-  final String? toolUsed; // if assistant used a tool, its name (recapture / websearch / highlight)
+  final String?
+      toolUsed; // if assistant used a tool, its name (recapture / websearch / highlight)
   final bool narrated; // has this message been spoken via TTS already?
   final List<Citation> citations; // attached sources for assistant replies
-  final int verifiedCount;
-  final int unverifiedCount;
+  final int sourceMatchCount;
+  final int noSourceMatchCount;
 
   const ChatMessage({
     required this.role,
@@ -18,8 +19,8 @@ class ChatMessage {
     this.toolUsed,
     this.narrated = false,
     this.citations = const [],
-    this.verifiedCount = 0,
-    this.unverifiedCount = 0,
+    this.sourceMatchCount = 0,
+    this.noSourceMatchCount = 0,
   });
 
   ChatMessage copyWith({
@@ -27,8 +28,8 @@ class ChatMessage {
     bool? narrated,
     String? toolUsed,
     List<Citation>? citations,
-    int? verifiedCount,
-    int? unverifiedCount,
+    int? sourceMatchCount,
+    int? noSourceMatchCount,
   }) =>
       ChatMessage(
         role: role,
@@ -37,7 +38,7 @@ class ChatMessage {
         toolUsed: toolUsed ?? this.toolUsed,
         narrated: narrated ?? this.narrated,
         citations: citations ?? this.citations,
-        verifiedCount: verifiedCount ?? this.verifiedCount,
-        unverifiedCount: unverifiedCount ?? this.unverifiedCount,
+        sourceMatchCount: sourceMatchCount ?? this.sourceMatchCount,
+        noSourceMatchCount: noSourceMatchCount ?? this.noSourceMatchCount,
       );
 }

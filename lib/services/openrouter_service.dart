@@ -17,7 +17,7 @@ import 'internal_db_service.dart';
 /// Fallback chain for chemistry-aware analysis:
 ///   1. `nvidia/nemotron-3.5-super-vl:free`   (native image / vision / video - PRIMARY)
 ///   2. `google/gemma-4-26b-a4b-it:free`      (fallback 1)
-///   3. `liquid/inkling-small:free`           (fallback 2)
+///   3. `thinkingmachines/inkling-2-small:free` (fallback 2)
 class OpenRouterService {
   OpenRouterService({
     String? apiKey,
@@ -35,18 +35,36 @@ class OpenRouterService {
   static const List<String> modelChain = <String>[
     'nvidia/nemotron-3.5-super-vl:free',
     'google/gemma-4-26b-a4b-it:free',
-    'liquid/inkling-small:free',
+    'thinkingmachines/inkling-2-small:free',
   ];
 
   String apiKey;
   final http.Client Function() _clientFactory;
 
   int _lastChainIndex = 0;
+  List<String> _activeModelChain = List<String>.from(modelChain);
+
+  /// Runtime model chain, configured from SharedPreferences by the app.
+  List<String> get activeModelChain =>
+      List<String>.unmodifiable(_activeModelChain);
+
   String get lastModelUsed =>
-      modelChain[_lastChainIndex.clamp(0, modelChain.length - 1)];
+      _activeModelChain[_lastChainIndex.clamp(0, _activeModelChain.length - 1)];
 
   /// Index of the last successfully working model (for retry optimization).
   int get lastChainIndex => _lastChainIndex;
+
+  void configureModelChain(Iterable<String> models) {
+    final unique = <String>[];
+    for (final model in models) {
+      final id = model.trim();
+      if (id.isNotEmpty && !unique.contains(id)) unique.add(id);
+    }
+    _activeModelChain = unique.isEmpty
+        ? List<String>.from(modelChain)
+        : List<String>.unmodifiable(unique);
+    _lastChainIndex = _lastChainIndex.clamp(0, _activeModelChain.length - 1);
+  }
 
   int? lastReasoningTokens;
   bool get isConfigured => apiKey.trim().isNotEmpty;
@@ -82,112 +100,12 @@ class OpenRouterService {
   /// Returns the model chain starting at [startModel], cycling through all
   /// models so every model gets a turn before repeating.
   List<String> _orderedChain(int startModel) {
-    final safeStart = startModel.clamp(0, modelChain.length - 1);
+    final chain = _activeModelChain;
+    final safeStart = startModel.clamp(0, chain.length - 1);
     return <String>[
-      ...modelChain.sublist(safeStart),
-      ...modelChain.sublist(0, safeStart),
+      ...chain.sublist(safeStart),
+      ...chain.sublist(0, safeStart),
     ];
-  }
-
-  Stream<String> streamAnalysis({
-    required String labelSentence,
-    String? moondreamAnalysis,
-    List<(String, double)>? predictions,
-    String? telemetry,
-    String lang = 'en',
-    int startModel = 0,
-  }) async* {
-    lastReasoningTokens = null;
-
-    if (!isConfigured) {
-      yield lang.startsWith('ar')
-          ? '*لم يتم ضبط مفتاح OpenRouter. افتح الإعدادات ← المفاتيح.*'
-          : '*OpenRouter API key not set. Open Settings → API keys.*';
-      return;
-    }
-
-    final systemPrompt = _systemPrompt(lang);
-    final userPrompt = _buildUserPrompt(
-      labelSentence: labelSentence,
-      moondreamAnalysis: moondreamAnalysis,
-      predictions: predictions,
-      telemetry: telemetry,
-      lang: lang,
-    );
-
-    final order = _orderedChain(startModel);
-    var lastError = '';
-    for (var i = 0; i < order.length; i++) {
-      final model = order[i];
-      // Circuit breaker: skip if open
-      if (_circuitOpen) {
-        yield lang.startsWith('ar')
-            ? '*الدائرة مفتوحة بسبب تكرار الأخطاء. حاول مرة أخرى لاحقاً.*'
-            : '*Circuit open due to repeated failures. Try again later.*';
-        return;
-      }
-      try {
-        var emitted = false;
-        await for (final chunk in _streamOne(
-          model: model,
-          systemPrompt: systemPrompt,
-          userPrompt: userPrompt,
-        )) {
-          emitted = true;
-          _lastChainIndex = modelChain.indexOf(model);
-          yield chunk;
-        }
-        if (emitted) {
-          _recordSuccess();
-          return;
-        }
-        lastError = 'empty stream from $model';
-        _recordFailure();
-      } catch (e) {
-        lastError = '$model: $e';
-        _recordFailure();
-        log('[OpenRouter] $lastError — trying next fallback…');
-        // If auth error, no point trying other models with same key
-        if (e.toString().contains('401') ||
-            e.toString().contains('403') ||
-            e.toString().contains('incorrect API key')) {
-          break;
-        }
-      }
-    }
-
-    yield lang.startsWith('ar')
-        ? '*تعذّر الوصول لأي نموذج عرض. تحقق من الاتصال والمفاتيح. ($lastError)*'
-        : '*Could not reach any presentation model. Check connectivity and keys. ($lastError)*';
-  }
-
-  Stream<String> _streamOne({
-    required String model,
-    required String systemPrompt,
-    required String userPrompt,
-  }) async* {
-    final request = http.Request('POST', Uri.parse(endpoint))
-      ..headers.addAll({
-        'Authorization': 'Bearer ${apiKey.trim()}',
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://github.com/abdou-da0wew/SpectrulenPor',
-        'X-Title': 'SpectruLenPor',
-      })
-      ..body = jsonEncode({
-        'model': model,
-        'stream': true,
-        'temperature': 0.3,
-        // 640 gives the initial report room for the hazard line + the
-        // "## Explore" section without clipping (420 truncated Arabic reports).
-        'max_tokens': 640,
-        'reasoning': {'exclude': true},
-        'messages': [
-          {'role': 'system', 'content': systemPrompt},
-          {'role': 'user', 'content': userPrompt},
-        ],
-      });
-
-    yield* _consumeSse(request, model, timeoutSeconds: 18);
   }
 
   String _systemPrompt(String lang) {
@@ -195,20 +113,21 @@ class OpenRouterService {
       return [
         '## القواعد الأساسية الإلزامية (سبكترو لِن بور)',
         '1) نطاق مقفول على الهدف: تحدث فقط عن الهدف المحدد في مرساة المشهد البصري '
-        'والسياق العلمي المتراكم. يُمنع منعًا باتًا وصف الطاولة أو الخلفية أو '
-        'الأدوات الأخرى أو أي شيء داخل المشهد لم يُحدَّد كهدف، إلا إذا كان يؤثر '
-        'مباشرة على الهدف نفسه (مثل لهب تحت أنبوب اختبار).',
+            'والسياق العلمي المتراكم. يُمنع منعًا باتًا وصف الطاولة أو الخلفية أو '
+            'الأدوات الأخرى أو أي شيء داخل المشهد لم يُحدَّد كهدف، إلا إذا كان يؤثر '
+            'مباشرة على الهدف نفسه (مثل لهب تحت أنبوب اختبار).',
         '2) التخمين محظور تمامًا: لا تخترع أرقامًا أو صيغًا كيميائية أو أسماء مواد أو '
-        'خصائص أو مراجع. كل معلومة يجب أن تأتي من: التحليل البصري المرفق، أو '
-        'السياق المتراكم، أو المصادر [n] المرفقة. إن لم تتوفر من أي منها اكتب '
-        'بوضوح: "غير محدد من المصادر المتاحة" — واقترح على المستخدم إعادة '
-        'التصوير أو البحث عند الحاجة.',
+            'خصائص أو مراجع. كل معلومة يجب أن تأتي من: التحليل البصري المرفق، أو '
+            'السياق المتراكم، أو المصادر [n] المرفقة. إن لم تتوفر من أي منها اكتب '
+            'بوضوح: "غير محدد من المصادر المتاحة" — واقترح على المستخدم إعادة '
+            'التصوير أو البحث عند الحاجة.',
         '3) انضباط الاستشهاد: ضع [n] في نهاية كل جملة علمية تدعمها مصادر هذه الرسالة '
-        'فقط. لا تستخدم رقم مرجع لم يُمرَّر إليك في هذه الرسالة، ولا تكرر '
-        'استشهادات الرسائل السابقة كأنها مصادر حالية.',
-        '4) السلامة أولًا: إن كان الهدف مادة خطرة فابدأ بتحذير قصير وواضح قبل أي شيء آخر.',
+            'فقط. لا تستخدم رقم مرجع لم يُمرَّر إليك في هذه الرسالة، ولا تكرر '
+            'استشهادات الرسائل السابقة كأنها مصادر حالية.',
+        '4) السلامة أولًا: إذا كان الهدف قد يكون خطيرًا، ابدأ بسطر واضح يبدأ بكلمة '
+            '"تحذير:" قبل أي شرح آخر.',
         '5) الإجابة على أسئلة خارج النطاق: إذا سأل المستخدم عن شيء لا علاقة له بالهدف، '
-        'أجب بإيجاز شديد من المصادر الموثوقة فقط، ثم أعد التركيز إلى الهدف.',
+            'أجب بإيجاز شديد من المصادر الموثوقة فقط، ثم أعد التركيز إلى الهدف.',
         '',
         '## بروتوكول التحليل الكيميائي',
         'عند وصف عنصر كيميائي أو مركب، رتب الإجابة على النحو التالي:',
@@ -221,79 +140,79 @@ class OpenRouterService {
         '',
         'مثال — الماء (H₂O):',
         '  "الماء (H₂O، رقم السجل 7732-18-5) سائل في درجة حرارة الغرفة. جزيء قطبي '
-        '  يتكون من ذرة أكسجين مرتبطة تساهميًا بذرتين هيدروجين في هندسة مثنية '
-        '  (~104.5° زاوية). الكثافة ≈ 1.0 سم³/غ، نقطة الانصهار 0°م، نقطة الغليان '
-        '  100°م (عند ضغط 1 atm). الماء المذيب العام وهو ضروري للحياة. غير قابل '
-        '  للاشتعال وغير سام في الكميات الطبيعية."',
+            '  يتكون من ذرة أكسجين مرتبطة تساهميًا بذرتين هيدروجين في هندسة مثنية '
+            '  (~104.5° زاوية). الكثافة ≈ 1.0 سم³/غ، نقطة الانصهار 0°م، نقطة الغليان '
+            '  100°م (عند ضغط 1 atm). الماء المذيب العام وهو ضروري للحياة. غير قابل '
+            '  للاشتعال وغير سام في الكميات الطبيعية."',
         '',
         'مثال — قارورة ماء (زجاجة بلاستيكية + ماء):',
         '  "هذه زجاجة بلاستيك بيت (PET) تحتوي على ماء سائل. الحاوية مصنوعة من '
-        '  بولي إيثيلين تيريفثالات (PET، رقم السجل 25038-54-4)، بوليمر حراري صلب. '
-        '  الماء بداخلها هو H₂O (رقم السجل 7732-18-5)، سائل عديم اللون في درجة '
-        '  حرارة الغرفة (كثافة ≈ 1.0 سم³/غ، نقطة الانصهار 0°م، نقطة الغليان 100°م '
-        '  عند ضغط 1 atm). الماء جزيء قطبي (هندسة H-O-H مثنية، زاوية ~104.5°) '
-        '  وهو المذيب العام وضروري للحياة."',
+            '  بولي إيثيلين تيريفثالات (PET، رقم السجل 25038-59-9)، بوليمر حراري صلب. '
+            '  الماء بداخلها هو H₂O (رقم السجل 7732-18-5)، سائل عديم اللون في درجة '
+            '  حرارة الغرفة (كثافة ≈ 1.0 سم³/غ، نقطة الانصهار 0°م، نقطة الغليان 100°م '
+            '  عند ضغط 1 atm). الماء جزيء قطبي (هندسة H-O-H مثنية، زاوية ~104.5°) '
+            '  وهو المذيب العام وضروري للحياة."',
         '',
         'لا تخمن عنصرًا أو صيغة أو خاصية أبدًا. إذا كنت غير متأكد، اكتب '
-        '"غير محدد" واقترح إعادة التصوير بوضوح أو البحث عند الحاجة.',
+            '"غير محدد" واقترح إعادة التصوير بوضوح أو البحث عند الحاجة.',
         'اجب بإيجاز — لا أكثر من 4-5 جمل ما لم يطلب المستخدم المزيد.',
       ].join('\n');
     }
     return [
       '## MANDATORY CORE RULES (SpectruLenPor)',
       '1) TARGET-LOCKED SCOPE: discuss ONLY the selected target object defined in '
-      'the Visual Capture Anchor and the accumulated scientific context. NEVER '
-      'describe the table, the background, other tools, or anything else in the '
-      'scene that was not identified as the target — unless it directly acts on '
-      'the target itself (e.g. a burner flame under a test tube).',
+          'the Visual Capture Anchor and the accumulated scientific context. NEVER '
+          'describe the table, the background, other tools, or anything else in the '
+          'scene that was not identified as the target — unless it directly acts on '
+          'the target itself (e.g. a burner flame under a test tube).',
       '2) GUESSING IS PROHIBITED: never invent numbers, chemical formulas, substance '
-      'names, properties, or citations. Every statement must come from: the '
-      'provided visual analysis, the accumulated context, or the [n] sources of '
-      'this turn. If none of them covers a detail, explicitly write "not '
-      'determined from the available sources" — and suggest re-capturing a '
-      'clearer frame or searching when useful.',
+          'names, properties, or citations. Every statement must come from: the '
+          'provided visual analysis, the accumulated context, or the [n] sources of '
+          'this turn. If none of them covers a detail, explicitly write "not '
+          'determined from the available sources" — and suggest re-capturing a '
+          'clearer frame or searching when useful.',
       '3) CITATION DISCIPLINE: append [n] at the end of each scientific sentence '
-      'backed by THIS turn\'s sources only. Never use a reference number that was '
-      'not passed to you in this turn, and never present earlier turns\' '
-      'citations as current sources.',
-      '4) SAFETY FIRST: if the target is a hazardous substance, start with a short, '
-      'clear warning before anything else.',
+          'backed by THIS turn\'s sources only. Never use a reference number that was '
+          'not passed to you in this turn, and never present earlier turns\' '
+          'citations as current sources.',
+      '4) SAFETY FIRST: if the target may be hazardous, begin with a clear line '
+          'starting exactly with "Warning:" before any other explanation.',
       '5) OUT-OF-SCOPE QUESTIONS: if the user asks about something unrelated to the '
-      'target, answer very briefly from grounded knowledge only, then steer the '
-      'conversation back to the target.',
+          'target, answer very briefly from grounded knowledge only, then steer the '
+          'conversation back to the target.',
       '',
       '## CHEMISTRY ANALYSIS PROTOCOL',
       'When describing a chemical element or compound, structure the answer as:',
       '  a) IDENTITY: What it is (name, CAS registry number if known).',
       '  b) STATE OF MATTER: Solid / liquid / gas / plasma at room temperature, '
-      '     phase-transition temperatures.',
+          '     phase-transition temperatures.',
       '  c) COMPOSITION: Chemical formula, elements present, molecular structure '
-      '     (bonding, geometry if known).',
+          '     (bonding, geometry if known).',
       '  d) PHYSICAL PROPERTIES: Density, color, appearance, solubility, conductivity, '
-      '     refractive index (only if certain).',
+          '     refractive index (only if certain).',
       '  e) CHEMICAL PROPERTIES: Reactivity, pH, oxidation state, hazard class.',
       '  f) SAFETY: GHS hazard pictograms if known, handling precautions.',
       '',
       'EXAMPLE — WATER (H₂O):',
       '  "Water (H₂O, CAS 7732-18-5) is a liquid at room temperature. It is a polar '
-      '  molecule with an oxygen atom covalently bonded to two hydrogen atoms in a '
-      '  bent molecular geometry (~104.5° bond angle). Density ≈ 1.0 g/cm³, '
-      '  melting point 0°C, boiling point 100°C (1 atm). Water is a universal '
-      '  solvent and is essential for life. It is non-flammable and non-toxic in '
-      '  normal amounts."',
+          '  molecule with an oxygen atom covalently bonded to two hydrogen atoms in a '
+          '  bent molecular geometry (~104.5° bond angle). Density ≈ 1.0 g/cm³, '
+          '  melting point 0°C, boiling point 100°C (1 atm). Water is a universal '
+          '  solvent and is essential for life. It is non-flammable and non-toxic in '
+          '  normal amounts."',
       '',
       'EXAMPLE — WATER BOTTLE (PLASTIC CONTAINER + WATER):',
       '  "This is a PET plastic water bottle containing liquid water. The container '
-      '  is polyethylene terephthalate (PET, CAS 25038-54-4), a solid thermoplastic '
-      '  polymer. The water inside is H₂O (CAS 7732-18-5), a colorless liquid at '
-      '  room temperature (density ≈ 1.0 g/cm³, melting point 0°C, boiling point '
-      '  100°C at 1 atm). Water is a polar molecule (bent H-O-H geometry, '
-      '  ~104.5° bond angle) and is the universal solvent for biological systems."',
+          '  is polyethylene terephthalate (PET, CAS 25038-59-9), a solid thermoplastic '
+          '  polymer. The water inside is H₂O (CAS 7732-18-5), a colorless liquid at '
+          '  room temperature (density ≈ 1.0 g/cm³, melting point 0°C, boiling point '
+          '  100°C at 1 atm). Water is a polar molecule (bent H-O-H geometry, '
+          '  ~104.5° bond angle) and is the universal solvent for biological systems."',
       '',
       'NEVER guess an element, formula, or property. If uncertain, state '
-      '"not determined" and suggest re-capturing the object with better lighting '
-      'or focus. Keep answers concise — no more than 4-5 sentences unless the user '
-      'asks for more detail.',
+          '"not determined" and suggest re-capturing the object with better lighting '
+          'or focus. Keep answers concise — no more than 4-5 sentences unless the user '
+          'asks for more detail.',
     ].join('\n');
   }
 
@@ -345,175 +264,137 @@ class OpenRouterService {
   // SCIENTIFIC CONTEXT WRITER + CHAT MODE + CITATIONS + FACT-CHECKING
   // ---------------------------------------------------------------------------
 
-  Stream<String> writeScientificContext({
-    required String moondreamSummary,
-    required String selectedLabel,
+  Stream<String> streamAnalysis({
+    required String labelSentence,
+    String? moondreamAnalysis,
+    List<(String, double)>? predictions,
+    String? telemetry,
     String lang = 'en',
     int startModel = 0,
   }) async* {
-    final isAr = lang.startsWith('ar');
-    final prompt = isAr
-        ? buildArabicContextPrompt(moondreamSummary, selectedLabel)
-        : buildEnglishContextPrompt(moondreamSummary, selectedLabel);
+    lastReasoningTokens = null;
 
-    yield* streamChat(
-      history: [
-        ChatMessage(role: 'user', content: prompt, at: DateTime.now()),
-      ],
-      anchor: null,
-      lang: lang,
-      startModel: startModel,
-    );
-  }
-
-  String buildArabicContextPrompt(
-      String moondreamSummary, String selectedLabel) {
-    return [
-      'أنت عالم وكاتب علمي. حصلت على تحليل Moondream المهيكل التالي:',
-      '',
-      moondreamSummary,
-      '',
-      'المكون المحدد من قبل المستخدم هو: "$selectedLabel".',
-      '',
-      'اكتب سياقاً علمياً شاملاً عن $selectedLabel فقط يشمل: التعريف، المكونات الكيميائية/الفيزيائية، '
-      'التكوين، الخصائص، الاستخدامات، مخاطر السلامة إن وجدت.',
-      'قواعد صارمة: تحدث عن الهدف فقط — لا تصف المشهد المحيط. لا تخترع أي معلومة '
-      'غير موجودة في التحليل أعلاه؛ إن كانت غير محددة قل "غير محدد من التحليل البصري".',
-      'استخدم تنسيق Markdown.',
-    ].join('\n');
-  }
-
-  String buildEnglishContextPrompt(
-      String moondreamSummary, String selectedLabel) {
-    return [
-      'You are a scientist and science writer. You received the following Moondream structured analysis:',
-      '',
-      moondreamSummary,
-      '',
-      'The user-selected component is: "$selectedLabel".',
-      '',
-      'Write a comprehensive scientific context about $selectedLabel ONLY, covering its '
-          'definition, chemical/physical composition, formation, properties, uses, and '
-          'safety notes if applicable.',
-      'HARD RULES: target-only scope — never describe the surrounding scene. Zero '
-          'guessing — if a detail is not in the analysis above, write "not determined '
-          'from the visual analysis" instead of inventing it.',
-      'Use Markdown formatting.',
-    ].join('\n');
-  }
-
-  /// Core operating rules injected as the FIRST system block of EVERY
-  /// streamed turn — strict target-only scope + absolute anti-guessing +
-  /// citation discipline. This is the reliability backbone of the assistant.
-  static String coreRules(String lang) {
-    if (lang.startsWith('ar')) {
-      return [
-        '## القواعد الأساسية الإلزامية (سبكترو لِن بور)',
-        '1) نطاق مقفول على الهدف: تحدث فقط عن العنصر المحدد في مرساة المشهد البصري '
-        'والسياق العلمي المتراكم. يُمنع منعًا باتًا وصف الطاولة أو الخلفية أو '
-        'الأدوات الأخرى أو أي شيء داخل المشهد لم يُحدَّد كهدف، إلا إذا كان يؤثر '
-        'مباشرة على الهدف نفسه (مثل لهب تحت أنبوب اختبار).',
-        '2) التخمين محظور تمامًا: لا تخترع أرقامًا أو صيغًا كيميائية أو أسماء مواد أو '
-        'خصائص أو مراجع. كل معلومة يجب أن تأتي من: التحليل البصري المرفق، أو '
-        'السياق المتراكم، أو المصادر [n] المرفقة. إن لم تتوفر من أي منها اكتب '
-        'بوضوح: "غير محدد من المصادر المتاحة" — واقترح على المستخدم إعادة '
-        'التصوير أو البحث عند الحاجة.',
-        '3) انضباط الاستشهاد: ضع [n] في نهاية كل جملة علمية تدعمها مصادر هذه الرسالة '
-        'فقط. لا تستخدم رقم مرجع لم يُمرَّر إليك في هذه الرسالة، ولا تكرر '
-        'استشهادات الرسائل السابقة كأنها مصادر حالية.',
-        '4) السلامة أولًا: إن كان الهدف مادة خطرة فابدأ بتحذير قصير وواضح قبل أي شيء آخر.',
-        '5) الإجابة على أسئلة خارج النطاق: إذا سأل المستخدم عن شيء لا علاقة له بالهدف، '
-        'أجب بإيجاز شديد من المصادر الموثوقة فقط، ثم أعد التركيز إلى الهدف.',
-        '',
-        '## بروتوكول التحليل الكيميائي',
-        'عند وصف عنصر كيميائي أو مركب، رتب الإجابة على النحو التالي:',
-        '  أ) التعريف: ما هو (الاسم، رقم السجل cas إن وجد).',
-        '  ب) حالة المادة: صلب / سائل / غاز في درجة حرارة الغرفة.',
-        '  ج) التركيب: الصيغة الكيميائية، العناصر المكونة، البنية الجزيئية.',
-        '  د) الخصائص الفيزيائية: الكثافة، اللون، المظهر، الذوبان، التوصيل.',
-        '  و) الخصائص الكيميائية: التفاعل، الرقم الهيدروجيني، حالة الأكسدة.',
-        '  ز) السلامة: pictograms خطرة إن وجدت، إجراءات التعامل.',
-        '',
-        'مثال — الماء (H₂O):',
-        '  "الماء (H₂O، رقم السجل 7732-18-5) سائل في درجة حرارة الغرفة. جزيء قطبي '
-        '  يتكون من ذرة أكسجين مرتبطة تساهميًا بذرتين هيدروجين في هندسة مثنية '
-        '  (~104.5° زاوية). الكثافة ≈ 1.0 سم³/غ، نقطة الانصهار 0°م، نقطة الغليان '
-        '  100°م (عند ضغط 1 atm). الماء المذيب العام وهو ضروري للحياة. غير قابل '
-        '  للاشتعال وغير سام في الكميات الطبيعية."',
-        '',
-        'مثال — قارورة ماء (زجاجة بلاستيكية + ماء):',
-        '  "هذه زجاجة بلاستيك بيت (PET، رقم السجل 25038-54-4)، بوليمر حراري صلب. '
-        '  الماء بداخلها هو H₂O (رقم السجل 7732-18-5)، سائل عديم اللون في درجة '
-        '  حرارة الغرفة (كثافة ≈ 1.0 سم³/غ، نقطة الانصهار 0°م، نقطة الغليان 100°م '
-        '  عند ضغط 1 atm). الماء جزيء قطبي (هندسة H-O-H مثنية، زاوية ~104.5°) '
-        '  وهو المذيب العام وضروري للحياة."',
-        '',
-        'لا تخمن عنصرًا أو صيغة أو خاصية أبدًا. إذا كنت غير متأكد، اكتب '
-        '"غير محدد" واقترح إعادة التصوير بوضوح أو البحث عند الحاجة.',
-        'اجب بإيجاز — لا أكثر من 4-5 جمل ما لم يطلب المستخدم المزيد.',
-      ].join('\n');
+    if (!isConfigured) {
+      yield lang.startsWith('ar')
+          ? '*لم يتم ضبط مفتاح OpenRouter. افتح الإعدادات ← المفاتيح.*'
+          : '*OpenRouter API key not set. Open Settings → API keys.*';
+      return;
     }
-    return [
-      '## MANDATORY CORE RULES (SpectruLenPor)',
-      '1) TARGET-LOCKED SCOPE: discuss ONLY the selected target object defined in '
-      'the Visual Capture Anchor and the accumulated scientific context. NEVER '
-      'describe the table, the background, other tools, or anything else in the '
-      'scene that was not identified as the target — unless it directly acts on '
-      'the target itself (e.g. a burner flame under a test tube).',
-      '2) GUESSING IS PROHIBITED: never invent numbers, chemical formulas, substance '
-      'names, properties, or citations. Every statement must come from: the '
-      'provided visual analysis, the accumulated context, or the [n] sources of '
-      'this turn. If none of them covers a detail, explicitly write "not '
-      'determined from the available sources" — and suggest re-capturing a '
-      'clearer frame or searching when useful.',
-      '3) CITATION DISCIPLINE: append [n] at the end of each scientific sentence '
-      'backed by THIS turn\'s sources only. Never use a reference number that was '
-      'not passed to you in this turn, and never present earlier turns\' '
-      'citations as current sources.',
-      '4) SAFETY FIRST: if the target is a hazardous substance, start with a short, '
-      'clear warning before anything else.',
-      '5) OUT-OF-SCOPE QUESTIONS: if the user asks about something unrelated to the '
-      'target, answer very briefly from grounded knowledge only, then steer the '
-      'conversation back to the target.',
-      '',
-      '## CHEMISTRY ANALYSIS PROTOCOL',
-      'When describing a chemical element or compound, structure the answer as:',
-      '  a) IDENTITY: What it is (name, CAS registry number if known).',
-      '  b) STATE OF MATTER: Solid / liquid / gas / plasma at room temperature, '
-      '     phase-transition temperatures.',
-      '  c) COMPOSITION: Chemical formula, elements present, molecular structure '
-      '     (bonding, geometry if known).',
-      '  d) PHYSICAL PROPERTIES: Density, color, appearance, solubility, conductivity, '
-      '     refractive index (only if certain).',
-      '  e) CHEMICAL PROPERTIES: Reactivity, pH, oxidation state, hazard class.',
-      '  f) SAFETY: GHS hazard pictograms if known, handling precautions.',
-      '',
-      'EXAMPLE — WATER (H₂O):',
-      '  "Water (H₂O, CAS 7732-18-5) is a liquid at room temperature. It is a polar '
-      '  molecule with an oxygen atom covalently bonded to two hydrogen atoms in a '
-      '  bent molecular geometry (~104.5° bond angle). Density ≈ 1.0 g/cm³, '
-      '  melting point 0°C, boiling point 100°C (1 atm). Water is a universal '
-      '  solvent and is essential for life. It is non-flammable and non-toxic in '
-      '  normal amounts."',
-      '',
-      'EXAMPLE — WATER BOTTLE (PLASTIC CONTAINER + WATER):',
-      '  "This is a PET plastic water bottle containing liquid water. The container '
-      '  is polyethylene terephthalate (PET, CAS 25038-54-4), a solid thermoplastic '
-      '  polymer. The water inside is H₂O (CAS 7732-18-5), a colorless liquid at '
-      '  room temperature (density ≈ 1.0 g/cm³, melting point 0°C, boiling point '
-      '  100°C at 1 atm). Water is a polar molecule (bent H-O-H geometry, '
-      '  ~104.5° bond angle) and is the universal solvent for biological systems."',
-      '',
-      'NEVER guess an element, formula, or property. If uncertain, state '
-      '"not determined" and suggest re-capturing the object with better lighting '
-      'or focus. Keep answers concise — no more than 4-5 sentences unless the user '
-      'asks for more detail.',
-    ].join('\n');
+
+    final systemPrompt = _systemPrompt(lang);
+    final userPrompt = _buildUserPrompt(
+      labelSentence: labelSentence,
+      moondreamAnalysis: moondreamAnalysis,
+      predictions: predictions,
+      telemetry: telemetry,
+      lang: lang,
+    );
+
+    final order = _orderedChain(startModel);
+    var lastError = '';
+    for (var i = 0; i < order.length; i++) {
+      final model = order[i];
+      // Circuit breaker: skip if open
+      if (_circuitOpen) {
+        yield lang.startsWith('ar')
+            ? '*الدائرة مفتوحة بسبب تكرار الأخطاء. حاول مرة أخرى لاحقاً.*'
+            : '*Circuit open due to repeated failures. Try again later.*';
+        return;
+      }
+      try {
+        var emitted = false;
+        await for (final chunk in _streamOne(
+          model: model,
+          systemPrompt: systemPrompt,
+          userPrompt: userPrompt,
+        )) {
+          emitted = true;
+          _lastChainIndex = _activeModelChain.indexOf(model);
+          yield chunk;
+        }
+        if (emitted) {
+          _recordSuccess();
+          return;
+        }
+        lastError = 'empty stream from $model';
+        _recordFailure();
+      } catch (e) {
+        lastError = '$model: $e';
+        _recordFailure();
+        log('[OpenRouter] $lastError — trying next fallback…');
+        // If auth error, no point trying other models with same key
+        if (e.toString().contains('401') ||
+            e.toString().contains('403') ||
+            e.toString().contains('incorrect API key')) {
+          break;
+        }
+      }
+    }
+
+    yield lang.startsWith('ar')
+        ? '*تعذّر الوصول لأي نموذج عرض. تحقق من الاتصال والمفاتيح. ($lastError)*'
+        : '*Could not reach any presentation model. Check connectivity and keys. ($lastError)*';
   }
 
-  /// Streaming chat mode — embeds the CORE RULES + BOTH [anchor] AND
-  /// [runningContext] into EVERY system prompt, plus optional retrieved
-  /// [turnCitations] for inline `[n]` Google-AI-Overviews-style grounding.
+  Stream<String> _streamOne({
+    required String model,
+    required String systemPrompt,
+    required String userPrompt,
+  }) async* {
+    const maxAttempts = 3;
+    var lastError = '';
+
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      var emitted = false;
+      final request = http.Request('POST', Uri.parse(endpoint))
+        ..headers.addAll({
+          'Authorization': 'Bearer ' + apiKey.trim(),
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://github.com/abdou-da0wew/SpectruLenPor',
+          'X-Title': 'SpectruLenPor',
+        })
+        ..body = jsonEncode({
+          'model': model,
+          'stream': true,
+          'temperature': 0.3,
+          'max_tokens': 640,
+          'reasoning': {'exclude': true},
+          'messages': [
+            {'role': 'system', 'content': systemPrompt},
+            {'role': 'user', 'content': userPrompt},
+          ],
+        });
+
+      try {
+        await for (final chunk
+            in _consumeSse(request, model, timeoutSeconds: 15)) {
+          emitted = true;
+          yield chunk;
+        }
+        if (emitted) return;
+        lastError = 'empty stream from ' + model;
+      } catch (error) {
+        lastError = model +
+            ' attempt ' +
+            (attempt + 1).toString() +
+            ': ' +
+            error.toString();
+        if (emitted ||
+            error.toString().contains('401') ||
+            error.toString().contains('403') ||
+            error.toString().contains('incorrect API key')) {
+          rethrow;
+        }
+      }
+
+      if (attempt < maxAttempts - 1) {
+        await Future<void>.delayed(Duration(seconds: attempt + 1));
+      }
+    }
+
+    throw Exception(lastError);
+  }
+
   Stream<String> streamChat({
     required List<ChatMessage> history,
     required AnchorContext? anchor,
@@ -571,7 +452,7 @@ class OpenRouterService {
         var emitted = false;
         await for (final chunk in _streamRawOne(model, messages)) {
           emitted = true;
-          _lastChainIndex = modelChain.indexOf(model);
+          _lastChainIndex = _activeModelChain.indexOf(model);
           yield chunk;
         }
         if (emitted) return;
@@ -718,7 +599,9 @@ class OpenRouterService {
     final isAr = lang.startsWith('ar');
     final sourcesBlock = sources.isEmpty
         ? '(no external sources matched — rely on verified scientific knowledge)'
-        : sources.map((c) => '[${c.index}] ${c.title}: ${c.snippet}').join('\n');
+        : sources
+            .map((c) => '[${c.index}] ${c.title}: ${c.snippet}')
+            .join('\n');
 
     final prompt = isAr
         ? buildArabicContextPromptWithCitations(
@@ -765,8 +648,8 @@ class OpenRouterService {
     return AnnotatedMessage(
       body: fcResult.annotatedMarkdown,
       citations: sources,
-      verifiedCount: fcResult.verifiedCount,
-      unverifiedCount: fcResult.unverifiedCount,
+      sourceMatchCount: fcResult.sourceMatchCount,
+      noSourceMatchCount: fcResult.noSourceMatchCount,
     );
   }
 
@@ -777,7 +660,7 @@ class OpenRouterService {
   ) {
     final parts = <String>[
       'أنت عالم وكاتب علمي في تطبيق نظارات علمية. حصلت على تحليل Moondream المهيكل التالي '
-      'لسؤال أحدد الهدف الذي اختاره المستخدم:',
+          'لسؤال أحدد الهدف الذي اختاره المستخدم:',
       '',
       moondreamSummary,
       '',
@@ -792,16 +675,16 @@ class OpenRouterService {
       '3. كيف يتشكل $selectedLabel؟ (طبيعياً، صناعياً، في المعمل؟)',
       '4. ما هي خصائصه (الكثافة، نقطة الانصهار، نقطة الغليان، اللون، الرائحة؟)',
       '5. ما هي استخداماته الشائعة؟',
-      '6. أي مخاطر سلامة حقيقية يجب أن يعرفها الطالب؟ (اذكرها فقط إن وجدت فعلاً)',
+      '6. أي مخاطر سلامة حقيقية يجب أن يعرفها الطالب؟ (اذكرها فقط إن وجدت)',
       '',
       'قواعد صارمة (إلزامية):',
       '- نطاق مقفول على الهدف: لا تصف الطاولة أو الخلفية أو أي شيء آخر في المشهد.',
       '- التخمين ممنوع منعًا باتًا: كل رقم أو خاصية أو اسم مادة يجب أن يأتي من التحليل البصري '
-      'أو المصادر [n] فقط. إن لم يتوفر اكتب: "غير محدد من المصادر المتاحة".',
+          'أو المصادر [n] فقط. إن لم تتوفر اكتب: "غير محدد من المصادر المتاحة".',
       '- إن كان التحليل البصري غير كافٍ لتحديد المادة، قل ذلك صراحة في سطر واحد ثم '
-      'اعرض ما هو معروف عام عن الفئة (مثل "وعاء زجاجي معمالي") واطلب إعادة تصوير أوضح.',
+          'اعرض ما هو معروف عام عن الفئة (مثل "وعاء زجاجي معمالي") واطلب إعادة تصوير أوضح.',
       '- كل ادعاء علمي يجب أن يُختم بمرجع [n] من المصادر أعلاه. لا تخترع مراجع، '
-      'ولا تستخدم رقم مرجع لم يُذكر أعلاه.',
+          'ولا تستخدم رقم مرجع لم يُذكر أعلاه.',
       'التنسيق: Markdown. كن علمياً، مفصلاً حول الهدف، ودقيقاً.',
     ];
     return parts.join('\n');
@@ -846,6 +729,169 @@ class OpenRouterService {
     ];
     return parts.join('\n');
   }
+
+  /// Core operating rules injected as the FIRST system block of EVERY
+  /// streamed turn — strict target-only scope + absolute anti-guessing +
+  /// citation discipline. This is the reliability backbone of the assistant.
+  static String coreRules(String lang) {
+    if (lang.startsWith('ar')) {
+      return [
+        '## القواعد الأساسية الإلزامية (سبكترو لِن بور)',
+        '1) نطاق مقفول على الهدف: تحدث فقط عن الهدف المحدد في مرساة المشهد البصري '
+            'والسياق العلمي المتراكم. يُمنع منعًا باتًا وصف الطاولة أو الخلفية أو '
+            'الأدوات الأخرى أو أي شيء داخل المشهد لم يُحدَّد كهدف، إلا إذا كان يؤثر '
+            'مباشرة على الهدف نفسه (مثل لهب تحت أنبوب اختبار).',
+        '2) التخمين محظور تمامًا: لا تخترع أرقامًا أو صيغًا كيميائية أو أسماء مواد أو '
+            'خصائص أو مراجع. كل معلومة يجب أن تأتي من: التحليل البصري المرفق، أو '
+            'السياق المتراكم، أو المصادر [n] المرفقة. إن لم تتوفر من أي منها اكتب '
+            'بوضوح: "غير محدد من المصادر المتاحة" — واقترح على المستخدم إعادة '
+            'التصوير أو البحث عند الحاجة.',
+        '3) انضباط الاستشهاد: ضع [n] في نهاية كل جملة علمية تدعمها مصادر هذه الرسالة '
+            'فقط. لا تستخدم رقم مرجع لم يُمرَّر إليك في هذه الرسالة، ولا تكرر '
+            'استشهادات الرسائل السابقة كأنها مصادر حالية.',
+        '4) السلامة أولًا: إن كان الهدف مادة خطرة فابدأ بتحذير قصير وواضح قبل أي شيء آخر.',
+        '5) الإجابة على أسئلة خارج النطاق: إذا سأل المستخدم عن شيء لا علاقة له بالهدف، '
+            'أجب بإيجاز شديد من المصادر الموثوقة فقط، ثم أعد التركيز إلى الهدف.',
+        '',
+        '## بروتوكول التحليل الكيميائي',
+        'عند وصف عنصر كيميائي أو مركب، رتب الإجابة على النحو التالي:',
+        '  أ) التعريف: ما هو (الاسم، رقم السجل cas إن وجد).',
+        '  ب) حالة المادة: صلب / سائل / غاز في درجة حرارة الغرفة.',
+        '  ج) التركيب: الصيغة الكيميائية، العناصر المكونة، البنية الجزيئية.',
+        '  د) الخصائص الفيزيائية: الكثافة، اللون، المظهر، الذوبان، التوصيل.',
+        '  و) الخصائص الكيميائية: التفاعل، الرقم الهيدروجيني، حالة الأكسدة.',
+        '  ز) السلامة: pictograms خطرة إن وجدت، إجراءات التعامل.',
+        '',
+        'مثال — الماء (H₂O):',
+        '  "الماء (H₂O، رقم السجل 7732-18-5) سائل في درجة حرارة الغرفة. جزيء قطبي '
+            '  يتكون من ذرة أكسجين مرتبطة تساهميًا بذرتين هيدروجين في هندسة مثنية '
+            '  (~104.5° زاوية). الكثافة ≈ 1.0 سم³/غ، نقطة الانصهار 0°م، نقطة الغليان '
+            '  100°م (عند ضغط 1 atm). الماء المذيب العام وهو ضروري للحياة. غير قابل '
+            '  للاشتعال وغير سام في الكميات الطبيعية."',
+        '',
+        'مثال — قارورة ماء (زجاجة بلاستيكية + ماء):',
+        '  "هذه زجاجة بلاستيك بيت (PET، رقم السجل 25038-59-9)، بوليمر حراري صلب. '
+            '  الماء بداخلها هو H₂O (رقم السجل 7732-18-5)، سائل عديم اللون في درجة '
+            '  حرارة الغرفة (كثافة ≈ 1.0 سم³/غ، نقطة الانصهار 0°م، نقطة الغليان 100°م '
+            '  عند ضغط 1 atm). الماء جزيء قطبي (هندسة H-O-H مثنية، زاوية ~104.5°) '
+            '  وهو المذيب العام وضروري للحياة."',
+        '',
+        'لا تخمن عنصرًا أو صيغة أو خاصية أبدًا. إذا كنت غير متأكد، اكتب '
+            '"غير محدد" واقترح إعادة التصوير بوضوح أو البحث عند الحاجة.',
+        'اجب بإيجاز — لا أكثر من 4-5 جمل ما لم يطلب المستخدم المزيد.',
+      ].join('\n');
+    }
+    return [
+      '## MANDATORY CORE RULES (SpectruLenPor)',
+      '1) TARGET-LOCKED SCOPE: discuss ONLY the selected target object defined in '
+          'the Visual Capture Anchor and the accumulated scientific context. NEVER '
+          'describe the table, the background, other tools, or anything else in the '
+          'scene that was not identified as the target — unless it directly acts on '
+          'the target itself (e.g. a burner flame under a test tube).',
+      '2) GUESSING IS PROHIBITED: never invent numbers, chemical formulas, substance '
+          'names, properties, or citations. Every statement must come from: the '
+          'provided visual analysis, the accumulated context, or the [n] sources of '
+          'this turn. If none of them covers a detail, explicitly write "not '
+          'determined from the available sources" — and suggest re-capturing a '
+          'clearer frame or searching when useful.',
+      '3) CITATION DISCIPLINE: append [n] at the end of each scientific sentence '
+          'backed by THIS turn\'s sources only. Never use a reference number that was '
+          'not passed to you in this turn, and never present earlier turns\' '
+          'citations as current sources.',
+      '4) SAFETY FIRST: if the target is a hazardous substance, start with a short, '
+          'clear warning before anything else.',
+      '5) OUT-OF-SCOPE QUESTIONS: if the user asks about something unrelated to the '
+          'target, answer very briefly from grounded knowledge only, then steer the '
+          'conversation back to the target.',
+      '',
+      '## CHEMISTRY ANALYSIS PROTOCOL',
+      'When describing a chemical element or compound, structure the answer as:',
+      '  a) IDENTITY: What it is (name, CAS registry number if known).',
+      '  b) STATE OF MATTER: Solid / liquid / gas / plasma at room temperature, '
+          '     phase-transition temperatures.',
+      '  c) COMPOSITION: Chemical formula, elements present, molecular structure '
+          '     (bonding, geometry if known).',
+      '  d) PHYSICAL PROPERTIES: Density, color, appearance, solubility, conductivity, '
+          '     refractive index (only if certain).',
+      '  e) CHEMICAL PROPERTIES: Reactivity, pH, oxidation state, hazard class.',
+      '  f) SAFETY: GHS hazard pictograms if known, handling precautions.',
+      '',
+      'EXAMPLE — WATER (H₂O):',
+      '  "Water (H₂O, CAS 7732-18-5) is a liquid at room temperature. It is a polar '
+          '  molecule with an oxygen atom covalently bonded to two hydrogen atoms in a '
+          '  bent molecular geometry (~104.5° bond angle). Density ≈ 1.0 g/cm³, '
+          '  melting point 0°C, boiling point 100°C (1 atm). Water is a universal '
+          '  solvent and is essential for life. It is non-flammable and non-toxic in '
+          '  normal amounts."',
+      '',
+      'EXAMPLE — WATER BOTTLE (PLASTIC CONTAINER + WATER):',
+      '  "This is a PET plastic water bottle containing liquid water. The container '
+          '  is polyethylene terephthalate (PET, CAS 25038-59-9), a solid thermoplastic '
+          '  polymer. The water inside is H₂O (CAS 7732-18-5), a colorless liquid at '
+          '  room temperature (density ≈ 1.0 g/cm³, melting point 0°C, boiling point '
+          '  100°C at 1 atm). Water is a polar molecule (bent H-O-H geometry, '
+          '  ~104.5° bond angle) and is the universal solvent for biological systems."',
+      '',
+      'NEVER guess an element, formula, or property. If uncertain, state '
+          '"not determined" and suggest re-capturing the object with better lighting '
+          'or focus. Keep answers concise — no more than 4-5 sentences unless the user '
+          'asks for more detail.',
+    ].join('\n');
+  }
+
+  String buildArabicContextPrompt(
+    String moondreamSummary,
+    String selectedLabel,
+    List<(String, double)>? predictions,
+    String? telemetry,
+    String lang,
+  ) {
+    final buf = StringBuffer();
+    buf.writeln('الهدف المحدد: $selectedLabel');
+    if (moondreamSummary.trim().isNotEmpty) {
+      buf.writeln('ملخص التحليل المتخصص: $moondreamSummary');
+    }
+    if (predictions != null && predictions.isNotEmpty) {
+      buf.writeln(
+        'أعلى الاحتمالات: ${predictions.map((p) => "${p.$1} ${(p.$2 * 100).toStringAsFixed(0)}%").join('، ')}',
+      );
+    }
+    if (telemetry != null) buf.writeln(telemetry);
+    buf.writeln();
+    buf.writeln(
+      'اكتب فقرة قصيرة (٣-٥ جمل) تشرح ما المادة، حالتها، واستخدامها أو خطرها.',
+    );
+    return buf.toString();
+  }
+
+  String buildEnglishContextPrompt(
+    String moondreamSummary,
+    String selectedLabel,
+    List<(String, double)>? predictions,
+    String? telemetry,
+    String lang,
+  ) {
+    final buf = StringBuffer();
+    buf.writeln('Selected target: $selectedLabel');
+    if (moondreamSummary.trim().isNotEmpty) {
+      buf.writeln('Specialized model result: $moondreamSummary');
+    }
+    if (predictions != null && predictions.isNotEmpty) {
+      buf.writeln(
+        'Top predictions: ${predictions.map((p) => "${p.$1} ${(p.$2 * 100).toStringAsFixed(0)}%").join(', ')}',
+      );
+    }
+    if (telemetry != null) buf.writeln(telemetry);
+    buf.writeln();
+    buf.writeln(
+      'Write a short paragraph (3-5 sentences): what the substance/object is, '
+      'its state of matter, one practical note or use, and the hazard line if '
+      'applicable. Then a "## Explore" section with 3 related terms.',
+    );
+    return buf.toString();
+  }
+
+  bool isAr(String lang) => lang.startsWith('ar');
 }
 
 class HttpExceptionWithBody implements Exception {

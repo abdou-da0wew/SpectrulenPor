@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:developer';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show compute, debugPrint, kIsWeb;
 import 'package:flutter/services.dart';
@@ -28,11 +29,11 @@ import '../models/bounding_box.dart';
 ///   colors, state). The OpenRouter LLM (gemma → inkling → nemotron chain)
 ///   only PRESENTS that analysis in nicer spoken words. TTS then narrates.
 ///
-/// Local fallback: when the cloud call fails (no key / offline / 429 /
-/// timeout) we transparently fall back to the on-device Moondream engine
-/// through the native platform channel `com.spectraglass/llama`
-/// (llama.cpp + mmproj GGUF). See `local_vision_service.dart` for the full
-/// cascade: cloud → local Moondream → ONNX → ML Kit.
+/// Local fallback note: the llama.cpp/gguf bridge is currently a scaffold,
+/// not a packaged runtime. `local_vision_service.dart` checks availability
+/// before using it and falls through to the configured ONNX/ML Kit engines.
+/// Do not report offline Moondream as available until the native library and
+/// matching Moondream GGUF/mmproj assets are included in the Android build.
 class MoondreamService {
   /// Injectable http client for tests.
   MoondreamService({http.Client? client}) : _clientOverride = client;
@@ -42,7 +43,8 @@ class MoondreamService {
   /// Demo key resolution: SharedPreferences (Settings) →
   /// `assets/config/secrets.json` (AppSecrets) → `--dart-define` → ''.
   /// Empty by default in source so pushes pass GitHub secret-scanning.
-  static const String defaultApiKey = String.fromEnvironment('MOONDREAM_API_KEY');
+  static const String defaultApiKey =
+      String.fromEnvironment('MOONDREAM_API_KEY');
 
   final http.Client? _clientOverride;
 
@@ -70,19 +72,30 @@ class MoondreamService {
   http.Client get _http => _clientOverride ?? (_client ??= http.Client());
 
   DateTime? _lastRequestAt;
+  Future<void> _throttleTail = Future<void>.value();
 
-  /// Enforces Moondream's 2 req/s free-tier rate limit (~520ms spacing) on
-  /// live HTTP traffic while keeping injected test clients instant.
-  Future<void> _throttle() async {
-    if (_clientOverride != null) return;
-    final last = _lastRequestAt;
-    if (last != null) {
-      final elapsed = DateTime.now().difference(last).inMilliseconds;
-      if (elapsed < 520) {
-        await Future<void>.delayed(Duration(milliseconds: 520 - elapsed));
+  /// Serializes rate-limit admission. Concurrent callers must not all observe
+  /// the same old timestamp and burst past the provider's 2 req/s base limit.
+  Future<void> _throttle() {
+    if (_clientOverride != null) return Future<void>.value();
+    final previous = _throttleTail;
+    final release = Completer<void>();
+    _throttleTail = release.future;
+    return () async {
+      await previous.catchError((Object _) {});
+      try {
+        final last = _lastRequestAt;
+        if (last != null) {
+          final elapsed = DateTime.now().difference(last).inMilliseconds;
+          if (elapsed < 520) {
+            await Future<void>.delayed(Duration(milliseconds: 520 - elapsed));
+          }
+        }
+        _lastRequestAt = DateTime.now();
+      } finally {
+        release.complete();
       }
-    }
-    _lastRequestAt = DateTime.now();
+    }();
   }
 
   // ---------------------------------------------------------------------------
@@ -199,6 +212,7 @@ class MoondreamService {
       }
       final json = jsonDecode(res.body) as Map<String, dynamic>;
       lastRequestId = json['request_id'] as String?;
+      _absorbMetrics(json['metrics']);
       return MoondreamAnswer(
         answer: (json['answer'] as String?) ?? '',
         // reasoning arrives as a STRING on some tiers and as an OBJECT
@@ -282,7 +296,6 @@ class MoondreamService {
     }
   }
 
-
   // ---------------------------------------------------------------------------
   // MULTI-PASS SCENE ANALYSIS (v3.3 — smarter, grounded, chemistry-aware)
   // ---------------------------------------------------------------------------
@@ -350,16 +363,14 @@ class MoondreamService {
 // v4.0 STRUCTURED ANALYSIS — anchored on user-selected bounding box
 // ---------------------------------------------------------------------------
 
-  /// STRICT target-locked analysis with TWO+ images (clean + privacy-blurred
-  /// marked frame).
+  /// STRICT target-locked analysis using only the selected-object crop.
   ///
-  /// Pass 0: tight CROP of the selected object from the clean frame (isolate).
-  ///         The model physically cannot see the table/background — only the
-  ///         target region (+15% safety margin) is uploaded for captioning.
-  /// Pass 1: caption the tight target crop (object-only context).
-  /// Pass 2: STRICT structured VQA on the privacy-blurred, reticle-marked
-  ///         frame — labeled WHAT / STATE / TEXT / HAZARD lines, target-only.
-  /// Pass 3: dedicated hazard-pictogram check on the tight crop.
+  /// Pass 0: crop the selected object (+15% safety margin) in an isolate.
+  /// Pass 1: structured VQA for WHAT / STATE / TEXT / HAZARD.
+  /// Pass 2: independent hazard verification on the same crop.
+  /// A reasoning pass is added only if the first object identification is
+  /// explicitly uncertain. Crop failure is fail-closed; the full frame is
+  /// never substituted as a fallback upload.
   ///
   /// The old "what's around it" pass was REMOVED by policy: the assistant
   /// describes ONLY the selected object, never the scene around it.
@@ -370,87 +381,118 @@ class MoondreamService {
     BoundingBox? selectedBox,
     String lang = 'en',
   }) async {
-    if (!isCloudConfigured) return null;
+    if (!isCloudConfigured || selectedBox == null) return null;
 
-    // Pass 0 — tight target crop from the clean frame (falls back to the
-    // full clean frame if cropping ever fails).
-    Uint8List targetJpeg = cleanJpeg;
-    if (selectedBox != null) {
-      targetJpeg = await compute(
-        _cropObjectIsolate,
-        _CropArgs(cleanJpeg, selectedBox),
-      );
-    }
+    // Only the selected object crop is ever sent to Moondream. If cropping
+    // fails, fail closed instead of silently uploading the complete camera view.
+    final targetJpeg = await compute<_CropArgs, Uint8List?>(
+      _cropObjectIsolate,
+      _CropArgs(cleanJpeg, selectedBox),
+    );
+    if (targetJpeg == null || targetJpeg.isEmpty) return null;
 
-    // Pass 1 — fast caption of the tight target crop.
-    final clean = await caption(targetJpeg, length: 'normal');
-    if (clean == null || clean.caption.trim().isEmpty) return null;
-
-    // Pass 2 — STRICT structured VQA on the boxes-painted (blurred-outside)
-    // image with reasoning.
     final isAr = lang.startsWith('ar');
     final prompt = isAr
         ? buildArabicAnalysisPrompt(selectedLabel)
         : buildEnglishAnalysisPrompt(selectedLabel);
 
-    final vqa = await query(withBoxesJpeg, question: prompt, reasoning: true);
-    if (vqa == null) {
-      // Fall back to caption-only if VQA failed.
+    // One structured VQA replaces the old caption + full-frame VQA pair.
+    // The target crop gives the model more useful pixels and removes irrelevant
+    // background context. Reasoning is reserved for an uncertain first answer.
+    var vqa = await query(targetJpeg, question: prompt, reasoning: false);
+    if (vqa == null || vqa.answer.trim().isEmpty) {
+      final fallback = await caption(targetJpeg, length: 'normal');
+      if (fallback == null || fallback.caption.trim().isEmpty) return null;
       return MoondreamStructuredAnalysis(
-        caption: clean.caption,
-        whatItIs: clean.caption,
+        caption: fallback.caption,
+        whatItIs: fallback.caption,
         howItsUsed: '',
         whatsAround: '',
         visibleText: '',
         hazards: '',
         stateOfMatter: '',
         reasoning: null,
-        requestId: clean.requestId,
+        requestId: fallback.requestId,
       );
     }
 
-    // Parse the strict labeled-lines answer.
-    final what = _parseLabeledLine(vqa.answer, 'WHAT');
-    final state = _parseLabeledLine(vqa.answer, 'STATE');
-    final text = _parseLabeledLine(vqa.answer, 'TEXT');
-    final hzLine = _parseLabeledLine(vqa.answer, 'HAZARD');
+    var what = _parseLabeledLine(vqa.answer, 'WHAT');
+    var state = _parseLabeledLine(vqa.answer, 'STATE');
+    var text = _parseLabeledLine(vqa.answer, 'TEXT');
+    var hazardLine = _parseLabeledLine(vqa.answer, 'HAZARD');
 
-    // Pass 3 — separate hazard pictogram check on the tight target crop.
-    final hazardQ = isAr
-        ? 'انظر فقط إلى الهدف داخل الصورة. هل ترى أي رموز خطر عليه أو بالقرب منه مباشرة؟ '
-            '(تآكل، اشتعال، سمية، انفجار، مؤكسد). إن لم ترَ شيئاً قل: NONE. لا تخمن.'
-        : 'Look ONLY at the target object in this image. Do you see any hazard '
-            'pictograms ON it or directly attached to it? (corrosive, flammable, toxic, '
-            'explosive, oxidizer). If none are visible reply exactly: NONE. Do not guess.';
-    final hazard = await query(targetJpeg, question: hazardQ, reasoning: false);
-    final hazardAnswer = hazard?.answer ?? '';
-
-    String mergeHazard(String a, String b) {
-      String clean(String s) {
-        final t = s.trim();
-        if (t.isEmpty) return '';
-        final negated = RegExp(
-          r'^(none?\b|nothing\b|n/a\b|nil\b|i do not see|i don.t see|there (are|is) no\b|not visible|no hazard|لا يوجد|لا توجد|لا أرى|لا يظهر|غير موجود)',
-          caseSensitive: false,
-        );
-        if (negated.hasMatch(t)) return '';
-        if (t.toUpperCase() == 'NONE') return '';
-        return t;
+    // Spend a second reasoning pass only when the model failed to identify the
+    // object or returned an explicit uncertainty. Most frames stay one-call.
+    final uncertain = what.isEmpty ||
+        what.toUpperCase().contains('UNCLEAR') ||
+        what.toUpperCase().contains('UNKNOWN');
+    if (uncertain) {
+      final careful = await query(
+        targetJpeg,
+        question:
+            '$prompt\nRe-examine the cropped target carefully. If it is still ambiguous, say UNCLEAR.',
+        reasoning: true,
+      );
+      if (careful != null && careful.answer.trim().isNotEmpty) {
+        vqa = careful;
+        what = _parseLabeledLine(vqa.answer, 'WHAT');
+        state = _parseLabeledLine(vqa.answer, 'STATE');
+        text = _parseLabeledLine(vqa.answer, 'TEXT');
+        hazardLine = _parseLabeledLine(vqa.answer, 'HAZARD');
       }
-
-      return [clean(a), clean(b)].where((s) => s.isNotEmpty).join('; ');
     }
 
+    // Independent hazard verification is retained, but now uses the same
+    // privacy-safe crop instead of a second full-frame upload.
+    final hazardQuestion = isAr
+        ? 'افحص الجسم المقصوص فقط. هل توجد رموز خطر واضحة على الجسم أو ملصق مثبت به؟ '
+            'اذكر الرمز المرئي فقط، وإلا أجب NONE. لا تخمّن.'
+        : 'Inspect only the cropped target. Are any clear hazard pictograms visible '
+            'on the object or a label attached to it? Name only visible pictograms; '
+            'otherwise answer NONE. Do not guess.';
+    final hazardCheck = await query(
+      targetJpeg,
+      question: hazardQuestion,
+      reasoning: false,
+    );
+
+    String cleanHazard(String value) {
+      final trimmed = value.trim();
+      if (trimmed.isEmpty) return '';
+      final negative = RegExp(
+        r"^(none\b|nothing\b|n/a\b|nil\b|i do not see\b|i don't see\b|there (?:are|is) no\b|not visible\b|no (?:visible )?(?:hazards?|pictograms?|symbols?)\b|لا يوجد|لا توجد|لا أرى|لا يظهر|غير موجود)",
+        caseSensitive: false,
+      );
+      if (negative.hasMatch(trimmed) || trimmed.toUpperCase() == 'NONE') {
+        return '';
+      }
+      return trimmed;
+    }
+
+    final hazards = [
+      cleanHazard(hazardLine),
+      cleanHazard(hazardCheck?.answer ?? '')
+    ].where((value) => value.isNotEmpty).toSet().join('; ');
+    final normalizedText = text.trim().toUpperCase() == 'NONE' ||
+            text.trim().toUpperCase() == 'UNCLEAR'
+        ? ''
+        : text;
+    final normalizedState =
+        state.toLowerCase() == 'unclear' || state.toLowerCase() == 'unknown'
+            ? ''
+            : state.toLowerCase();
+    final description = what.isNotEmpty ? what : vqa.answer.trim();
+
     return MoondreamStructuredAnalysis(
-      caption: clean.caption,
-      whatItIs: what.isNotEmpty ? what : vqa.answer,
+      caption: description,
+      whatItIs: description,
       howItsUsed: '',
-      whatsAround: '', // policy: surroundings are never analyzed nor reported
-      visibleText: text == 'NONE' ? '' : text,
-      hazards: mergeHazard(hzLine, hazardAnswer),
-      stateOfMatter: state.toLowerCase() == 'unclear' ? '' : state.toLowerCase(),
+      whatsAround: '',
+      visibleText: normalizedText,
+      hazards: hazards,
+      stateOfMatter: normalizedState,
       reasoning: vqa.reasoning,
-      requestId: clean.requestId,
+      requestId: hazardCheck?.requestId ?? vqa.requestId,
     );
   }
 
@@ -458,7 +500,7 @@ class MoondreamService {
   /// structured VQA answer; case-insensitive, tolerant of markdown bullets.
   static String _parseLabeledLine(String answer, String key) {
     final m = RegExp(
-      '^\\s*(?:[-*]\\s*)?$key\\s*[:：]\\s*(.+?)\\s*',
+      '^\\s*(?:[-*]\\s*)?$key\\s*[:：]\\s*([^\\r\\n]+)',
       multiLine: true,
       caseSensitive: false,
     ).firstMatch(answer);
@@ -467,8 +509,7 @@ class MoondreamService {
 
   String buildArabicAnalysisPrompt(String selectedLabel) {
     return [
-      'تحليل صارم لهدف مقفول. الصورة تعرض هدفًا داخل شعر رأسي/أقواس تحديد مميزة.'
-          ' كل ما خارج منطقة الهدف ضُبِّب عمدًا — تجاهله تمامًا.',
+      'تحليل صارم لصورة مقصوصة حول جسم واحد محدد. افحص الجسم الظاهر فقط.',
       'الهدف: "$selectedLabel".',
       'أجب بالضبط في هذه الأسطر المُعنونة (سطر لكل واحدة، بحد أقصى 25 كلمة للسطر):',
       'WHAT: ما هو الهدف — نوعه ومادته ومحتوياته إن كان وعاءً.',
@@ -476,7 +517,7 @@ class MoondreamService {
       'TEXT: انسخ حرفيًا أي نص أو ملصق مطبوع على الهدف، أو اكتب NONE.',
       'HAZARD: أي رموز أو أدلة خطر على الهدف نفسه، أو اكتب NONE.',
       'قواعد صارمة:',
-      '1) صِف الهدف داخل الشعار فقط. لا تذكر أبدًا الطاولة أو الخلفية أو الأشياء المُبَهَّمة.',
+      '1) صِف الجسم المقصوص فقط. لا تستنتج أي شيء خارج حدود الصورة.',
       '2) لا تخمّن أبدًا ولا تخترع: إن لم تكن التفصيلة واضحة تمامًا اكتب UNCLEAR (أو NONE لـ TEXT/HAZARD).',
       '3) لا تسمِّ مادة كيميائية بعينها إلا إن كانت مطبوعة بوضوح أو مؤكدة تمامًا.',
     ].join('\n');
@@ -484,9 +525,8 @@ class MoondreamService {
 
   String buildEnglishAnalysisPrompt(String selectedLabel) {
     return [
-      'STRICT TARGET-LOCKED ANALYSIS. The image shows ONE target inside the '
-          'highlighted reticle/corner brackets. Everything outside the target area '
-          'is intentionally blurred — it MUST be ignored completely.',
+      'STRICT TARGET-LOCKED ANALYSIS. This image is a close crop of ONE selected object. '
+          'Inspect only the visible object and do not infer anything outside the crop.',
       'TARGET: "$selectedLabel".',
       'Answer in EXACTLY these labeled lines (one line each, max 25 words per line):',
       'WHAT: what the target object is — its type, material, and contents if a container.',
@@ -570,9 +610,8 @@ class MoondreamService {
       return;
     }
 
-    final lineStream = streamed.stream
-        .transform(utf8.decoder)
-        .transform(const LineSplitter());
+    final lineStream =
+        streamed.stream.transform(utf8.decoder).transform(const LineSplitter());
 
     await for (final line in lineStream) {
       if (!line.startsWith('data:')) continue;
@@ -672,7 +711,6 @@ class MoondreamBox {
   double get cx => (xMin + xMax) / 2;
   double get cy => (yMin + yMax) / 2;
 }
-
 
 /// Structured multi-pass analysis result. What each field means:
 ///   * [caption]         — fast scene description (Pass 1)
@@ -792,7 +830,6 @@ class MoondreamStructuredAnalysis {
   bool get hasHazard => MoondreamAnalysis._hazardMatch(hazards);
 }
 
-
 // ---------------------------------------------------------------------------
 // TARGET CROP ISOLATE (privacy: only the object region reaches the cloud)
 // ---------------------------------------------------------------------------
@@ -806,20 +843,30 @@ class _CropArgs {
 /// Crops the selected object's region (+15% safety margin on every side so a
 /// slightly-off YOLO box never clips the object) from a JPEG. Runs in a
 /// background isolate; falls back to the original frame on any failure.
-Uint8List _cropObjectIsolate(_CropArgs args) {
+Uint8List? _cropObjectIsolate(_CropArgs args) {
   try {
     final decoded = img.decodeImage(args.jpeg);
-    if (decoded == null) return args.jpeg;
+    if (decoded == null) return null;
     final w = decoded.width;
     final h = decoded.height;
-    if (w < 8 || h < 8) return args.jpeg;
+    if (w < 8 || h < 8) return null;
+    final box = args.box;
+    if (![box.x, box.y, box.w, box.h].every((value) => value.isFinite) ||
+        box.w <= 0 ||
+        box.h <= 0 ||
+        box.x < 0 ||
+        box.y < 0 ||
+        box.x >= 1 ||
+        box.y >= 1) {
+      return null;
+    }
 
-    final mx = ((args.box.w * w) * 0.15).round().clamp(4, w);
-    final my = ((args.box.h * h) * 0.15).round().clamp(4, h);
-    final x1 = ((args.box.x * w).round() - mx).clamp(0, w - 1);
-    final y1 = ((args.box.y * h).round() - my).clamp(0, h - 1);
-    final x2 = (((args.box.x + args.box.w) * w).round() + mx).clamp(x1 + 1, w);
-    final y2 = (((args.box.y + args.box.h) * h).round() + my).clamp(y1 + 1, h);
+    final mx = ((box.w * w) * 0.15).round().clamp(4, w);
+    final my = ((box.h * h) * 0.15).round().clamp(4, h);
+    final x1 = ((box.x * w).round() - mx).clamp(0, w - 1);
+    final y1 = ((box.y * h).round() - my).clamp(0, h - 1);
+    final x2 = (((box.x + box.w) * w).round() + mx).clamp(x1 + 1, w);
+    final y2 = (((box.y + box.h) * h).round() + my).clamp(y1 + 1, h);
 
     final crop = img.copyCrop(
       decoded,
@@ -828,8 +875,16 @@ Uint8List _cropObjectIsolate(_CropArgs args) {
       width: x2 - x1,
       height: y2 - y1,
     );
-    return Uint8List.fromList(img.encodeJpg(crop, quality: 88));
+    final maxSide = math.max(crop.width, crop.height);
+    final prepared = maxSide > 1280
+        ? img.copyResize(
+            crop,
+            width: (crop.width * 1280 / maxSide).round().clamp(1, 1280),
+            height: (crop.height * 1280 / maxSide).round().clamp(1, 1280),
+          )
+        : crop;
+    return Uint8List.fromList(img.encodeJpg(prepared, quality: 92));
   } catch (_) {
-    return args.jpeg;
+    return null;
   }
 }

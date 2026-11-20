@@ -9,7 +9,8 @@ class Citation {
   final String url; // empty for offline bundled docs
   final String snippet; // short extract
   final CitationType type;
-  final String? thumbnailUrl; // optional inline thumbnail (from docs search hits)
+  final String?
+      thumbnailUrl; // optional inline thumbnail (from docs search hits)
 
   const Citation({
     required this.index,
@@ -57,24 +58,24 @@ class Citation {
 
 enum CitationType { wikipedia, bundledDoc, pubchem, web, factCheck, moondream }
 
-/// An LLM message annotated with citations + fact-check results.
+/// An LLM message with citations + candidate source-match counts.
 class AnnotatedMessage {
   final String body; // markdown text with [n] inline citations
   final List<Citation> citations;
-  final int verifiedCount;
-  final int unverifiedCount;
+  final int sourceMatchCount;
+  final int noSourceMatchCount;
 
   const AnnotatedMessage({
     required this.body,
     this.citations = const [],
-    this.verifiedCount = 0,
-    this.unverifiedCount = 0,
+    this.sourceMatchCount = 0,
+    this.noSourceMatchCount = 0,
   });
 
   Map<String, dynamic> toJson() => {
         'body': body,
         'citations': citations.map((c) => c.toJson()).toList(),
-        'verifiedCount': verifiedCount,
-        'unverifiedCount': unverifiedCount,
+        'sourceMatchCount': sourceMatchCount,
+        'noSourceMatchCount': noSourceMatchCount,
       };
 }

@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:image/image.dart' as img;
+import 'package:smart_glass_app/models/bounding_box.dart';
 import 'package:smart_glass_app/services/moondream_service.dart';
 
 void main() {
@@ -33,8 +35,7 @@ void main() {
         return http.Response(
             jsonEncode({'caption': 'a red apple', 'request_id': 'r1'}), 200);
       }),
-    )
-      ..apiKey = 'tok';
+    )..apiKey = 'tok';
 
     final cap = await svc.caption(Uint8List(4));
     expect(cap, isNotNull);
@@ -47,8 +48,7 @@ void main() {
     final svc = MoondreamService(
       client: MockClient((req) async =>
           http.Response(jsonEncode({'error': 'rate limited'}), 429)),
-    )
-      ..apiKey = 'tok';
+    )..apiKey = 'tok';
     final cap = await svc.caption(Uint8List(4));
     expect(cap, isNull);
   });
@@ -66,8 +66,7 @@ void main() {
             }),
             200);
       }),
-    )
-      ..apiKey = 'tok';
+    )..apiKey = 'tok';
 
     final ans = await svc.query(Uint8List(4),
         question: 'What is this?', reasoning: true);
@@ -78,8 +77,7 @@ void main() {
 
   test('query() auto-downgrades the model on 400 (older keys)', () async {
     final svc = MoondreamService(
-      client: MockClient(
-          (req) async => http.Response('unknown model', 400)),
+      client: MockClient((req) async => http.Response('unknown model', 400)),
     )
       ..apiKey = 'tok'
       ..model = 'moondream3.1-9B-A2B';
@@ -87,6 +85,81 @@ void main() {
     final ans = await svc.query(Uint8List(4), question: 'x');
     expect(ans, isNull);
     expect(svc.model, 'moondream3-preview');
+  });
+
+  test('selected-object analysis sends only the crop and uses two normal calls',
+      () async {
+    final frame = img.Image(width: 240, height: 160);
+    img.fill(frame, color: img.ColorRgb8(180, 190, 200));
+    final jpeg = Uint8List.fromList(img.encodeJpg(frame, quality: 95));
+    var requests = 0;
+    final svc = MoondreamService(
+      client: MockClient((req) async {
+        expect(req.url.path, endsWith('/query'));
+        final body = jsonDecode(req.body) as Map<String, dynamic>;
+        expect(body.containsKey('reasoning'), isFalse);
+        final dataUrl = body['image_url'] as String;
+        final cropBytes = base64Decode(dataUrl.split(',').last);
+        final crop = img.decodeJpg(cropBytes)!;
+        expect(crop.width, lessThan(frame.width));
+        expect(crop.height, lessThan(frame.height));
+        requests++;
+        if (requests == 1) {
+          return http.Response(
+            jsonEncode({
+              'answer':
+                  'WHAT: a clear glass beaker\nSTATE: liquid\nTEXT: H2O\nHAZARD: NONE',
+              'request_id': 'vqa-1',
+            }),
+            200,
+          );
+        }
+        return http.Response(
+          jsonEncode({
+            'answer': 'No hazard pictograms are visible.',
+            'request_id': 'hazard-2'
+          }),
+          200,
+        );
+      }),
+    )..apiKey = 'tok';
+
+    final result = await svc.analyzeSelected(
+      jpeg,
+      jpeg,
+      selectedLabel: 'bottle',
+      selectedBox: const BoundingBox(
+        x: 0.25,
+        y: 0.20,
+        w: 0.50,
+        h: 0.60,
+        label: 'bottle',
+        confidence: 0.91,
+      ),
+    );
+
+    expect(requests, 2);
+    expect(result, isNotNull);
+    expect(result!.whatItIs, 'a clear glass beaker');
+    expect(result.stateOfMatter, 'liquid');
+    expect(result.visibleText, 'H2O');
+    expect(result.hazards, isEmpty);
+    expect(result.requestId, 'hazard-2');
+  });
+
+  test('selected-object analysis fails closed when no target box exists',
+      () async {
+    var requests = 0;
+    final svc = MoondreamService(
+      client: MockClient((_) async {
+        requests++;
+        return http.Response('{}', 200);
+      }),
+    )..apiKey = 'tok';
+
+    final result = await svc.analyzeSelected(Uint8List(4), Uint8List(4));
+    expect(result, isNull);
+    expect(requests, 0);
   });
 
   test('streamQuery() decodes SSE chunk frames', () async {
@@ -102,8 +175,7 @@ void main() {
           headers: {'content-type': 'text/event-stream'},
         );
       }),
-    )
-      ..apiKey = 'tok';
+    )..apiKey = 'tok';
 
     final chunks = await svc.streamQuery(Uint8List(4), question: 'q').toList();
     expect(chunks.map((c) => c.text).join(), 'A red apple');
@@ -123,8 +195,7 @@ void main() {
             }),
             200);
       }),
-    )
-      ..apiKey = 'tok';
+    )..apiKey = 'tok';
 
     final boxes = await svc.detect(Uint8List(4), 'apple');
     expect(boxes, hasLength(1));
@@ -135,13 +206,11 @@ void main() {
   test('detect() returns empty on auth failure (no crash)', () async {
     final svc = MoondreamService(
       client: MockClient((req) async => http.Response('unauthorized', 401)),
-    )
-      ..apiKey = 'tok';
+    )..apiKey = 'tok';
     expect(await svc.detect(Uint8List(4), 'apple'), isEmpty);
   });
 
-  test('default key is a plain string (secrets come from config asset)',
-      () {
+  test('default key is a plain string (secrets come from config asset)', () {
     // Real keys live in gitignored assets/config/secrets.json — the source
     // default is empty (or a --dart-define) so GitHub push protection passes.
     expect(MoondreamService.defaultApiKey, isA<String>());
@@ -154,7 +223,8 @@ void main() {
       howItsUsed: 'drinking',
       whatsAround: 'desk',
       visibleText: '',
-      hazards: 'No, there are no hazard pictograms (corrosive, flammable, toxic) visible.',
+      hazards:
+          'No, there are no hazard pictograms (corrosive, flammable, toxic) visible.',
       stateOfMatter: 'liquid',
     );
     const benignAr = MoondreamStructuredAnalysis(
