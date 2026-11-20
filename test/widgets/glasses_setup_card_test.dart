@@ -209,7 +209,8 @@ void main() {
         isNotNull);
     await tapControl(tester, 'glasses-udp-start');
     expect(state.setupStage, GlassesSetupStage.waitingForFrame);
-    expect(state.wifiConnected, isFalse);
+    expect(state.wifiConnected, isTrue);
+    expect(state.useUdpVideo, isFalse);
     expect(
         tester
             .widget<OutlinedButton>(field('glasses-video-single-frame'))
@@ -243,9 +244,13 @@ void main() {
     expect(udp.isStreaming, isFalse);
     await tapControl(tester, 'glasses-video-stop');
     await tester.pumpAndSettle();
-    expect(state.wifiConnected, isFalse);
-    expect(socket.closed, isTrue);
+    expect(state.wifiConnected, isTrue);
+    expect(udp.isConnected, isTrue);
+    expect(udp.isStreaming, isFalse);
+    expect(socket.closed, isFalse);
     expect(ble.writes, isEmpty);
+    await state.disconnectUdp();
+    expect(socket.closed, isTrue);
     expect(tester.takeException(), isNull);
   });
 

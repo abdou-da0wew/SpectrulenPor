@@ -24,7 +24,8 @@ Future<void> pumpApp(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('home screen renders brand, source switch, permission & analysis bar (EN)',
+  testWidgets(
+      'home screen renders brand, source switch, permission & analysis bar (EN)',
       (tester) async {
     final prefs = await mockPrefs();
     await pumpApp(tester, prefs);
@@ -47,8 +48,7 @@ void main() {
     expect(find.text('Connect glasses'), findsOneWidget);
   });
 
-  testWidgets('app reacts to locale flip — Arabic renders RTL',
-      (tester) async {
+  testWidgets('app reacts to locale flip — Arabic renders RTL', (tester) async {
     final prefs = await mockPrefs();
     await pumpApp(tester, prefs);
 
@@ -63,7 +63,98 @@ void main() {
     expect(find.text('يلزم إذن الكاميرا'), findsOneWidget);
   });
 
-  testWidgets('settings route shows key fields, chain, diagnostics, credits & version card',
+  testWidgets('home capture action stays above the Android navigation inset',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 720);
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.padding = const FakeViewPadding(bottom: 32);
+    tester.view.viewPadding = const FakeViewPadding(bottom: 32);
+    addTearDown(tester.view.reset);
+
+    final prefs = await mockPrefs();
+    await pumpApp(tester, prefs);
+
+    final capture = find.byKey(const ValueKey('home-capture-action'));
+    expect(capture, findsOneWidget);
+    expect(tester.getRect(capture).bottom, lessThanOrEqualTo(688));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'compact Home layout keeps capture reachable on a short narrow phone',
+      (tester) async {
+    tester.view.physicalSize = const Size(320, 568);
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.padding = const FakeViewPadding(bottom: 24);
+    tester.view.viewPadding = const FakeViewPadding(bottom: 24);
+    addTearDown(tester.view.reset);
+
+    final prefs = await mockPrefs();
+    await pumpApp(tester, prefs);
+
+    final capture = find.byKey(const ValueKey('home-capture-action'));
+    expect(find.byKey(const ValueKey('home-compact-layout')), findsOneWidget);
+    expect(capture, findsOneWidget);
+    expect(tester.getRect(capture).height, greaterThanOrEqualTo(44));
+    expect(tester.getRect(capture).bottom, lessThanOrEqualTo(544));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'landscape Home layout keeps camera and capture action side by side',
+      (tester) async {
+    tester.view.physicalSize = const Size(844, 390);
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.padding = const FakeViewPadding(bottom: 24);
+    tester.view.viewPadding = const FakeViewPadding(bottom: 24);
+    addTearDown(tester.view.reset);
+
+    final prefs = await mockPrefs();
+    await pumpApp(tester, prefs);
+
+    final capture = find.byKey(const ValueKey('home-capture-action'));
+    expect(find.byKey(const ValueKey('home-wide-layout')), findsOneWidget);
+    expect(capture, findsOneWidget);
+    expect(tester.getRect(capture).bottom, lessThanOrEqualTo(366));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('wide tablet Home layout keeps the primary action visible',
+      (tester) async {
+    tester.view.physicalSize = const Size(1024, 1366);
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.padding = const FakeViewPadding(bottom: 24);
+    tester.view.viewPadding = const FakeViewPadding(bottom: 24);
+    addTearDown(tester.view.reset);
+
+    final prefs = await mockPrefs();
+    await pumpApp(tester, prefs);
+
+    expect(find.byKey(const ValueKey('home-wide-layout')), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-capture-action')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('navigation uses a fade when reduced motion is enabled',
+      (tester) async {
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(disableAnimations: true);
+    addTearDown(
+      tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+    );
+
+    final prefs = await mockPrefs();
+    await pumpApp(tester, prefs);
+    await tester.tap(find.byTooltip('History & Scientific Docs'));
+    await tester.pump();
+
+    expect(find.byType(FadeTransition), findsWidgets);
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'settings route shows key fields, chain, diagnostics, credits & version card',
       (tester) async {
     final prefs = await mockPrefs();
     await pumpApp(
@@ -90,7 +181,8 @@ void main() {
 
     // Seeded keys are preserved as the real values (not placeholder strings).
     // Tall viewport builds the lazy ListView's API-key cards up front.
-    final fields = tester.widgetList<TextField>(find.byType(TextField)).toList();
+    final fields =
+        tester.widgetList<TextField>(find.byType(TextField)).toList();
     expect(fields.length, greaterThanOrEqualTo(3));
     expect(
       fields.map((f) => f.controller?.text),

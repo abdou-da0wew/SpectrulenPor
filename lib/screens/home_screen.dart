@@ -1,13 +1,19 @@
+import 'dart:async';
+
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:google_fonts/google_fonts.dart';
+import 'package:home_widget/home_widget.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
 import '../l10n/app_localizations.dart';
 import '../main.dart' show appLocale;
+import '../models/frame_data.dart';
 import '../models/recognition_state.dart';
+import '../services/home_screen_widget_service.dart';
+import '../utils/app_icons.dart';
 import '../utils/app_theme.dart' as palette;
 import '../utils/app_typography.dart';
 import '../widgets/bounding_box_overlay.dart';
@@ -15,6 +21,7 @@ import '../widgets/camera_preview.dart';
 import '../widgets/connection_status_bar.dart';
 import '../widgets/glasses_setup_card.dart';
 import '../widgets/hazard_banner.dart';
+import '../widgets/home_layout.dart';
 import '../widgets/spectrum_card.dart';
 import 'chat_screen.dart';
 import 'history_screen.dart';
@@ -32,21 +39,58 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  StreamSubscription<Uri?>? _widgetClickSubscription;
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    _widgetClickSubscription =
+        HomeWidget.widgetClicked.listen(_handleWidgetUri);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
-      context.read<RecognitionState>().checkCameraPermission();
+      final state = context.read<RecognitionState>();
+      await state.checkCameraPermission();
+      await HomeScreenWidgetService.instance.update(
+        status: state.lastLabel ?? 'Ready to analyze',
+        model: state.lastModelUsed,
+      );
+      final launchUri = await HomeWidget.initiallyLaunchedFromHomeWidget();
+      if (launchUri != null) _handleWidgetUri(launchUri);
     });
   }
 
+  @override
+  void dispose() {
+    _widgetClickSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _handleWidgetUri(Uri? uri) {
+    if (!mounted || uri == null) return;
+    if (uri.host == 'capture') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted)
+          _triggerCaptureAndOpenChat(context.read<RecognitionState>());
+      });
+    }
+  }
+
   Future<void> _triggerCaptureAndOpenChat(RecognitionState state) async {
-    if (state.selectedBox == null || state.isAnalyzingSelected) return;
+    if (state.isAnalyzingSelected) return;
+    if (state.selectedBox == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content:
+              Text('Select an object in the camera preview before capturing.'),
+        ),
+      );
+      return;
+    }
     HapticFeedback.mediumImpact();
     final ok = await state.captureAndAnalyzeSelected();
     if (ok && mounted && state.chatSession != null) {
-      await Navigator.push(context, _createSlideRoute(const ChatScreen()));
+      await Navigator.push(
+          context, _createSlideRoute(context, const ChatScreen()));
     }
   }
 
@@ -58,35 +102,40 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: palette.AppColors.alabasterGrey,
       appBar: _buildAppBar(context, state, loc),
-      body: Column(
-        children: [
-          _buildStatusBar(context, state, loc),
-          if (state.hazardActive)
-            HazardBanner(
-              reason: state.hazardReason,
-              onDismiss: state.clearHazard,
-            ),
-          _buildSourceToggle(context, state, loc),
-          if (state.source == CameraSource.glasses && !state.udpVideo.isActive)
-            ConnectionStatusBar(
-              status: state.btStatus,
-              deviceName: state.bluetooth.deviceName,
-              onConnect: state.connectToGlasses,
-              onDisconnect: state.disconnect,
-            ),
-          if (state.source == CameraSource.glasses) const GlassesSetupCard(),
-          Expanded(child: _buildCameraArea(state, loc)),
-          _buildCaptureControlBar(context, state),
-          if (state.source == CameraSource.glasses && state.lastReading != null)
-            SpectrumCard(
-              reading: state.lastReading,
-              predictions: state.lastPredictions,
-              state: state.matterState,
-              hazardActive: state.hazardActive,
-              hasTelemetry: true,
-            ),
-          _buildBottomBar(context, state, loc),
-        ],
+      body: HomeLayout(
+        statusBar: _buildStatusBar(context, state, loc),
+        hazardBanner: state.hazardActive
+            ? HazardBanner(
+                reason: state.hazardReason,
+                onDismiss: state.clearHazard,
+              )
+            : null,
+        sourceToggle: _buildSourceToggle(context, state, loc),
+        connectionStatus:
+            state.source == CameraSource.glasses && !state.udpVideo.isActive
+                ? ConnectionStatusBar(
+                    status: state.btStatus,
+                    deviceName: state.bluetooth.deviceName,
+                    onConnect: state.connectToGlasses,
+                    onDisconnect: state.disconnect,
+                  )
+                : null,
+        glassesSetup: state.source == CameraSource.glasses
+            ? const GlassesSetupCard()
+            : null,
+        camera: _buildCameraArea(context, state, loc),
+        captureAction: _buildCaptureControlBar(context, state),
+        spectrum:
+            state.source == CameraSource.glasses && state.lastReading != null
+                ? SpectrumCard(
+                    reading: state.lastReading,
+                    predictions: state.lastPredictions,
+                    state: state.matterState,
+                    hazardActive: state.hazardActive,
+                    hasTelemetry: true,
+                  )
+                : null,
+        analysisFooter: _buildBottomBar(context, state, loc),
       ),
     );
   }
@@ -106,7 +155,7 @@ class _HomeScreenState extends State<HomeScreen> {
       title: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.visibility_rounded, color: Colors.white, size: 20),
+          const Icon(AppIcons.visibilityRounded, color: Colors.white, size: 20),
           const SizedBox(width: 6),
           Flexible(
             child: Text(
@@ -123,33 +172,33 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       actions: [
         _AnimatedIconButton(
-          icon: Icons.history_edu_rounded,
+          icon: AppIcons.historyEduRounded,
           color: Colors.white,
           tooltip:
               isAr ? 'السجل والموسوعة العلمية' : 'History & Scientific Docs',
-          onTap: () =>
-              Navigator.push(context, _createSlideRoute(const HistoryScreen())),
+          onTap: () => Navigator.push(
+              context, _createSlideRoute(context, const HistoryScreen())),
         ),
         if (state.chatSession != null)
           _AnimatedIconButton(
-            icon: Icons.forum_outlined,
+            icon: AppIcons.forumOutlined,
             color: Colors.white,
             tooltip: isAr ? 'فتح المحادثة' : 'Open chat',
-            onTap: () =>
-                Navigator.push(context, _createSlideRoute(const ChatScreen())),
+            onTap: () => Navigator.push(
+                context, _createSlideRoute(context, const ChatScreen())),
           ),
         _AnimatedIconButton(
           icon: state.flashOn
-              ? Icons.flashlight_on_rounded
-              : Icons.flashlight_off_rounded,
+              ? AppIcons.flashlightFill
+              : AppIcons.flashlightOffRounded,
           color: state.flashOn ? palette.AppColors.warning : Colors.white70,
           tooltip: loc.flashlight,
           onTap: () => state.setFlashlight(!state.flashOn),
         ),
         _AnimatedIconButton(
           icon: state.cloudOnly
-              ? Icons.cloud_done_rounded
-              : Icons.cloud_queue_rounded,
+              ? AppIcons.cloudCheckFill
+              : AppIcons.cloudQueueRounded,
           color: state.cloudOnly ? palette.AppColors.warning : Colors.white70,
           tooltip: state.cloudOnly
               ? 'Cloud-only models ON (YOLO local)'
@@ -172,7 +221,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         _AnimatedIconButton(
-          icon: Icons.settings_outlined,
+          icon: AppIcons.settingsOutlined,
           color: Colors.white,
           tooltip: loc.settings,
           onTap: () => Navigator.pushNamed(context, '/settings'),
@@ -204,10 +253,10 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           Icon(
             state.useUdpVideo
-                ? Icons.wifi_rounded
+                ? AppIcons.wifiRounded
                 : state.btStatus == BluetoothStatus.connected
-                    ? Icons.bluetooth_connected_rounded
-                    : Icons.sensors_rounded,
+                    ? AppIcons.bluetoothConnectedFill
+                    : AppIcons.sensorsRounded,
             size: 15,
             color: palette.AppColors.dustyLavender,
           ),
@@ -261,7 +310,9 @@ class _HomeScreenState extends State<HomeScreen> {
           Expanded(
             child: _segButton(
               context,
-              Icons.smartphone_rounded,
+              state.source == CameraSource.phone
+                  ? AppIcons.deviceMobileFill
+                  : AppIcons.smartphoneRounded,
               loc.phoneCamera,
               state.source == CameraSource.phone,
               () => state.switchSource(CameraSource.phone),
@@ -271,7 +322,9 @@ class _HomeScreenState extends State<HomeScreen> {
           Expanded(
             child: _segButton(
               context,
-              Icons.visibility_rounded,
+              state.source == CameraSource.glasses
+                  ? AppIcons.eyeFill
+                  : AppIcons.visibilityRounded,
               loc.glassesCam,
               state.source == CameraSource.glasses,
               () => state.switchSource(CameraSource.glasses),
@@ -295,7 +348,9 @@ class _HomeScreenState extends State<HomeScreen> {
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
+          duration: Duration(
+            milliseconds: MediaQuery.disableAnimationsOf(context) ? 100 : 180,
+          ),
           padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 10),
           decoration: BoxDecoration(
             color: active ? palette.AppColors.dustyLavender : Colors.white,
@@ -339,14 +394,20 @@ class _HomeScreenState extends State<HomeScreen> {
   // ---------------------------------------------------------------------------
   // CAMERA VIEWPORT — generous full-width/full-height un-shrimped preview
   // ---------------------------------------------------------------------------
-  Widget _buildCameraArea(RecognitionState state, AppLocalizations loc) {
+  Widget _buildCameraArea(
+    BuildContext context,
+    RecognitionState state,
+    AppLocalizations loc,
+  ) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
         child: SizedBox.expand(
           child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 280),
+            duration: Duration(
+              milliseconds: MediaQuery.disableAnimationsOf(context) ? 100 : 240,
+            ),
             child: _resolveCameraState(state, loc),
           ),
         ),
@@ -356,9 +417,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _resolveCameraState(RecognitionState state, AppLocalizations loc) {
     if (state.source == CameraSource.glasses) {
-      return _GlassesPreviewArea(
-        key: const ValueKey('glasses_preview'),
-        state: state,
+      return ValueListenableBuilder<FrameData?>(
+        valueListenable: state.frameUpdates,
+        builder: (context, frame, _) => _GlassesPreviewArea(
+          key: const ValueKey('glasses_preview'),
+          state: state,
+          frame: frame,
+        ),
       );
     }
 
@@ -397,12 +462,13 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           Expanded(
             child: FilledButton.icon(
+              key: const ValueKey('home-capture-action'),
               onPressed:
                   canCapture ? () => _triggerCaptureAndOpenChat(state) : null,
               icon: Icon(
                 sel != null
-                    ? Icons.camera_enhance_rounded
-                    : Icons.touch_app_rounded,
+                    ? AppIcons.cameraEnhanceRounded
+                    : AppIcons.touchAppRounded,
                 size: 18,
               ),
               label: Text(
@@ -425,6 +491,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               style: FilledButton.styleFrom(
+                minimumSize: const Size(64, 44),
                 backgroundColor: sel != null
                     ? palette.AppColors.dustyLavender
                     : palette.AppColors.silver,
@@ -447,7 +514,7 @@ class _HomeScreenState extends State<HomeScreen> {
             IconButton.outlined(
               tooltip: isAr ? 'إلغاء التحديد' : 'Clear selected target',
               onPressed: () => state.selectBox(null),
-              icon: const Icon(Icons.deselect_rounded, size: 19),
+              icon: const Icon(AppIcons.deselectRounded, size: 19),
             ),
           ] else if (state.chatSession != null &&
               !state.isAnalyzingSelected) ...[
@@ -456,9 +523,9 @@ class _HomeScreenState extends State<HomeScreen> {
               tooltip: isAr ? 'متابعة المحادثة' : 'Open active chat',
               onPressed: () => Navigator.push(
                 context,
-                _createSlideRoute(const ChatScreen()),
+                _createSlideRoute(context, const ChatScreen()),
               ),
-              icon: const Icon(Icons.forum_rounded, size: 19),
+              icon: const Icon(AppIcons.forumRounded, size: 19),
             ),
           ],
         ],
@@ -497,20 +564,23 @@ class _HomeScreenState extends State<HomeScreen> {
           Row(
             children: [
               const Icon(
-                Icons.science_rounded,
+                AppIcons.scienceRounded,
                 size: 16,
                 color: palette.AppColors.dustyLavender,
               ),
               const SizedBox(width: 5),
-              Text(
-                loc.deepReasoning,
-                style: AppTypography.displayOf(
-                  context,
-                  color: palette.AppColors.dustyLavender,
-                  fontSize: 14,
+              Expanded(
+                child: Text(
+                  loc.deepReasoning,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.displayOf(
+                    context,
+                    color: palette.AppColors.dustyLavender,
+                    fontSize: 14,
+                  ),
                 ),
               ),
-              const Spacer(),
               if (busy)
                 const SizedBox(
                   width: 12,
@@ -524,7 +594,9 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 3),
           AnimatedSwitcher(
-            duration: const Duration(milliseconds: 250),
+            duration: Duration(
+              milliseconds: MediaQuery.disableAnimationsOf(context) ? 100 : 250,
+            ),
             child: Text(
               state.lastLabel ??
                   (isAr ? 'في انتظار التحليل…' : 'Waiting for analysis…'),
@@ -539,10 +611,17 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Route<void> _createSlideRoute(Widget page) {
+  Route<void> _createSlideRoute(BuildContext context, Widget page) {
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final duration = Duration(milliseconds: reduceMotion ? 100 : 260);
     return PageRouteBuilder<void>(
+      transitionDuration: duration,
+      reverseTransitionDuration: duration,
       pageBuilder: (context, animation, secondary) => page,
       transitionsBuilder: (context, animation, secondary, child) {
+        if (reduceMotion) {
+          return FadeTransition(opacity: animation, child: child);
+        }
         return SlideTransition(
           position: Tween<Offset>(begin: const Offset(1, 0), end: Offset.zero)
               .animate(
@@ -560,11 +639,16 @@ class _HomeScreenState extends State<HomeScreen> {
 // ===========================================================================
 class _GlassesPreviewArea extends StatelessWidget {
   final RecognitionState state;
-  const _GlassesPreviewArea({super.key, required this.state});
+  final FrameData? frame;
+  const _GlassesPreviewArea({
+    super.key,
+    required this.state,
+    required this.frame,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final frame = state.lastFrame;
+    final frame = this.frame ?? state.lastFrame;
     final aspect = (frame != null && frame.width > 0 && frame.height > 0)
         ? frame.width / frame.height
         : (320.0 / 240.0);
@@ -649,7 +733,7 @@ class _PermissionCard extends StatelessWidget {
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
-                  Icons.camera_alt_outlined,
+                  AppIcons.cameraAltOutlined,
                   size: 38,
                   color: Colors.white70,
                 ),
@@ -681,7 +765,7 @@ class _PermissionCard extends StatelessWidget {
                 width: double.infinity,
                 child: FilledButton.icon(
                   onPressed: () => state.requestCameraPermission(),
-                  icon: const Icon(Icons.lock_open_rounded, size: 18),
+                  icon: const Icon(AppIcons.lockOpenRounded, size: 18),
                   label: Text(
                     isAr ? 'السماح بالوصول' : 'Grant Access',
                     style: AppTypography.bodyOf(
@@ -889,7 +973,7 @@ class _LiveBadge extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           const Icon(
-            Icons.fiber_manual_record_rounded,
+            AppIcons.fiberManualRecordRounded,
             size: 8,
             color: Colors.white,
           ),
@@ -929,7 +1013,7 @@ class _DetectionCountBadge extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            yoloReady ? Icons.radar_rounded : Icons.downloading_rounded,
+            yoloReady ? AppIcons.radarRounded : AppIcons.downloadingRounded,
             size: 13,
             color: Colors.white,
           ),
@@ -964,7 +1048,7 @@ class _HintChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.touch_app_rounded, size: 14, color: Colors.white),
+          const Icon(AppIcons.touchAppRounded, size: 14, color: Colors.white),
           const SizedBox(width: 6),
           Flexible(
             child: Text(

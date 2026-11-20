@@ -7,6 +7,7 @@ import '../models/bluetooth_status.dart';
 import '../models/frame_data.dart';
 import '../utils/app_theme.dart' as palette;
 import '../utils/app_typography.dart';
+import '../utils/app_icons.dart';
 
 /// Full-bleed live camera viewport for BLE / JPEG streams.
 ///
@@ -47,8 +48,8 @@ class CameraPreviewWidget extends StatelessWidget {
               left: 10,
               child: _CornerBadge(
                 icon: status == BluetoothStatus.connected
-                    ? Icons.sensors_rounded
-                    : Icons.sensors_off_rounded,
+                    ? AppIcons.sensorsRounded
+                    : AppIcons.sensorsOffRounded,
                 text: status == BluetoothStatus.connected
                     ? AppLocalizations.of(context).live
                     : status.name.toUpperCase(),
@@ -62,7 +63,7 @@ class CameraPreviewWidget extends StatelessWidget {
                 top: 10,
                 right: 10,
                 child: _CornerBadge(
-                  icon: Icons.tag_rounded,
+                  icon: AppIcons.tagRounded,
                   text: '#${frame!.sequence}',
                   color: palette.AppColors.dustyMauve,
                 ),
@@ -88,7 +89,7 @@ class CameraPreviewWidget extends StatelessWidget {
                   child: Row(
                     children: [
                       const Icon(
-                        Icons.graphic_eq_rounded,
+                        AppIcons.graphicEqRounded,
                         color: palette.AppColors.alabasterGrey,
                         size: 16,
                       ),
@@ -131,7 +132,7 @@ class _FrameImage extends StatelessWidget {
       gaplessPlayback: true,
       errorBuilder: (_, __, ___) => const Center(
         child: Icon(
-          Icons.broken_image_outlined,
+          AppIcons.brokenImageOutlined,
           color: palette.AppColors.silver,
           size: 42,
         ),
@@ -164,7 +165,7 @@ class _Placeholder extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(
-              Icons.visibility_outlined,
+              AppIcons.visibilityOutlined,
               size: 44,
               color: palette.AppColors.dustyMauve,
             ),

@@ -6,6 +6,7 @@ import '../l10n/glasses_messages.dart';
 import '../models/recognition_state.dart';
 import '../services/bluetooth_camera_service.dart';
 import '../services/wifi_udp_video_service.dart';
+import '../utils/app_icons.dart';
 
 /// Setup inputs are ephemeral; only confirmed device identity is remembered.
 class GlassesSetupCard extends StatefulWidget {
@@ -135,7 +136,7 @@ class _GlassesSetupCardState extends State<GlassesSetupCard> {
                           await state.setWifiConfig(_ssid.text, password);
                         }
                       : null,
-                  icon: const Icon(Icons.save_rounded),
+                  icon: const Icon(AppIcons.saveRounded),
                   label: Text(l.wifiSaveConnect),
                 ),
               ],
@@ -169,11 +170,13 @@ class _GlassesSetupCardState extends State<GlassesSetupCard> {
                 key: const ValueKey('glasses-udp-start'),
                 onPressed: !state.setupBusy &&
                         !state.udpVideo.isActive &&
-                        WifiUdpVideoService.parsePeerAddress(_ip.text.trim()) !=
-                            null
+                        (_ip.text.trim().isEmpty ||
+                            WifiUdpVideoService.parsePeerAddress(
+                                    _ip.text.trim()) !=
+                                null)
                     ? () => state.startUdpVideo(_ip.text)
                     : null,
-                icon: const Icon(Icons.wifi_rounded),
+                icon: const Icon(AppIcons.wifiRounded),
                 label: Text(l.startUdpVideo),
               ),
               if (state.udpVideo.isActive)

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
 import '../utils/app_theme.dart' as palette;
+import '../utils/app_icons.dart';
 
 /// Pulsing red banner shown when a hazard is detected — either by keyword
 /// analysis of the AI reply or by UV/IR sensor thresholds. Designed to be
@@ -34,7 +35,7 @@ class HazardBanner extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.warning_amber_rounded,
+          const Icon(AppIcons.warningAmberRounded,
               color: Colors.white, size: 30),
           const SizedBox(width: 12),
           Expanded(
@@ -59,7 +60,7 @@ class HazardBanner extends StatelessWidget {
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.close, color: Colors.white, size: 20),
+            icon: const Icon(AppIcons.close, color: Colors.white, size: 20),
             onPressed: onDismiss,
             tooltip: MaterialLocalizations.of(context).closeButtonTooltip,
           ),

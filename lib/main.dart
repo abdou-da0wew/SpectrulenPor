@@ -17,6 +17,8 @@ import 'services/bluetooth_camera_service.dart';
 import 'services/docs_search_service.dart';
 import 'services/internal_db_service.dart';
 import 'services/local_vision_service.dart';
+import 'services/home_screen_widget_service.dart';
+import 'services/notification_service.dart';
 import 'services/mic_service.dart';
 import 'services/moondream_service.dart';
 import 'services/native_tts_service.dart';
@@ -70,6 +72,12 @@ void main() async {
   await OnnxVisionService.instance.init();
   await NativeTtsService.instance.init();
   await OpenRouterTtsService.instance.init();
+  await AppNotificationService.instance.initialize();
+  await HomeScreenWidgetService.instance.update(
+    status: 'Ready to analyze',
+    model: prefs.getString('openrouter_primary_model') ??
+        OpenRouterService.modelChain.first,
+  );
   MoondreamService.instance.apiKey = prefs.getString('moondream_api_key') ??
       (secrets['moondream'] ?? MoondreamService.defaultApiKey);
 
@@ -119,7 +127,10 @@ class SpectruLenPorApp extends StatelessWidget {
                 prefs.getString('openrouter_api_key') ??
                 _secrets['openrouter_llm'] ??
                 OpenRouterService.defaultApiKey,
-          ),
+          )..configureModelChain(
+              prefs.getStringList('openrouter_model_chain') ??
+                  OpenRouterService.modelChain,
+            ),
         ),
         Provider<OpenRouterTtsService>.value(
           value: OpenRouterTtsService.instance
@@ -150,6 +161,7 @@ class SpectruLenPorApp extends StatelessWidget {
       child: ValueListenableBuilder<Locale>(
         valueListenable: appLocale,
         builder: (context, locale, _) => MaterialApp(
+          navigatorKey: AppNotificationService.navigatorKey,
           onGenerateTitle: (ctx) =>
               '${AppLocalizations.of(ctx).appName} — Smart Scientific Glasses',
           debugShowCheckedModeBanner: false,

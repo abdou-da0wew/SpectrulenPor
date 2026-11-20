@@ -4,6 +4,7 @@ import '../l10n/app_localizations.dart';
 
 import '../models/spectrum_reading.dart';
 import '../utils/app_theme.dart' as palette;
+import '../utils/app_icons.dart';
 
 /// Spectrum analysis panel: UV + IR channel gauges, state of matter chip,
 /// and confidence bars for the specialized model's top predictions.
@@ -40,7 +41,7 @@ class SpectrumCard extends StatelessWidget {
                   radius: 14,
                   backgroundColor:
                       palette.AppColors.dustyMauve.withValues(alpha: 0.14),
-                  child: const Icon(Icons.ssid_chart,
+                  child: const Icon(AppIcons.ssidChart,
                       size: 18, color: palette.AppColors.dustyMauve),
                 ),
                 const SizedBox(width: 10),
@@ -59,7 +60,7 @@ class SpectrumCard extends StatelessWidget {
             else ...[
               _ChannelBar(
                 label: AppLocalizations.of(context).uvChannel,
-                icon: Icons.wb_sunny_outlined,
+                icon: AppIcons.wbSunnyOutlined,
                 value: reading!.uvPercent,
                 raw: reading!.uvRaw,
                 warn: reading!.uvHazard,
@@ -67,7 +68,7 @@ class SpectrumCard extends StatelessWidget {
               const SizedBox(height: 10),
               _ChannelBar(
                 label: AppLocalizations.of(context).irChannel,
-                icon: Icons.thermostat,
+                icon: AppIcons.thermostat,
                 value: reading!.irPercent,
                 raw: reading!.irRaw,
                 warn: reading!.irHazard,
@@ -159,7 +160,8 @@ class _ChannelBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = warn ? palette.AppColors.danger : palette.AppColors.dustyMauve;
+    final color =
+        warn ? palette.AppColors.danger : palette.AppColors.dustyMauve;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -173,9 +175,7 @@ class _ChannelBar extends StatelessWidget {
             const Spacer(),
             Text('$raw  ·  ${value.toStringAsFixed(0)}%',
                 style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w700,
-                    color: color)),
+                    fontSize: 12.5, fontWeight: FontWeight.w700, color: color)),
           ],
         ),
         const SizedBox(height: 5),
@@ -202,22 +202,22 @@ class _StateChip extends StatelessWidget {
     final (text, icon, color) = switch (state) {
       MatterState.solid => (
           AppLocalizations.of(context).stateSolid,
-          Icons.category_outlined,
+          AppIcons.categoryOutlined,
           palette.AppColors.dustyLavender
         ),
       MatterState.liquid => (
           AppLocalizations.of(context).stateLiquid,
-          Icons.water_drop_outlined,
+          AppIcons.waterDropOutlined,
           palette.AppColors.dustyMauve
         ),
       MatterState.gas => (
           AppLocalizations.of(context).stateGas,
-          Icons.air,
+          AppIcons.air,
           palette.AppColors.warning
         ),
       MatterState.unknown => (
           AppLocalizations.of(context).stateUnknown,
-          Icons.help_outline,
+          AppIcons.helpOutline,
           palette.AppColors.silver
         ),
     };

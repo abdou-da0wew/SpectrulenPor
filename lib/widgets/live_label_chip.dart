@@ -4,6 +4,7 @@ import '../l10n/app_localizations.dart';
 import '../models/recognition_state.dart';
 import '../utils/app_theme.dart' as palette;
 import '../utils/app_typography.dart';
+import '../utils/app_icons.dart';
 
 /// Small chip that shows the instant on-device label coming from the
 /// specialized ONNX model / Moondream / ML Kit, with a source icon.
@@ -86,17 +87,17 @@ class LiveLabelChip extends StatelessWidget {
   IconData _sourceIcon(VisionSource s) {
     switch (s) {
       case VisionSource.moondreamCloud:
-        return Icons.auto_awesome; // Moondream3 cloud
+        return AppIcons.autoAwesome; // Moondream3 cloud
       case VisionSource.moondreamLocal:
-        return Icons.memory; // local GGUF
+        return AppIcons.memory; // local GGUF
       case VisionSource.onnx:
-        return Icons.bolt; // specialized fast path
+        return AppIcons.bolt; // specialized fast path
       case VisionSource.mlkit:
-        return Icons.flash_on;
+        return AppIcons.flashOn;
       case VisionSource.error:
-        return Icons.error_outline;
+        return AppIcons.errorOutline;
       case VisionSource.idle:
-        return Icons.pause_circle_outline;
+        return AppIcons.pauseCircleOutline;
     }
   }
 }

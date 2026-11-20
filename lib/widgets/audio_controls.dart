@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
 import '../utils/app_theme.dart' as palette;
+import '../utils/app_icons.dart';
 
 /// Row of large, accessibility-friendly action buttons:
 ///   * "Describe now"  -> manual capture + analyze (works even when
@@ -40,7 +41,7 @@ class AudioControls extends StatelessWidget {
                         height: 18,
                         child: CircularProgressIndicator(
                             strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.center_focus_strong),
+                    : const Icon(AppIcons.centerFocusStrong),
                 label: Text(busy
                     ? AppLocalizations.of(context).analyzing
                     : AppLocalizations.of(context).describeNow),
@@ -59,7 +60,7 @@ class AudioControls extends StatelessWidget {
               height: 54,
               child: OutlinedButton.icon(
                 onPressed: onToggleSpeak,
-                icon: Icon(speaking ? Icons.volume_up : Icons.volume_off),
+                icon: Icon(speaking ? AppIcons.volumeUp : AppIcons.volumeOff),
                 label: Text(speaking
                     ? AppLocalizations.of(context).soundOn
                     : AppLocalizations.of(context).muted),

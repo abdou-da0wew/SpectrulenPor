@@ -5,6 +5,7 @@ import '../l10n/app_localizations.dart';
 import '../models/recognition_state.dart';
 import '../utils/app_theme.dart' as palette;
 import '../utils/app_typography.dart';
+import '../utils/app_icons.dart';
 
 /// Renders the streaming deep-reasoning markdown returned by OpenRouter.
 /// Shows a progress indicator while we wait for the first chunk.
@@ -33,7 +34,7 @@ class DeepInfoCard extends StatelessWidget {
                   radius: 14,
                   backgroundColor:
                       palette.AppColors.dustyLavender.withValues(alpha: 0.12),
-                  child: const Icon(Icons.psychology,
+                  child: const Icon(AppIcons.psychology,
                       color: palette.AppColors.dustyLavender, size: 18),
                 ),
                 const SizedBox(width: 10),
@@ -112,8 +113,8 @@ class DeepInfoCard extends StatelessWidget {
       ),
       child: Text(
         text,
-        style: TextStyle(
-            color: color, fontSize: 11, fontWeight: FontWeight.w700),
+        style:
+            TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w700),
       ),
     );
   }

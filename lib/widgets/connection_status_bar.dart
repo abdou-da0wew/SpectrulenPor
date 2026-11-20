@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
 import '../models/bluetooth_status.dart';
 import '../utils/app_theme.dart' as palette;
+import '../utils/app_icons.dart';
 
 /// Header pill showing the BLE connection state of the glasses,
 /// plus a connect / disconnect action.
@@ -67,13 +68,11 @@ class ConnectionStatusBar extends StatelessWidget {
           else if (status == BluetoothStatus.connected)
             TextButton.icon(
               onPressed: onDisconnect,
-              icon: const Icon(Icons.link_off, size: 16, color: Colors.white),
+              icon: const Icon(AppIcons.linkOff, size: 16, color: Colors.white),
               label: Text(AppLocalizations.of(context).disconnect,
-                  style: const TextStyle(
-                      color: Colors.white, fontSize: 12.5)),
+                  style: const TextStyle(color: Colors.white, fontSize: 12.5)),
               style: TextButton.styleFrom(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 minimumSize: Size.zero,
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
@@ -81,14 +80,12 @@ class ConnectionStatusBar extends StatelessWidget {
           else
             TextButton.icon(
               onPressed: onConnect,
-              icon: const Icon(Icons.bluetooth_searching,
+              icon: const Icon(AppIcons.bluetoothSearching,
                   size: 16, color: Colors.white),
               label: Text(AppLocalizations.of(context).connectGlasses,
-                  style: const TextStyle(
-                      color: Colors.white, fontSize: 12.5)),
+                  style: const TextStyle(color: Colors.white, fontSize: 12.5)),
               style: TextButton.styleFrom(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 minimumSize: Size.zero,
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 foregroundColor: Colors.white,
@@ -102,24 +99,23 @@ class ConnectionStatusBar extends StatelessWidget {
   IconData _iconFor(BluetoothStatus s) {
     switch (s) {
       case BluetoothStatus.disconnected:
-        return Icons.bluetooth_disabled;
+        return AppIcons.bluetoothDisabled;
       case BluetoothStatus.scanning:
-        return Icons.bluetooth_searching;
+        return AppIcons.bluetoothSearching;
       case BluetoothStatus.connecting:
-        return Icons.bluetooth;
+        return AppIcons.bluetooth;
       case BluetoothStatus.connected:
-        return Icons.bluetooth_connected;
+        return AppIcons.bluetoothConnectedFill;
       case BluetoothStatus.permissionDenied:
-        return Icons.bluetooth_disabled;
+        return AppIcons.bluetoothDisabled;
       case BluetoothStatus.adapterOff:
-        return Icons.bluetooth_disabled;
+        return AppIcons.bluetoothDisabled;
       case BluetoothStatus.error:
-        return Icons.error_outline;
+        return AppIcons.errorOutline;
     }
   }
 
-  String _label(BuildContext context, BluetoothStatus s) =>
-      switch (s) {
+  String _label(BuildContext context, BluetoothStatus s) => switch (s) {
         BluetoothStatus.disconnected =>
           AppLocalizations.of(context).glassesNotConnected,
         BluetoothStatus.scanning => AppLocalizations.of(context).scanning,

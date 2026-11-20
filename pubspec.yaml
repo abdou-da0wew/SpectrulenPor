@@ -62,6 +62,9 @@ dependencies:
 
   # ---------- Image processing (target marker painting + YUV->JPEG) ----------
   image: ^4.2.0
+  phosphoricons_flutter: ^1.1.1
+  home_widget: ^0.10.0
+  flutter_local_notifications: ^23.0.3
 
 dev_dependencies:
   flutter_test:
