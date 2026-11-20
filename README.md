@@ -8,7 +8,7 @@
 
 **Smart scientific glasses for object-aware chemistry and spectrum exploration**
 
-A student research prototype by **Malak Adel Sayed Hassan** and **Abdou**.
+**Project author:** Malak Adel Sayed Hassan · **Main software developer and original code author:** Abdou (عبد الرحمن أيمن محمد).
 
 [![App version](https://img.shields.io/badge/app-5.5.1%2B16-7D5A78?style=flat)](pubspec.yaml)
 ![Flutter](https://img.shields.io/badge/Flutter-3.19%2B-02569B?style=flat&logo=flutter&logoColor=white)
@@ -67,7 +67,7 @@ These screenshots were captured from the Flutter Web UI in a phone-sized browser
 
 *Editable source: [docs/diagrams/architecture.html](docs/diagrams/architecture.html) - a self-contained HTML + inline SVG document using the [diagram-design](https://github.com/cathrynlavery/diagram-design) editorial design system. The PNG is rendered from this source.*
 
-The important boundary is intentional: camera preview and YOLO inference run on the phone. A user-triggered analysis sends the selected capture to configured cloud services. BLE is used for setup and commissioning; it is **not** the video transport.
+The important boundary is intentional: camera preview and YOLO inference run on the phone. A user-triggered analysis sends the selected capture to configured cloud services. BLE is used for setup and commissioning; it is **not** the video transport. In setup mode, the BLE scan response also exposes the compact identity tags `DEV:Abdou;PROJECT:Malak`; the primary device name and GATT UUIDs are unchanged.
 
 ## Capture and analysis flow
 
@@ -136,7 +136,7 @@ The latest full Flutter run recorded in the 20 November work log completed with 
 
 A full-project `flutter analyze` attempt did not complete in the constrained shell. No clean analyzer result is claimed here.
 
-Firmware checks at the latest checkpoint included **3/3 C protocol tests** and **139 UDP testbench tests** passing; the firmware Python suite also passed. Host tests validate protocol and scheduling logic, but they do not substitute for a stable Android-to-board radio link or an extended physical soak.
+At this attribution checkpoint, **206 firmware Python tests**, **143 UDP testbench tests**, and **3/3 C protocol test groups** pass. The testbench total includes four new checks for project/developer metadata, BLE scan-response identity, Android package metadata, and the unchanged UDP V2 header. These host checks do not substitute for an ESP-IDF target build, a stable Android-to-board radio link, or an extended physical soak.
 
 The current known state and historical test evidence are recorded in [WORKLOG.md](WORKLOG.md). Reproduction steps and lower-level notes are in the [firmware README](firmware/README.md) and [hardware validation document](docs/firmware-hardware-validation.md).
 
@@ -223,6 +223,7 @@ After provisioning, place the phone and board on the same 2.4 GHz network, confi
 | [Contributing](CONTRIBUTING.md) | Repository workflow and contribution guidance |
 | [Agent instructions](AGENTS.md) | Repository-specific coding and verification rules |
 | [Project context](CONTEXT.md) | Project mission and background |
+| [Project metadata](PROJECT_METADATA.json) | Machine-readable project author, software developer and device attribution |
 | [Editable diagrams](docs/diagrams/) | HTML + inline SVG architecture, process and scientific retrieval visuals |
 
 Regenerate all three published diagram PNGs from their HTML sources:
@@ -233,11 +234,13 @@ tooling/render_diagrams.sh
 
 The renderer uses Chromium/Google Chrome. Set CHROME_BIN if the executable is installed under a non-standard name or path.
 
-## Authors
+## Project authorship and development
 
 | Name | Contribution |
 |---|---|
-| **Malak Adel Sayed Hassan** | Author and student researcher, Ashmounin Secondary School, Egypt |
-| **Abdou** (عبد الرحمن أيمن محمد عثمان علي محمد علي العركي) · [@abdou-da0wew](https://github.com/abdou-da0wew) | Co-author; application and firmware engineering, software architecture and systems integration |
+| **Malak Adel Sayed Hassan** | Project author and student researcher, Ashmounin Secondary School, Egypt |
+| **Abdou** (عبد الرحمن أيمن محمد) · [@abdou-da0wew](https://github.com/abdou-da0wew) | Main software and firmware developer; author of all original application and firmware code |
 
-This repository currently has no open-source license. Unless a license file is added, all rights remain with the authors; do not assume that the code may be redistributed under an open-source license.
+Malak is credited as the project author. Abdou is credited as the main software developer and author of the original application and firmware code. Third-party dependencies and upstream components retain their own authorship and licenses.
+
+This repository currently has no open-source license. Unless a license file is added, all rights remain with the rights holders; do not assume that the code may be redistributed under an open-source license.

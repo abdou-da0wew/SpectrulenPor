@@ -1,6 +1,6 @@
 # SpectruLenPor ESP32-CAM Firmware
 
-**Creator and primary developer:** Abdoul-Rahman Ayman ([`@abdou-da0wew`](https://github.com/abdou-da0wew)). Firmware authorship and maintenance details are recorded in [`MAINTAINERS.md`](MAINTAINERS.md) and [`manifest.json`](manifest.json).
+**Project author:** Malak Adel Sayed Hassan. **Main software and firmware developer / original code author:** Abdou (Abdou; عبد الرحمن أيمن محمد, [`@abdou-da0wew`](https://github.com/abdou-da0wew)). Attribution details are recorded in [`MAINTAINERS.md`](MAINTAINERS.md) and [`manifest.json`](manifest.json).
 
 ESP-IDF firmware for the AI-Thinker ESP32-CAM. BLE handles initial setup; saved WiFi credentials select WiFi-only operation on the next boot. The application entry point is [`components/main/main.c`](components/main/main.c).
 
@@ -67,6 +67,8 @@ WiFi retries are bounded by `WIFI_MAX_RETRIES` in `config.h`. Exhaustion reports
 
 TX is control/status text only. BLE never carries JPEG bytes or image fragments. The maximum notification payload is the smaller of 500 bytes and negotiated MTU minus 3. BLE is used for pairing, WiFi provisioning, provisioning status, and basic commissioning controls; after credentials are saved the ESP reboots into WiFi-only mode and does not initialize BLE.
 
+During setup-mode advertising, the primary advertisement keeps the existing `SpectruLenPor-ESP32` name and FFE0 service UUID. Its scan response includes FFE0 service data `DEV:Abdou;PROJECT:Malak`, identifying Abdou as software/firmware developer and Malak as project author. Active BLE scanning can read the scan response. This identity payload does not change the GATT UUIDs or provisioning commands.
+
 | Command | BLE | UDP | Effect |
 |---|---|---|---|
 | 0x00 | No | Yes | Pause streaming; keep the UDP listener open |
@@ -102,7 +104,9 @@ python3 -m unittest discover -s tests -p 'test_*.py' -v
 python3 -m unittest discover -s testbench/tests -p 'test_*.py' -v
 ```
 
-Latest source-fix checks on 2026-11-15 passed **180 firmware + 124 testbench = 304 Python tests**, zero failures/errors/skips, with raw logs, timestamps and unchanged source identities retained. Fresh strict-warning/ASan/UBSan protocol checks passed 578 command, 11 JPEG and 8,974 UDP checks. The complete Flutter suite passed **190 tests**, zero failures/skips, and `flutter analyze --no-pub` reported zero issues. UDP delivery verified on real ESP32-CAM hardware: fresh WiFi-only boot, 800x600 JPEG decoded over UDP, zero send failures. The focused 62 Python, 30 session/WiFi host-C and 63 Flutter tests are subsets, not extra counts. Earlier 146 + 101 = 247 Python results have inline-only provenance; earlier 218/195 Python and 147 Flutter snapshots remain historical. Eight actual-sender and four actual-`app_main` NVS guard regressions are included in the firmware suite. Flutter acquisition stubs do not verify real Android scheduling or scans; the interrupted earlier full Flutter run is not a pass.
+Historical source-fix checks on 2026-11-15 passed **180 firmware + 124 testbench = 304 Python tests**, zero failures/errors/skips, with raw logs, timestamps and unchanged source identities retained. Fresh strict-warning/ASan/UBSan protocol checks passed 578 command, 11 JPEG and 8,974 UDP checks. The complete Flutter suite passed **190 tests**, zero failures/skips, and `flutter analyze --no-pub` reported zero issues. UDP delivery verified on real ESP32-CAM hardware: fresh WiFi-only boot, 800x600 JPEG decoded over UDP, zero send failures. The focused 62 Python, 30 session/WiFi host-C and 63 Flutter tests are subsets, not extra counts. Earlier 146 + 101 = 247 Python results have inline-only provenance; earlier 218/195 Python and 147 Flutter snapshots remain historical. Eight actual-sender and four actual-`app_main` NVS guard regressions are included in the firmware suite. Flutter acquisition stubs do not verify real Android scheduling or scans; the interrupted earlier full Flutter run is not a pass.
+
+Latest attribution/identity regression checkpoint (2026-11-20): **206 firmware Python tests**, **143 testbench tests**, and **3/3 C protocol test groups** passed. The added testbench cases check the root/firmware authorship manifests, the 25-byte FFE0 BLE scan-response identity payload, Android application metadata, and the unchanged UDP V2 framing. The ESP-IDF build was not run in this environment because the configured IDF checkout path is unavailable; these host tests do not claim an ESP32 target compile.
 
 Hardware tests require Linux BlueZ, a powered BLE adapter, Python with `pyserial`, `dbus-python`, PyGObject and Pillow, plus NetworkManager / `nmcli` for `--wifi-from-nm`. Run them only against a board authorized for configuration changes:
 

@@ -12,6 +12,18 @@
 - Explicitly credited Abdou in the README and diagram bylines.
 - Validation: `bash -n tooling/render_diagrams.sh` passed; the render script produced all three 1600×1000 PNGs; image checks confirmed non-empty rendered content; `git diff --check` passed.
 
+### Project authorship and device attribution
+
+- Set project authorship to **Malak Adel Sayed Hassan** and identified **Abdou (عبد الرحمن أيمن محمد)** as the software and firmware developer and author of all original application, firmware, and integration code.
+- Added the repository-level `PROJECT_METADATA.json`, matching firmware `manifest.json` fields, Android application metadata, package description metadata, and concise attribution comments in the Dart, Kotlin, and C entry points/contracts.
+- Added BLE FFE0 service data to the setup-mode scan response: `DEV:Abdou;PROJECT:Malak`. The existing primary BLE device name, GATT characteristics and provisioning commands remain unchanged. The service-data payload is 25 bytes and fits the 31-byte legacy scan-response limit including the AD structure overhead.
+- Kept the UDP V2 six-field / 24-byte wire header unchanged. Human-readable authorship is separate metadata, not inserted into frame packets.
+- Shortened the developer name everywhere in current app and documentation copy to `Abdou (عبد الرحمن أيمن محمد)`. Updated English and Arabic About strings and generated localization outputs.
+- Removed the legacy automatic commit-message co-author hook and its setup instructions; future commits use the repository developer identity only.
+- Renamed the superseded task note to `PROJECT_ATTRIBUTION_ACKNOWLEDGED.txt` and replaced the obsolete hook instructions with the current attribution policy.
+- Validation: **206 firmware Python tests**, **143 testbench tests**, and **3/3 strict-warning/ASan/UBSan C protocol test groups** passed. The new attribution test checks the manifests, BLE scan-response bytes/size, Android package metadata, and unchanged UDP V2 framing. Android manifest XML and both JSON metadata files parse successfully. Diagram sources were re-rendered to 1600×1000 PNGs.
+- Limitation: the saved ESP-IDF environment descriptor points to `/home/aboood/esp-idf`, which is absent from this shell, and no `idf.py` executable is available. The ESP32 target build and on-device BLE scan-response read were therefore not performed. Flutter/Dart CLI tools are also unavailable in this shell; generated EN/AR localization outputs were updated alongside their ARB sources.
+
 ### Firmware and end-to-end camera transport
 
 - Move the ESP32-CAM sender and Flutter receiver to the same UDP V2 contract: a six-word header, 1200-byte JPEG payloads, frame/session identity, interleaved XOR parity recovery, and strict malformed/stale-fragment rejection.
@@ -47,7 +59,7 @@
 - `5c27078` storage, diagnostics and history
 - `2229341` responsive UI, Phosphor icons and app widget
 - `39e878a` English/Arabic localization
-- `f167866` Git co-author hook and read-note acknowledgement
+- `f167866` Git commit-hook setup and read-note acknowledgement
 
 ---
 

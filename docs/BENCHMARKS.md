@@ -14,8 +14,8 @@ One rule: **a number either was measured, or it is marked pending.** Nothing in 
 | Focused TTS + speech text-correction tests | **13 passed** | Rerun after the TTS sanitizer fix; `test/services/openrouter_tts_service_test.dart` and `test/services/speech_text_corrector_test.dart` |
 | Full-project static analysis | **Not confirmed** | Latest `flutter analyze` attempt did not complete; no clean analyzer result is claimed |
 | Latest firmware host C protocol suite | **3/3 passed** | Latest 2026-11-20 checkpoint; protocol host tests |
-| Latest UDP testbench suite | **139 passed** | Latest 2026-11-20 checkpoint; Python UDP HIL/testbench suite |
-| Firmware Python suite | **Passed; exact count not recorded in the latest checkpoint** | The current work log records a pass but does not carry forward a verified total |
+| Latest UDP testbench suite | **143 passed** | 2026-11-20 attribution checkpoint; includes four project/device identity regression tests |
+| Firmware Python suite | **206 passed** | `cd firmware && python3 -m unittest discover -s tests -p 'test_*.py'`; 2026-11-20 attribution checkpoint |
 | Earlier reported host Python suites | **146 firmware + 101 testbench = 247 passing**, inline-only provenance | No retained raw log or exact execution timestamp for this historical run |
 | Earlier retained host Python suites | **117 firmware + 101 testbench = 218 passing**, zero failures/errors/skips | Retained cleanup/safety snapshot, predates later standalone-signal and sender changes |
 | Repeated CLI/NVS regressions | **17 CLI + 4 actual-`app_main` tests passed** | Subsets already included in the 218 Python tests; not extra counts |

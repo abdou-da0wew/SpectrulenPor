@@ -1,18 +1,24 @@
 # Firmware authorship and maintenance
 
-**Creator and primary developer:** Abdoul-Rahman Ayman
+**Project author:** Malak Adel Sayed Hassan
+
+**Main developer and original firmware code author:** Abdou
 
 **GitHub:** [@abdou-da0wew](https://github.com/abdou-da0wew)
 **Repository:** [SpectruLenPor](https://github.com/abdou-da0wew/SpectrulenPor)
 
-Abdoul-Rahman Ayman created and maintains the SpectruLenPor firmware, including
-the ESP32-CAM runtime, BLE commissioning path, Wi-Fi/UDP streaming, camera
-control, and AS7265x sensor integration.
+Abdou authored and implemented the original SpectruLenPor
+application, ESP32-CAM firmware, and integration code, including the BLE
+commissioning path, Wi-Fi/UDP streaming, camera control, and sensor integration.
+Malak Adel Sayed Hassan is credited separately as the project author.
 
-The machine-readable project metadata is stored in `manifest.json`. Firmware
-version and author identifiers are also exposed to the C build through
-`config.h`, then written to the boot log from `main.c`.
+Machine-readable attribution is maintained in the repository-level
+PROJECT_METADATA.json and firmware/manifest.json. Firmware build identity is
+exposed through config.h and the boot log. BLE setup-mode scan responses carry
+the compact compatibility-safe value DEV:Abdou;PROJECT:Malak; full developer
+identity and GitHub attribution remain in metadata. The UDP V2 wire header is
+intentionally unchanged to preserve compatibility.
 
-Third-party libraries, framework components, and device SDKs retain their
-respective authorship and licenses. This project attribution does not replace
+Third-party libraries, framework components, models, and device SDKs retain
+their respective authorship and licenses. Project attribution does not replace
 their notices.

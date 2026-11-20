@@ -120,7 +120,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get credits =>
-      'SpectruLenPor · Malak Adel Sayed Hassan · Grade 1 secondary, Class 3/1 · Ashmounin Secondary School';
+      'SpectruLenPor · Project author: Malak Adel Sayed Hassan · Grade 1 secondary, Class 3/1 · Ashmounin Secondary School';
 
   @override
   String get visionSourceMoondream => 'Moondream3 cloud';
@@ -1128,5 +1128,5 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get aboutBody =>
-      'SpectruLenPor v5.5 — Local YOLO26-Nano ONNX object detection (bundled + auto-download) + Cloud-only policy toggle (keeping YOLO local) + Moondream3 Cloud VLM + OpenRouter nemotron→gemma→inkling reasoning chain + streamed fish-audio/s2.1-pro-free:free TTS + 3-mode scientific RAG (Strict / Detailed / Semantic across 119 Periodic Table elements, 110 chemical compounds/materials, GHS lab safety, PubChem, Wikipedia & Web Search) + Google-Search-style inline [n] citations + candidate lexical source-match hints (not proof of correctness) + auto-updating structured ConversationContext + 9-table SQLite WAL Internal Database (saved chats, TTL response cache, logs, hangs/crashes, traces & telemetry).\n\nPipeline: phone camera / ESP32-CAM → local YOLO26-Nano interactive boxes → tap box to lock target marker → press Capture & Analyze for dual JPEG capture (clean + marked) → Moondream3 analyzeSelected → grounded LLM context + candidate source matching → persistent chat session with auto-updating context.\n\nMalak Adel Sayed Hassan (student) · Abdoul-Rahman Ayman Mohamed (developer) · Grade 1 secondary, Class 3/1 · Ashmounin Secondary School · Budget: 2,500–6,000 EGP.';
+      'SpectruLenPor v5.5 — Local YOLO26-Nano ONNX object detection (bundled + auto-download) + Cloud-only policy toggle (keeping YOLO local) + Moondream3 Cloud VLM + OpenRouter nemotron→gemma→inkling reasoning chain + streamed fish-audio/s2.1-pro-free:free TTS + 3-mode scientific RAG (Strict / Detailed / Semantic across 119 Periodic Table elements, 110 chemical compounds/materials, GHS lab safety, PubChem, Wikipedia & Web Search) + Google-Search-style inline [n] citations + candidate lexical source-match hints (not proof of correctness) + auto-updating structured ConversationContext + 9-table SQLite WAL Internal Database (saved chats, TTL response cache, logs, hangs/crashes, traces & telemetry).\n\nPipeline: phone camera / ESP32-CAM → local YOLO26-Nano interactive boxes → tap box to lock target marker → press Capture & Analyze for dual JPEG capture (clean + marked) → Moondream3 analyzeSelected → grounded LLM context + candidate source matching → persistent chat session with auto-updating context.\n\nMalak Adel Sayed Hassan (project author) · Abdou (عبد الرحمن أيمن محمد) (software developer and original code author) · Grade 1 secondary, Class 3/1 · Ashmounin Secondary School · Budget: 2,500–6,000 EGP.';
 }

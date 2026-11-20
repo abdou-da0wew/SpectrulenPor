@@ -1,0 +1,6 @@
+Project attribution update (2026-11-20):
+
+Project author: Malak Adel Sayed Hassan.
+Software and firmware developer / original code author: Abdou (عبد الرحمن أيمن محمد).
+
+Future commits should identify Abdou as the developer and code author. Keep third-party attribution separate.
