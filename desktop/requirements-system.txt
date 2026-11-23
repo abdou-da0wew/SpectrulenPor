@@ -1,0 +1,3 @@
+# Install GTK/Adw/Gio and PyGObject from Ubuntu system packages.
+# Optional serial monitoring:
+pyserial>=3.5

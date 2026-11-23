@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=SpectruLenPor Lab
+Comment=Native ESP32-CAM commissioning, video and telemetry console
+Exec=@LAUNCHER@
+Icon=camera-web-symbolic
+Terminal=false
+StartupNotify=true
+StartupWMClass=com.spectrulenpor.Lab
+Categories=Development;Engineering;

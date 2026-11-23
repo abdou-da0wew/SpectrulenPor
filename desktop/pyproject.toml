@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spectrulenpor-lab"
+version = "0.1.0"
+description = "Native GNOME desktop console for SpectruLenPor ESP32-CAM diagnostics"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+spectrulenpor-lab = "spectrulenpor_console.app:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["spectrulenpor_console*"]
