@@ -24,6 +24,26 @@ allprojects {
     }
 }
 
+// Keep every Android module on the installed NDK. AGP 9.1 otherwise defaults
+// plugin subprojects to NDK 28.2 even when the app explicitly uses 25.2.
+subprojects {
+    plugins.withId("com.android.application") {
+        extensions.configure<com.android.build.api.dsl.ApplicationExtension>("android") {
+            ndkVersion = "25.2.9519653"
+        }
+    }
+    plugins.withId("com.android.library") {
+        extensions.configure<com.android.build.api.dsl.LibraryExtension>("android") {
+            ndkVersion = "25.2.9519653"
+        }
+    }
+    plugins.withId("com.android.test") {
+        extensions.configure<com.android.build.api.dsl.TestExtension>("android") {
+            ndkVersion = "25.2.9519653"
+        }
+    }
+}
+
 val newBuildDir: Directory = rootProject.layout.buildDirectory.dir("../../build").get()
 rootProject.layout.buildDirectory.value(newBuildDir)
 

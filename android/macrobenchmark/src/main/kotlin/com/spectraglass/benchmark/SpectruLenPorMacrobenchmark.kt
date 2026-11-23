@@ -1,8 +1,9 @@
 package com.spectraglass.benchmark
 
+import androidx.benchmark.macro.ExperimentalMetricApi
 import androidx.benchmark.macro.FrameTimingMetric
-import androidx.benchmark.macro.MacrobenchmarkRule
 import androidx.benchmark.macro.MemoryUsageMetric
+import androidx.benchmark.macro.junit4.MacrobenchmarkRule
 import androidx.benchmark.macro.StartupMode
 import androidx.benchmark.macro.StartupTimingMetric
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -15,6 +16,7 @@ import org.junit.runner.RunWith
  * AndroidX writes iteration metrics and Perfetto traces to the connected-test
  * results. Use a physical device for useful camera/GPU/thermal measurements.
  */
+@OptIn(ExperimentalMetricApi::class)
 @RunWith(AndroidJUnit4::class)
 class SpectruLenPorMacrobenchmark {
     @get:Rule
@@ -26,7 +28,7 @@ class SpectruLenPorMacrobenchmark {
     fun coldStartupTimingAndMemory() {
         benchmarkRule.measureRepeated(
             packageName = targetPackage,
-            metrics = listOf(StartupTimingMetric(), MemoryUsageMetric()),
+            metrics = listOf(StartupTimingMetric(), MemoryUsageMetric(mode = MemoryUsageMetric.Mode.Max)),
             iterations = 8,
             startupMode = StartupMode.COLD,
             setupBlock = {
@@ -42,7 +44,7 @@ class SpectruLenPorMacrobenchmark {
     fun warmStartupTimingAndMemory() {
         benchmarkRule.measureRepeated(
             packageName = targetPackage,
-            metrics = listOf(StartupTimingMetric(), MemoryUsageMetric()),
+            metrics = listOf(StartupTimingMetric(), MemoryUsageMetric(mode = MemoryUsageMetric.Mode.Max)),
             iterations = 10,
             startupMode = StartupMode.WARM,
             setupBlock = {
@@ -58,7 +60,7 @@ class SpectruLenPorMacrobenchmark {
     fun homeGestureFrameTimingAndMemory() {
         benchmarkRule.measureRepeated(
             packageName = targetPackage,
-            metrics = listOf(FrameTimingMetric(), MemoryUsageMetric()),
+            metrics = listOf(FrameTimingMetric(), MemoryUsageMetric(mode = MemoryUsageMetric.Mode.Max)),
             iterations = 8,
             startupMode = StartupMode.WARM,
             setupBlock = {

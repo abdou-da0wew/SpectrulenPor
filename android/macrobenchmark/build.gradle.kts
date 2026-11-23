@@ -9,6 +9,12 @@ extensions.configure<com.android.build.gradle.TestExtension>("android") {
     compileSdkVersion(37)
     targetProjectPath = ":app"
 
+    // Keep Java on the same bytecode target as the Kotlin benchmark sources.
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
     defaultConfig {
         minSdkVersion(31)
         targetSdkVersion(36)
