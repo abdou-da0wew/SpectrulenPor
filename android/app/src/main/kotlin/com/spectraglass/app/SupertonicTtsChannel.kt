@@ -36,7 +36,7 @@ object SupertonicTtsChannel {
     private var textSession: OrtSession? = null
     private var vectorSession: OrtSession? = null
     private var vocoderSession: OrtSession? = null
-    private var loadedDirectory: String? = null
+    @Volatile private var loadedDirectory: String? = null
     private var unicodeIndexer: Map<Int, Int>? = null
 
     fun register(engine: FlutterEngine, context: Context) {
@@ -171,7 +171,13 @@ object SupertonicTtsChannel {
             .also { unicodeIndexer = it }
         val tagged = "<$language>$normalized</$language>"
         val codepoints = tagged.codePoints().toArray()
-        val ids = LongArray(codepoints.size) { indexer[codepoints[it]]?.toLong() ?: 0L }
+        val ids = LongArray(codepoints.size) { index ->
+            val codepoint = codepoints[index]
+            indexer[codepoint]?.toLong() ?: run {
+                val printable = String(Character.toChars(codepoint))
+                error("Supertonic does not support character '$printable' (U+${codepoint.toString(16).uppercase()}).")
+            }
+        }
         val mask = FloatArray(codepoints.size) { 1f }
         val durationData = runTensor(durationModel, mapOf(
             "text_ids" to longTensor(env, ids, longArrayOf(1, ids.size.toLong())),
@@ -209,9 +215,11 @@ object SupertonicTtsChannel {
             if (update.size != latent.size) error("Vector estimator output shape mismatch.")
             for (i in latent.indices) latent[i] = update[i]
         }
-        return runTensor(vocoderModel, mapOf(
+        val waveform = runTensor(vocoderModel, mapOf(
             "latent" to floatTensor(env, latent, longArrayOf(1, latentDimension.toLong(), latentLength.toLong()))
         )).values
+        val validSamples = (duration * sampleRate).toInt().coerceIn(1, waveform.size)
+        return if (validSamples == waveform.size) waveform else waveform.copyOf(validSamples)
     }
 
     private fun runTensor(session: OrtSession, inputs: Map<String, OnnxTensor>): TensorData {

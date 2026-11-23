@@ -13,8 +13,11 @@ class SupertonicTtsService {
   static final SupertonicTtsService instance = SupertonicTtsService._();
 
   static const _channel = MethodChannel('spectrulenpor/supertonic');
+  // The upstream project moved its model weights to the archived namespace.
+  // Pin the exact revision so a future repository update cannot silently
+  // change tokenizer, voice-style, or ONNX tensor compatibility.
   static const _baseUrl =
-      'https://huggingface.co/Supertone/supertonic-3/resolve/main';
+      'https://huggingface.co/supertone-oss-archive/supertonic-3/resolve/aafc6e32416a594460b32413efc49d7fe4ce6d46';
   static const _minimumModelBytes = {
     'duration_predictor.onnx': 1 * 1024 * 1024,
     'text_encoder.onnx': 10 * 1024 * 1024,
@@ -147,10 +150,61 @@ class SupertonicTtsService {
     }
   }
 
+  /// Runs native ONNX inference without playing the generated audio. This is
+  /// used by the benchmark lab to measure cold/warm synthesis latency and
+  /// real-time factor without disrupting the user's audio session.
+  Future<Map<String, dynamic>?> benchmarkSynthesis(
+    String text, {
+    String? languageCode,
+    int inferenceSteps = 5,
+    double speed = 1.0,
+  }) async {
+    if (!Platform.isAndroid || text.trim().isEmpty) return null;
+    if (!await hasInstalledModels()) return null;
+
+    final root = await _modelRoot();
+    final stopwatch = Stopwatch()..start();
+    final result = await _channel.invokeMapMethod<String, dynamic>(
+      'synthesize',
+      {
+        'text': _cleanText(text),
+        'language': _resolveLanguage(text, languageCode),
+        'modelDirectory': '${root.path}/onnx',
+        'styleFile': '${root.path}/voice_styles/M1.json',
+        'steps': inferenceSteps,
+        'speed': speed,
+      },
+    );
+    stopwatch.stop();
+
+    final outputPath = result?['path'] as String?;
+    final outputFile = outputPath == null ? null : File(outputPath);
+    final outputBytes = outputFile != null && await outputFile.exists()
+        ? await outputFile.length()
+        : 0;
+    final audioDurationMs = (result?['durationMs'] as num?)?.toDouble() ?? 0;
+    if (outputFile != null && await outputFile.exists()) {
+      await outputFile.delete();
+    }
+
+    return {
+      'latencyMs': stopwatch.elapsedMilliseconds,
+      'audioDurationMs': audioDurationMs,
+      'sampleRate': result?['sampleRate'],
+      'outputBytes': outputBytes,
+      'realTimeFactor': audioDurationMs <= 0
+          ? null
+          : stopwatch.elapsedMilliseconds / audioDurationMs,
+      'language': _resolveLanguage(text, languageCode),
+      'inferenceSteps': inferenceSteps,
+      'speed': speed,
+    };
+  }
+
   Future<bool> speak(
     String text, {
     String? languageCode,
-    int inferenceSteps = 4,
+    int inferenceSteps = 5,
     double speed = 1.0,
     void Function(String file, int received, int total)? onDownloadProgress,
   }) async {

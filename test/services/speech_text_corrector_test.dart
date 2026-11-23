@@ -85,5 +85,26 @@ void main() {
         isEmpty,
       );
     });
+
+    test(
+        'corrects common bilingual science and device vocabulary conservatively',
+        () {
+      expect(
+        SpeechTextCorrector.correct(
+          'moon dream and on n x yolo 26 nano esp 32 cam as 7265 x',
+          languageCode: 'en-US',
+          isFinal: true,
+        ),
+        'Moondream and ONNX YOLO26-Nano ESP32-CAM AS7265x.',
+      );
+      expect(
+        SpeechTextCorrector.correct(
+          'كلمة غير معروفة تماماً',
+          languageCode: 'ar-EG',
+          isFinal: true,
+        ),
+        'كلمة غير معروفة تماما.',
+      );
+    });
   });
 }
