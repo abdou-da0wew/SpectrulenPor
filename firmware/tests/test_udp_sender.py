@@ -26,6 +26,7 @@ HOST_STUBS = r"""
 static bool s_started = true, s_app_peer_known = true;
 static int s_sock = 1;
 static uint32_t s_next_frame_id = 100;
+static uint32_t s_tx_retry_packets, s_tx_retry_attempts, s_tx_retry_wait_ms;
 static uint16_t s_app_port = UDP_VIDEO_PORT;
 static struct { struct { struct { uint32_t addr; } ip4; } u_addr; } s_app_ip;
 static const char *TAG = "HOST";
@@ -97,13 +98,13 @@ int main(int argc, char **argv)
     if (argc != 2) return EXIT_FAILURE;
     scenario = atoi(argv[1]);
     uint8_t jpeg[UDP_PAYLOAD_BYTES * 9U + JPEG_MIN_BYTES] = {0xff, 0xd8};
-    const size_t jpeg_len = scenario == 8 ? sizeof(jpeg) : UDP_PAYLOAD_BYTES + JPEG_MIN_BYTES;
+    const size_t jpeg_len = scenario == 8 ? sizeof(jpeg) : scenario == 0 ? 2893U : UDP_PAYLOAD_BYTES + JPEG_MIN_BYTES;
     jpeg[jpeg_len - 2] = 0xff;
     jpeg[jpeg_len - 1] = 0xd9;
     bool sent = udp_stream_send_frame(jpeg, jpeg_len, 4U);
     switch (scenario) {
     case 0:
-        expect(sent && send_calls == 4 && log_text[0] == '\0', "successful frame includes data plus XOR parity");
+        expect(sent && send_calls == 3 && delay_calls == 2 && log_text[0] == '\0', "QVGA sends two data packets plus parity and paces only between datagrams");
         break;
     case 1:
         expect(!sent && send_calls == 0, "deadline before first attempt");
@@ -135,7 +136,7 @@ int main(int argc, char **argv)
                "short datagram identity");
         break;
     case 6:
-        expect(sent && send_calls == 6 && log_text[0] == '\0', "transient retry recovers then sends parity");
+        expect(sent && send_calls == 5 && log_text[0] == '\0', "transient retry recovers then sends one XOR parity packet");
         break;
     case 7: {
         unsigned before = send_calls;

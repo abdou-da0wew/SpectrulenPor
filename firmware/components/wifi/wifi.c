@@ -401,6 +401,18 @@ int wifi_rssi_dbm(void)
     return ap_info.rssi;
 }
 
+int wifi_channel_number(void)
+{
+    if (!wifi_is_connected()) {
+        return 0;
+    }
+    wifi_ap_record_t ap_info = {0};
+    if (esp_wifi_sta_get_ap_info(&ap_info) != ESP_OK) {
+        return 0;
+    }
+    return (int)ap_info.primary;
+}
+
 esp_ip_addr_t wifi_app_address(void)
 {
     return s_app_ip;

@@ -611,9 +611,10 @@ def jpeg_packets(frame=TEST_JPEG, frame_id=1):
                     frame_id=frame_id, frame_size=len(frame)), TEST_PEER)
         for seq in range(total)
     ]
-    for group_index in range(min(total, helpers.UDP_FEC_GROUP_SIZE)):
+    group_size = helpers.udp_fec_group_size(total)
+    for group_index in range(min(total, group_size)):
         parity = bytearray(helpers.UDP_PAYLOAD_BYTES)
-        for seq in range(group_index, total, helpers.UDP_FEC_GROUP_SIZE):
+        for seq in range(group_index, total, group_size):
             offset = seq * helpers.UDP_PAYLOAD_BYTES
             chunk = frame[offset:offset + helpers.UDP_PAYLOAD_BYTES]
             for index, value in enumerate(chunk):
@@ -648,14 +649,14 @@ def make_udp_receiver(packets):
 
 
 class UdpFrameTests(ClockedTestCase):
-    def test_wire_contract_is_v2_six_uint32_fields_and_1200_byte_chunks(self):
+    def test_wire_contract_is_v2_six_uint32_fields_and_mtu_sized_chunks(self):
         self.assertEqual(helpers.UDP_HEADER.size, 24)
         self.assertEqual(helpers.UDP_HEADER.format, "<IIIIII")
-        self.assertEqual(helpers.UDP_PAYLOAD_BYTES, 1200)
+        self.assertEqual(helpers.UDP_PAYLOAD_BYTES, 1448)
         self.assertEqual(helpers.UDP_FEC_GROUP_SIZE, 4)
         self.assertEqual(helpers.UDP_HEADER.unpack(
-            helpers.UDP_HEADER.pack(1, 2, 1200, 88, 7, 1288)),
-            (1, 2, 1200, 88, 7, 1288))
+            helpers.UDP_HEADER.pack(1, 2, 1448, 88, 7, 1488)),
+            (1, 2, 1448, 88, 7, 1488))
 
     def test_udp_peer_echo_requires_exact_payload_and_source(self):
         receiver = make_udp_receiver([(b"\x0c", TEST_PEER)])
@@ -829,8 +830,8 @@ class UdpFrameTests(ClockedTestCase):
         stamp, frame = receiver.next_frame(timeout=TEST_TIMEOUT)
         self.assertEqual(stamp, TEST_EPOCH)
         self.assertEqual(frame, TEST_JPEG)
-        self.assertEqual(receiver.packets, 0)
-        self.assertEqual(receiver.parity_packets, 2)
+        self.assertEqual(receiver.packets, 1)
+        self.assertEqual(receiver.parity_packets, 1)
         self.assertEqual(receiver.datagrams, 2)
         self.assertEqual(receiver.parts, {})
         self.assertEqual(receiver.total, 0)
@@ -846,7 +847,7 @@ class UdpFrameTests(ClockedTestCase):
         with self.assertRaisesRegex(TimeoutError, "^HIL_UDP_FRAME_TIMEOUT$"):
             receiver.next_frame(timeout=TEST_TIMEOUT)
 
-        self.assertEqual(receiver.stale_datagrams, 2)
+        self.assertEqual(receiver.stale_datagrams, 1)
         self.assertIsNone(receiver.frame_id)
         self.assertEqual(receiver.parts, {})
 
@@ -958,7 +959,7 @@ class UdpFrameTests(ClockedTestCase):
     def test_invalid_sequence_and_frame_metadata_are_rejected(self):
         cases = (
             udp_packet(0, 0, 0, b"x", frame_size=4),
-            udp_packet(2, 2, 2400, b"x", frame_size=2401),
+            udp_packet(2, 3, 2800, b"x", frame_size=2401),
             udp_packet(0, 2, 0, b"x", frame_size=helpers.MAX_FRAME_BYTES + 1),
         )
         for packet in cases:
@@ -969,7 +970,7 @@ class UdpFrameTests(ClockedTestCase):
     def test_invalid_sizes_and_offsets_are_rejected(self):
         invalid = (
             udp_packet(0, 2, 0, b"", size=0, frame_size=2400),
-            udp_packet(0, 2, 0, b"x" * 1201, size=1201, frame_size=2000),
+            udp_packet(0, 2, 0, b"x" * 1401, size=1401, frame_size=2000),
             udp_packet(0, 2, 1, b"x", frame_size=2400),
             udp_packet(0, 2, 0, b"x", size=2, frame_size=2400),
             udp_packet(0, 2, 0, b"x", frame_size=2000),

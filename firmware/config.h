@@ -55,6 +55,7 @@
 #define CAM_BLE_JPEG_QUALITY 16
 #define CAM_XCLK_HZ       20000000
 #define CAM_FRAME_BUFFERS 2
+#define CAMERA_PROFILE_SETTLE_MS 150U
 #define CAM_SETTINGS_NEUTRAL 0
 #define CAM_GAIN_CEILING GAINCEILING_2X
 #define MAX_FRAME_BYTES  (512U * 1024U)
@@ -119,6 +120,7 @@ _Static_assert(sizeof(BLE_PAIRING_CODE) - 1U == BLE_PAIRING_CODE_LEN,
 #define CMD_BLE_PAIR            0x0A   /* payload: pairing code string */
 #define CMD_REBOOT              0x0B   /* reboot ESP after WiFi setup complete */
 #define CMD_UDP_KEEPALIVE        0x0C   /* refresh current UDP peer without resuming */
+#define CMD_SET_VIDEO_PROFILE   0x0D   /* payload: profile 0..4, 0xFF=auto */
 
 /* ---------------------------------------------------------------------------
  *  Stream / telemetry timing
@@ -131,19 +133,18 @@ _Static_assert(sizeof(BLE_PAIRING_CODE) - 1U == BLE_PAIRING_CODE_LEN,
 #define MAIN_STREAM_POLL_INTERVAL_MS 1U
 #define RESTART_ACK_DELAY_MS    200
 #define BLE_CHUNK_SIZE          500   /* <= MTU-3 */
-#define STATUS_TEXT_CAPACITY    256
+#define STATUS_TEXT_CAPACITY    768
 #define TELEMETRY_TEXT_CAPACITY 64
 #define IPV4_TEXT_CAPACITY      16
 #define FIRMWARE_VERSION        "3.2.0"
 
 /* Project author and original code developer are credited separately. */
 #define PROJECT_AUTHOR_NAME          "Malak Adel Sayed Hassan"
-#define FIRMWARE_DEVELOPER_NAME      "Abdou"
-#define FIRMWARE_DEVELOPER_DISPLAY   "Abdou"
-#define FIRMWARE_DEVELOPER_NAME_AR   "عبد الرحمن أيمن محمد"
+#define FIRMWARE_DEVELOPER_NAME      "Abdoul-Rahman Ayman"
+#define FIRMWARE_DEVELOPER_DISPLAY   "Abdoul-Rahman Ayman"
 #define FIRMWARE_DEVELOPER_GITHUB    "abdou-da0wew"
 #define FIRMWARE_DEVELOPER_URL       "https://github.com/abdou-da0wew"
-#define FIRMWARE_DEVELOPER_ROLE      "Software and firmware developer; code author"
+#define FIRMWARE_DEVELOPER_ROLE      "Main software and firmware developer; original code author"
 /* BLE scan-response service data is defined in ble.c, separate from UDP V2. */
 
 
@@ -151,9 +152,9 @@ _Static_assert(sizeof(BLE_PAIRING_CODE) - 1U == BLE_PAIRING_CODE_LEN,
  *  WiFi / UDP video (WiFi-only mode after BLE setup)
  * -------------------------------------------------------------------------- */
 #define UDP_VIDEO_PORT     8888
-#define UDP_MTU_SAFE       1280U
+#define UDP_MTU_SAFE       1472U      /* IPv4 UDP payload budget at 1500-byte IP MTU */
 #define UDP_HEADER_LEN     24U        /* six little-endian u32 fields */
-#define UDP_PAYLOAD_BYTES  1200U      /* 802.11/1500-byte-IP-MTU-safe JPEG chunks */
+#define UDP_PAYLOAD_BYTES  1448U      /* 24-byte V2 header fills the 1472-byte IPv4 UDP budget */
 #define UDP_FEC_GROUP_SIZE 4U
 #define UDP_PARITY_SEQUENCE_FLAG 0x80000000UL
 #define WIFI_HOSTNAME      "spectrulenpor-esp32"
@@ -161,7 +162,7 @@ _Static_assert(sizeof(BLE_PAIRING_CODE) - 1U == BLE_PAIRING_CODE_LEN,
 #define WIFI_MAX_RETRIES     20
 #define WIFI_CONNECT_TIMEOUT_MS 30000
 #define WIFI_BOOT_ASSOCIATION_WAIT_MS 5000
-#define WIFI_BLE_RECOVERY_DELAY_MS 30000U
+#define WIFI_BLE_RECOVERY_DELAY_MS 60000U
 #define WIFI_SCAN_RESULT_CAPACITY 16
 #define WIFI_MIN_RSSI_DBM (-127)
 #define WIFI_SSID_MAX_BYTES 32U
@@ -183,9 +184,15 @@ _Static_assert(sizeof(BLE_PAIRING_CODE) - 1U == BLE_PAIRING_CODE_LEN,
 /* Command max size including WiFi config payload */
 #define COMMAND_MAX_BYTES (1U + WIFI_SSID_CAPACITY + WIFI_PASSWORD_CAPACITY)
 #define UDP_PACKET_PACE_HIGH_MS 1U
-#define UDP_PACKET_PACE_MEDIUM_MS 2U
-#define UDP_PACKET_PACE_LOW_MS 5U
-#define UDP_PACKET_PACE_MINIMAL_MS 8U
+#define UDP_PACKET_PACE_MEDIUM_MS 1U
+#define UDP_PACKET_PACE_LOW_MS 2U
+/*
+ * Keep baseline datagram pacing small at every resolution. Transient lwIP
+ * pressure is handled by bounded exponential retry in udp_stream.c; long
+ * fixed sleeps on low-resolution profiles were throttling the stream itself.
+ */
+#define UDP_PACKET_PACE_MINIMAL_MS 2U
+#define UDP_PACKET_PACE_ULTRA_MS 1U
 #define UDP_SEND_RETRY_DELAY_MS 5U
 #define UDP_SEND_RETRY_MAX_DELAY_MS 32U
 #define UDP_SEND_MAX_ATTEMPTS 16U
@@ -194,19 +201,21 @@ _Static_assert(sizeof(BLE_PAIRING_CODE) - 1U == BLE_PAIRING_CODE_LEN,
 #define UDP_CONTROL_DUPLICATE_DELAY_MS 12U
 #define UDP_FRAME_SEND_TIMEOUT_MS 3000
 #define UDP_FRAME_BUDGET_MS 50U
-#define UDP_FRAME_BUDGET_SVGA_MS 40U
 #define UDP_PROFILE_HOLD_MS 15000U
 #define UDP_RSSI_HIGH_DBM       (-60)
 #define UDP_RSSI_MEDIUM_DBM    (-66)
 #define UDP_RSSI_LOW_DBM       (-70)
+#define UDP_RSSI_ULTRA_DBM     (-82)
 #define UDP_QUALITY_HIGH         20
 #define UDP_QUALITY_MEDIUM       24
 #define UDP_QUALITY_LOW          28
-#define UDP_QUALITY_MINIMAL      34
+#define UDP_QUALITY_MINIMAL      40
+#define UDP_QUALITY_ULTRA        40
 #define UDP_INTERVAL_HIGH_MS      0
 #define UDP_INTERVAL_MEDIUM_MS    0
 #define UDP_INTERVAL_LOW_MS      10
-#define UDP_INTERVAL_MINIMAL_MS  25
+#define UDP_INTERVAL_MINIMAL_MS  0
+#define UDP_INTERVAL_ULTRA_MS    0U
 #define UDP_PEER_SETTLE_MS 250
 #define UDP_POLL_MAX_PACKETS 16
 #define UDP_RCVBUF_BYTES 262144

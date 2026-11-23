@@ -10,6 +10,7 @@ typedef struct {
 
 typedef struct {
     uint8_t code;
+    uint8_t video_profile;
     firmware_wifi_credentials_t wifi;
 } firmware_command_t;
 
@@ -31,6 +32,8 @@ bool protocol_command_allowed_over_ble_setup(uint8_t code);
 bool protocol_jpeg_valid(const uint8_t *data, size_t len);
 
 size_t protocol_udp_packet_count(size_t frame_len);
+/* Small frames use one whole-frame XOR parity packet; larger frames use strided groups. */
+size_t protocol_udp_fec_group_size(size_t total);
 /*
  * Project author: Malak Adel Sayed Hassan.
  * Software developer and original code author: Abdou (عبد الرحمن أيمن محمد).
@@ -43,8 +46,9 @@ size_t protocol_udp_packet_count(size_t frame_len);
  * V2 wire header: seq, total_data_fragments, byte_offset, payload_size,
  * frame_id, frame_size (six little-endian uint32 values).
  * A parity packet sets UDP_PARITY_SEQUENCE_FLAG in seq; the remaining low
- * bits contain the strided FEC group index (data sequence modulo group count).
- * Its offset identifies that group's first data fragment.
+ * bits contain its FEC group index. Frames of up to UDP_FEC_GROUP_SIZE data
+ * fragments use one whole-frame XOR group; larger frames use strided groups.
+ * The offset identifies the group's first data fragment.
  */
 bool protocol_udp_encode_packet(const uint8_t *frame, size_t frame_len,
                                 uint32_t frame_id, size_t sequence,

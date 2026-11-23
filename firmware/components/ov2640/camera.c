@@ -1,6 +1,8 @@
 #include "esp_log.h"
 #include "esp_psram.h"
 #include "driver/i2c_master.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "camera.h"
 #include "protocol.h"
 
@@ -132,13 +134,10 @@ static esp_err_t apply_capture_profile(framesize_t target, int quality)
 
     s_frame_size = target;
     s_jpeg_quality = quality;
-    /* Drain buffers captured with the previous resolution/quality profile. */
-    for (size_t i = 0; i <= s_frame_buffers; ++i) {
-        camera_fb_t *fb = esp_camera_fb_get();
-        if (fb != NULL) {
-            esp_camera_fb_return(fb);
-        }
-    }
+    /* Let CAMERA_GRAB_LATEST replace any queued frames from the old sensor
+     * profile. Do not drain with repeated esp_camera_fb_get(): each call can
+     * block for four seconds while the camera driver discards incomplete JPEGs. */
+    vTaskDelay(pdMS_TO_TICKS(CAMERA_PROFILE_SETTLE_MS));
     ESP_LOGI(TAG,
              "operation=camera.profile outcome=success frame_size=%d quality=%d psram=%d",
              (int)s_frame_size, s_jpeg_quality, s_has_psram);
@@ -174,7 +173,8 @@ esp_err_t camera_set_udp_profile(framesize_t frame_size, int jpeg_quality)
     if (frame_size != FRAMESIZE_XGA &&
         frame_size != FRAMESIZE_SVGA &&
         frame_size != FRAMESIZE_VGA &&
-        frame_size != FRAMESIZE_QVGA) {
+        frame_size != FRAMESIZE_QVGA &&
+        frame_size != FRAMESIZE_QQVGA) {
         return ESP_ERR_INVALID_ARG;
     }
     return apply_capture_profile(frame_size, jpeg_quality);

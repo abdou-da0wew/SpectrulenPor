@@ -20,6 +20,8 @@ bool wifi_is_connected(void);
 bool wifi_is_associated(void);
 /* Latest connected AP RSSI in dBm; returns WIFI_MIN_RSSI_DBM on failure. */
 int wifi_rssi_dbm(void);
+/* Current associated AP primary channel; returns 0 when unavailable. */
+int wifi_channel_number(void);
 const char *wifi_status_string(void);
 void wifi_local_ip_str(char *buf, size_t bufsize);
 

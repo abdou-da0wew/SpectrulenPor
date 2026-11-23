@@ -1,3 +1,4 @@
+#include <limits.h>
 #include <string.h>
 #include "driver/i2c_master.h"
 #include "esp_log.h"
@@ -8,7 +9,7 @@
 #include "config.h"
 #include "as7265x_registers.h"
 
-static const char *TAG = AS7265x_TAG;
+static const char *TAG = AS7265X_TAG;
 
 static i2c_master_bus_handle_t s_bus;
 static i2c_master_dev_handle_t s_device;
@@ -84,18 +85,31 @@ static esp_err_t virtual_read(uint8_t reg, uint8_t *value)
     return err;
 }
 
-static esp_err_t read_channel(uint8_t device, uint8_t reg, uint16_t *out)
+static esp_err_t select_device(uint8_t device)
+{
+    return virtual_write(AS7265X_DEVICE_SELECT, device);
+}
+
+static esp_err_t read_selected_channel(uint8_t reg, uint16_t *out)
 {
     uint8_t high, low;
-    esp_err_t err = virtual_write(AS7265X_DEVICE_SELECT, device);
-    if (err == ESP_OK) {
-        err = virtual_read(reg, &high);
-    }
+    esp_err_t err = virtual_read(reg, &high);
     if (err == ESP_OK) {
         err = virtual_read(reg + 1U, &low);
     }
     if (err == ESP_OK) {
         *out = (uint16_t)(((uint16_t)high << 8U) | low);
+    }
+    return err;
+}
+
+static esp_err_t read_selected_temperature(int8_t *out)
+{
+    uint8_t raw;
+    esp_err_t err = virtual_read(AS7265X_TEMPERATURE, &raw);
+    if (err == ESP_OK) {
+        /* The datasheet reserves -128 as a temperature-read error sentinel. */
+        *out = raw == 0x80U ? INT8_MIN : (int8_t)raw;
     }
     return err;
 }
@@ -139,7 +153,7 @@ esp_err_t sensors_init(void)
     }
     if (err == ESP_OK) {
         err = virtual_write(AS7265X_CONFIG,
-                             AS7265X_GAIN_64X | AS7265X_ALL_CHANNELS_CONTINUOUS);
+                            AS7265X_GAIN_64X | AS7265X_ALL_CHANNELS_CONTINUOUS);
     }
     if (err != ESP_OK) {
         if (s_device != NULL) {
@@ -151,11 +165,11 @@ esp_err_t sensors_init(void)
         return err;
     }
     s_available = true;
-    ESP_LOGI(TAG, "operation=sensor.init A_nm=410 W_nm=940 outcome=success");
+    ESP_LOGI(TAG, "operation=sensor.init channels=18 devices=3 gain=64x outcome=success");
     return err;
 }
 
-esp_err_t sensors_read_uv_ir(as7265x_reading_t *out)
+esp_err_t sensors_read_spectrum(as7265x_reading_t *out)
 {
     if (out == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -164,6 +178,7 @@ esp_err_t sensors_read_uv_ir(as7265x_reading_t *out)
     if (!s_available) {
         return ESP_ERR_NOT_FOUND;
     }
+
     uint8_t config;
     esp_err_t err = virtual_read(AS7265X_CONFIG, &config);
     if (err != ESP_OK) {
@@ -172,14 +187,45 @@ esp_err_t sensors_read_uv_ir(as7265x_reading_t *out)
     if ((config & AS7265X_DATA_READY) == 0) {
         return ESP_ERR_INVALID_STATE;
     }
+
+    /*
+     * Virtual RAW registers 0x08..0x13 are shared across the three dies.
+     * Each DEV_SEL chooses whether those six pairs represent A..F, G..L,
+     * or R..W. Store in ascending optical wavelength order for the host.
+     */
+    static const uint8_t devices[AS7265X_DEVICE_TEMPERATURE_COUNT] = {
+        AS7265X_DEVICE_AS72653,
+        AS7265X_DEVICE_AS72652,
+        AS7265X_DEVICE_AS72651,
+    };
+    static const uint8_t channel_indices[AS7265X_DEVICE_TEMPERATURE_COUNT]
+                                         [AS7265X_RAW_CHANNELS_PER_DEVICE] = {
+        {0, 1, 2, 3, 4, 5},       /* A..F: 410..535 nm */
+        {6, 7, 9, 11, 16, 17},    /* G,H,I,J,K,L */
+        {8, 10, 12, 13, 14, 15},  /* R,S,T,U,V,W */
+    };
+
     as7265x_reading_t reading = {0};
-    err = read_channel(AS7265X_DEVICE_SHORTWAVE, AS7265X_RAW_A, &reading.uv_raw);
-    if (err == ESP_OK) {
-        err = read_channel(AS7265X_DEVICE_NIR, AS7265X_RAW_W, &reading.ir_raw);
+    for (size_t device_index = 0;
+         device_index < AS7265X_DEVICE_TEMPERATURE_COUNT && err == ESP_OK;
+         ++device_index) {
+        err = select_device(devices[device_index]);
+        for (size_t channel = 0;
+             channel < AS7265X_RAW_CHANNELS_PER_DEVICE && err == ESP_OK;
+             ++channel) {
+            const uint8_t reg = (uint8_t)(AS7265X_RAW_CHANNEL_BASE +
+                channel * AS7265X_RAW_CHANNEL_STRIDE);
+            const uint8_t destination = channel_indices[device_index][channel];
+            err = read_selected_channel(reg, &reading.raw[destination]);
+        }
+        if (err == ESP_OK) {
+            err = read_selected_temperature(&reading.temperature_c[device_index]);
+        }
     }
     if (err != ESP_OK) {
         return err;
     }
+
     reading.available = true;
     *out = reading;
     g_last_sensor_reading = reading;

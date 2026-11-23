@@ -9,7 +9,7 @@ typedef const char *esp_event_base_t;
 typedef void *esp_event_handler_instance_t;
 typedef unsigned nvs_handle_t;
 typedef struct { int unused; } wifi_init_config_t;
-typedef struct { int8_t rssi; } wifi_ap_record_t;
+typedef struct { int8_t rssi; uint8_t primary; } wifi_ap_record_t;
 typedef struct {
     struct { uint8_t ssid[32], password[64]; int scan_method;
         struct { int rssi, authmode; } threshold;
@@ -81,7 +81,7 @@ esp_err_t esp_wifi_set_protocol(int interface, int protocol)
 esp_err_t esp_wifi_set_bandwidth(int interface, int bandwidth)
 { (void)interface; (void)bandwidth; assert_unlocked(); return ESP_OK; }
 esp_err_t esp_wifi_sta_get_ap_info(wifi_ap_record_t *info)
-{ if (info == NULL) return ESP_FAIL; info->rssi = -65; return ESP_OK; }
+{ if (info == NULL) return ESP_FAIL; info->rssi = -65; info->primary = 5; return ESP_OK; }
 esp_err_t esp_wifi_set_config(int interface, const wifi_config_t *config)
 { (void)interface; (void)config; assert_unlocked(); return ESP_OK; }
 esp_err_t esp_event_handler_instance_register(esp_event_base_t base, int32_t event,

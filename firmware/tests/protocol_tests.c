@@ -79,6 +79,19 @@ static void test_commands(void)
         CHECK(command.code == code);
         CHECK(memcmp(&command.wifi, &zero.wifi, sizeof(command.wifi)) == 0);
     }
+    const uint8_t video_profile_xga[] = {CMD_SET_VIDEO_PROFILE, 0};
+    const uint8_t video_profile_qqvga[] = {CMD_SET_VIDEO_PROFILE, 4};
+    const uint8_t video_profile_auto[] = {CMD_SET_VIDEO_PROFILE, UINT8_MAX};
+    CHECK(protocol_parse_command(video_profile_xga, sizeof(video_profile_xga), &command) == PROTOCOL_OK);
+    CHECK(command.code == CMD_SET_VIDEO_PROFILE && command.video_profile == 0);
+    CHECK(protocol_parse_command(video_profile_qqvga, sizeof(video_profile_qqvga), &command) == PROTOCOL_OK);
+    CHECK(command.code == CMD_SET_VIDEO_PROFILE && command.video_profile == 4);
+    CHECK(protocol_parse_command(video_profile_auto, sizeof(video_profile_auto), &command) == PROTOCOL_OK);
+    CHECK(command.code == CMD_SET_VIDEO_PROFILE && command.video_profile == UINT8_MAX);
+    const uint8_t invalid_video_profile[] = {CMD_SET_VIDEO_PROFILE, 5};
+    check_invalid_command(invalid_video_profile, sizeof(invalid_video_profile), PROTOCOL_INVALID_PAYLOAD);
+    check_invalid_command(video_profile_xga, 1, PROTOCOL_INVALID_LENGTH);
+
     uint8_t unknown = 0xFF;
     CHECK(protocol_parse_command(&unknown, 1, &command) == PROTOCOL_UNKNOWN_COMMAND);
     CHECK(protocol_parse_command(NULL, 1, &command) == PROTOCOL_INVALID_LENGTH);
@@ -147,7 +160,8 @@ static void test_commands(void)
         CHECK(protocol_command_allowed_over_udp((uint8_t)code) ==
               (code <= CMD_FLASH_OFF || code == CMD_RESTART ||
                code == CMD_SHUTDOWN || code == CMD_CONNECTION_STATUS ||
-               code == CMD_REBOOT || code == CMD_UDP_KEEPALIVE));
+               code == CMD_REBOOT || code == CMD_UDP_KEEPALIVE ||
+               code == CMD_SET_VIDEO_PROFILE));
     }
     const uint8_t ble_setup_codes[] = {
         CMD_FLASH_ON, CMD_FLASH_OFF, CMD_RESTART, CMD_SHUTDOWN,
@@ -227,15 +241,18 @@ static void test_udp(void)
     CHECK(read_u32_le(packet + 16) == frame_id);
     CHECK(read_u32_le(packet + 20) == sizeof(frame));
 
-    /* Strided FEC group one covers data sequences 1, 5, 9, ... . */
-    const size_t strided_frame_len = 2U * UDP_PAYLOAD_BYTES + 1U;
+    /* Larger frames retain four strided groups: group one covers 1, 5, 9... . */
+    const size_t strided_frame_len = 6U * UDP_PAYLOAD_BYTES + 1U;
     CHECK(protocol_udp_encode_parity_packet(
-        parity, sizeof(parity), strided_frame_len, frame_id, 1, 3,
+        parity, sizeof(parity), strided_frame_len, frame_id, 1, 7,
         packet, sizeof(packet), &packet_len));
     CHECK(read_u32_le(packet) == (UDP_PARITY_SEQUENCE_FLAG | 1U));
-    CHECK(read_u32_le(packet + 4) == 3U);
+    CHECK(read_u32_le(packet + 4) == 7U);
     CHECK(read_u32_le(packet + 8) == UDP_PAYLOAD_BYTES);
     CHECK(read_u32_le(packet + 20) == strided_frame_len);
+    CHECK(!protocol_udp_encode_parity_packet(
+        parity, sizeof(parity), 2U * UDP_PAYLOAD_BYTES + 1U, frame_id, 1, 3,
+        packet, sizeof(packet), &packet_len));
 
     CHECK(!protocol_udp_encode_parity_packet(
         parity, sizeof(parity) - 1, sizeof(frame), frame_id, 0, 1,
@@ -245,6 +262,8 @@ static void test_udp(void)
     CHECK(protocol_udp_packet_count(0) == 0);
     CHECK(protocol_udp_packet_count(payload) == 1);
     CHECK(protocol_udp_packet_count(payload + 1) == 2);
+    CHECK(UDP_HEADER_LEN + UDP_PAYLOAD_BYTES == UDP_MTU_SAFE);
+    CHECK(protocol_udp_packet_count(2893U) == 2U);
     CHECK(protocol_udp_packet_count(MAX_FRAME_BYTES + 1) == 0);
     const size_t lengths[] = {
         1, 3, 4, 959, 960, 961, 4096, 16384, MAX_FRAME_BYTES

@@ -21,6 +21,9 @@ static esp_ip_addr_t s_app_ip;
 static uint16_t s_app_port = 0;
 static bool s_app_peer_known = false;
 static uint32_t s_next_frame_id;
+static uint32_t s_tx_retry_packets;
+static uint32_t s_tx_retry_attempts;
+static uint32_t s_tx_retry_wait_ms;
 
 bool udp_stream_has_peer(void) { return s_app_peer_known && s_started; }
 
@@ -133,9 +136,11 @@ bool udp_stream_send_control(const uint8_t *data, size_t len)
 static bool send_datagram(const struct sockaddr_in *destination,
                           const uint8_t *packet, size_t packet_len,
                           int64_t deadline, uint32_t frame_id,
-                          uint32_t sequence, bool parity, uint32_t packet_pace_ms)
+                          uint32_t sequence, bool parity, uint32_t packet_pace_ms,
+                          bool pace_after)
 {
     unsigned attempts = 0;
+    uint32_t retry_wait_ms = 0;
     int result = -1;
     int send_errno = 0;
     while (attempts < UDP_SEND_MAX_ATTEMPTS &&
@@ -146,9 +151,14 @@ static bool send_datagram(const struct sockaddr_in *destination,
                         sizeof(*destination));
         send_errno = result < 0 ? errno : 0;
         if (result == (int)packet_len) {
-            /* Yield after every datagram so the Wi-Fi driver can drain its
-             * bounded TX pool instead of accepting a whole frame in a burst. */
-            if (packet_pace_ms > 0U) {
+            if (attempts > 1U) {
+                ++s_tx_retry_packets;
+                s_tx_retry_attempts += attempts - 1U;
+                s_tx_retry_wait_ms += retry_wait_ms;
+            }
+            /* Pace only between datagrams. The final packet needs no trailing
+             * sleep because the application schedules the next frame itself. */
+            if (pace_after && packet_pace_ms > 0U) {
                 vTaskDelay(pdMS_TO_TICKS(packet_pace_ms));
             }
             return true;
@@ -164,10 +174,16 @@ static bool send_datagram(const struct sockaddr_in *destination,
             if (delay_ms > UDP_SEND_RETRY_MAX_DELAY_MS) {
                 delay_ms = UDP_SEND_RETRY_MAX_DELAY_MS;
             }
+            retry_wait_ms += delay_ms;
             vTaskDelay(pdMS_TO_TICKS(delay_ms));
         }
     }
 
+    if (attempts > 1U) {
+        ++s_tx_retry_packets;
+        s_tx_retry_attempts += attempts - 1U;
+        s_tx_retry_wait_ms += retry_wait_ms;
+    }
     const char *code = esp_timer_get_time() >= deadline
         ? "UDP_SEND_DEADLINE"
         : result < 0 ? "UDP_SEND_SOCKET_ERROR" : "UDP_SEND_SHORT_WRITE";
@@ -218,19 +234,19 @@ bool udp_stream_send_frame(const uint8_t *jpeg, size_t len, uint32_t packet_pace
     size_t parity_packets = 0;
 
     /*
-     * JPEG is already compressed by the OV2640 hardware. Send small data
-     * datagrams in sequence order, then one XOR parity packet for each strided
-     * group: {0,4,8...}, {1,5,9...}, etc. Consecutive Wi-Fi burst losses land
-     * in different groups and can therefore be recovered independently.
-     * Only one parity buffer is needed; the JPEG is revisited per group.
+     * JPEG is already compressed by the OV2640 hardware. Send data fragments
+     * first. Small frames use one whole-frame XOR parity packet to avoid
+     * singleton parity packets; larger frames retain four strided groups so
+     * adjacent Wi-Fi burst losses can be recovered independently. Only one
+     * parity buffer is needed; the JPEG is revisited per group.
      */
-    const size_t group_count = total < UDP_FEC_GROUP_SIZE
-        ? total : UDP_FEC_GROUP_SIZE;
+    const size_t group_size = protocol_udp_fec_group_size(total);
+    const size_t group_count = total < group_size ? total : group_size;
     for (size_t sequence = 0; sequence < total; ++sequence) {
         if (!protocol_udp_encode_packet(jpeg, len, frame_id, sequence,
                                         packet, sizeof(packet), &packet_len) ||
             !send_datagram(&destination, packet, packet_len, deadline,
-                           frame_id, (uint32_t)sequence, false, packet_pace_ms)) {
+                           frame_id, (uint32_t)sequence, false, packet_pace_ms, true)) {
             return false;
         }
     }
@@ -238,7 +254,7 @@ bool udp_stream_send_frame(const uint8_t *jpeg, size_t len, uint32_t packet_pace
     for (size_t group_index = 0; group_index < group_count; ++group_index) {
         memset(parity, 0, sizeof(parity));
         for (size_t sequence = group_index; sequence < total;
-             sequence += UDP_FEC_GROUP_SIZE) {
+             sequence += group_size) {
             const size_t offset = sequence * UDP_PAYLOAD_BYTES;
             size_t chunk_len = len - offset;
             if (chunk_len > UDP_PAYLOAD_BYTES) {
@@ -252,7 +268,8 @@ bool udp_stream_send_frame(const uint8_t *jpeg, size_t len, uint32_t packet_pace
                 parity, sizeof(parity), len, frame_id, group_index, total,
                 packet, sizeof(packet), &packet_len) ||
             !send_datagram(&destination, packet, packet_len, deadline,
-                           frame_id, (uint32_t)group_index, true, packet_pace_ms)) {
+                           frame_id, (uint32_t)group_index, true, packet_pace_ms,
+                           group_index + 1U < group_count)) {
             return false;
         }
         ++parity_packets;
@@ -268,11 +285,17 @@ bool udp_stream_send_frame(const uint8_t *jpeg, size_t len, uint32_t packet_pace
             ESP_LOGI(TAG,
                      "operation=udp.stream frames=%" PRIu32
                      " fps_x100=%" PRIu32
-                     " last_bytes=%zu fragments=%zu parity=%zu",
-                     log_frames, fps_x100, len, total, parity_packets);
+                     " last_bytes=%zu fragments=%zu parity=%zu"
+                     " retry_packets=%" PRIu32 " retry_attempts=%" PRIu32
+                     " retry_wait_ms=%" PRIu32,
+                     log_frames, fps_x100, len, total, parity_packets,
+                     s_tx_retry_packets, s_tx_retry_attempts, s_tx_retry_wait_ms);
         }
         log_window_started = completed;
         log_frames = 0;
+        s_tx_retry_packets = 0;
+        s_tx_retry_attempts = 0;
+        s_tx_retry_wait_ms = 0;
     }
     return true;
 }

@@ -21,9 +21,10 @@ def frame_packets(frame, frame_id=1):
                       frame[seq * WIRE.UDP_PAYLOAD_BYTES:(seq + 1) * WIRE.UDP_PAYLOAD_BYTES])
         for seq in range(total)
     ]
-    for group_index in range(min(total, WIRE.UDP_FEC_GROUP_SIZE)):
+    group_size = WIRE.udp_fec_group_size(total)
+    for group_index in range(min(total, group_size)):
         parity = bytearray(WIRE.UDP_PAYLOAD_BYTES)
-        for seq in range(group_index, total, WIRE.UDP_FEC_GROUP_SIZE):
+        for seq in range(group_index, total, group_size):
             offset = seq * WIRE.UDP_PAYLOAD_BYTES
             chunk = frame[offset:offset + WIRE.UDP_PAYLOAD_BYTES]
             for index, value in enumerate(chunk):
@@ -48,10 +49,10 @@ class ReassemblyTests(unittest.TestCase):
     def feed(self, packet, peer=PEER):
         return self.parser.feed(packet, peer)
 
-    def test_v2_wire_contract_uses_six_u32_fields_and_1200_byte_payloads(self):
+    def test_v2_wire_contract_uses_six_u32_fields_and_mtu_sized_payloads(self):
         self.assertEqual(WIRE.UDP_HEADER.format, "<IIIIII")
         self.assertEqual(WIRE.UDP_HEADER.size, 24)
-        self.assertEqual(WIRE.UDP_PAYLOAD_BYTES, 1200)
+        self.assertEqual(WIRE.UDP_PAYLOAD_BYTES, 1448)
         self.assertEqual(WIRE.UDP_FEC_GROUP_SIZE, 4)
 
     def test_out_of_order_reassembly_with_frame_id(self):
@@ -63,8 +64,8 @@ class ReassemblyTests(unittest.TestCase):
             if completed is not None:
                 result = completed
         self.assertEqual(result, (0, frame))
-        self.assertEqual(self.parser.packets, 0)
-        self.assertEqual(self.parser.parity_packets, 3)
+        self.assertEqual(self.parser.packets, 1)
+        self.assertEqual(self.parser.parity_packets, 1)
         self.assertFalse(self.parser.parts)
 
     def test_one_missing_datagram_is_recovered_by_xor_parity(self):
@@ -78,7 +79,7 @@ class ReassemblyTests(unittest.TestCase):
             if completed is not None:
                 result = completed
         self.assertEqual(result, (0, frame))
-        self.assertEqual(self.parser.packets, 2)
+        self.assertEqual(self.parser.packets, 1)
         self.assertEqual(self.parser.parity_packets, 1)
 
     def test_one_loss_per_fec_group_is_recovered_independently(self):
@@ -183,7 +184,7 @@ class ReassemblyTests(unittest.TestCase):
         self.parser.expire()
         self.assertEqual(self.parser.dropped_frames, 1)
         self.assertFalse(self.parser.parts)
-        self.assertEqual(self.parser.last_incomplete["expected_chunks"], 3)
+        self.assertEqual(self.parser.last_incomplete["expected_chunks"], 2)
         self.assertEqual(self.parser.last_incomplete["received_chunks"], 1)
         self.assertEqual(self.parser.last_incomplete["reason"], "expired")
 
@@ -203,7 +204,7 @@ class ReassemblyTests(unittest.TestCase):
             WIRE.UDP_HEADER.pack(0, 0, 0, 1, 1, 4) + b"x",
             WIRE.UDP_HEADER.pack(2, 2, 2400, 100, 1, 2500) + b"x" * 100,
             WIRE.UDP_HEADER.pack(0, 3, 1, 1200, 1, 2500) + b"x" * 1200,
-            WIRE.UDP_HEADER.pack(0, 3, 0, 1201, 1, 2500) + b"x" * 1201,
+            WIRE.UDP_HEADER.pack(0, 2, 0, 1401, 1, 2500) + b"x" * 1401,
             WIRE.UDP_HEADER.pack(WIRE.UDP_PARITY_SEQUENCE_FLAG | 99, 3, 0, 1200, 1, 2500)
             + b"x" * 1200,
         )

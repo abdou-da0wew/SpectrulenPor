@@ -37,8 +37,14 @@ struct ble_gap_event {
 static int gap_event_cb(struct ble_gap_event *event, void *arg);
 typedef struct { uint8_t *buf; size_t len, width, height; } camera_fb_t;
 typedef int framesize_t;
-enum { FRAMESIZE_QVGA = 0, FRAMESIZE_VGA = 1, FRAMESIZE_SVGA = 2, FRAMESIZE_XGA = 3 };
-typedef struct { bool available; unsigned uv_raw, ir_raw; } as7265x_reading_t;
+enum { FRAMESIZE_QQVGA = 4, FRAMESIZE_QVGA = 0, FRAMESIZE_VGA = 1, FRAMESIZE_SVGA = 2, FRAMESIZE_XGA = 3 };
+#define AS7265X_CHANNEL_COUNT 18U
+#define AS7265X_DEVICE_TEMPERATURE_COUNT 3U
+typedef struct {
+    uint16_t raw[AS7265X_CHANNEL_COUNT];
+    int8_t temperature_c[AS7265X_DEVICE_TEMPERATURE_COUNT];
+    bool available;
+} as7265x_reading_t;
 static const char *scenario;
 static jmp_buf finished;
 static int64_t clock_now;
@@ -218,8 +224,8 @@ esp_err_t esp_read_mac(uint8_t *mac, int kind)
 size_t heap_caps_get_free_size(unsigned caps) { (void)caps; return 0; }
 size_t heap_caps_get_minimum_free_size(unsigned caps) { (void)caps; return 0; }
 bool sensors_available(void) { return false; }
-esp_err_t sensors_read_uv_ir(as7265x_reading_t *reading)
-{ reading->available = false; return ESP_ERR_INVALID_STATE; }
+esp_err_t sensors_read_spectrum(as7265x_reading_t *reading)
+{ memset(reading, 0, sizeof(*reading)); return ESP_ERR_INVALID_STATE; }
 esp_err_t wifi_save_credentials(const firmware_wifi_credentials_t *credentials)
 {
     (void)credentials; ++save_calls;
@@ -235,6 +241,7 @@ esp_err_t wifi_stop_station(void) { return ESP_OK; }
 void wifi_maintain(void) {}
 bool wifi_is_connected(void) { return false; }
 int wifi_rssi_dbm(void) { return -65; }
+int wifi_channel_number(void) { return 5; }
 const char *wifi_status_string(void) { return "disconnected"; }
 void wifi_local_ip_str(char *buffer, size_t capacity)
 {

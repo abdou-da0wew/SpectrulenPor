@@ -27,9 +27,14 @@ MAX_FRAME_BYTES = 512 * 1024
 MAX_TEXT_BYTES = 4096
 UDP_HEADER = struct.Struct("<IIIIII")
 UDP_PORT = 8888
-UDP_PAYLOAD_BYTES = 1200
+UDP_PAYLOAD_BYTES = 1448
 UDP_FEC_GROUP_SIZE = 4
 UDP_PARITY_SEQUENCE_FLAG = 0x80000000
+
+
+def udp_fec_group_size(total: int) -> int:
+    """Use one whole-frame parity group for small frames, four for larger ones."""
+    return 1 if 0 < total <= UDP_FEC_GROUP_SIZE else UDP_FEC_GROUP_SIZE
 UDP_RECEIVE_BYTES = 1500
 UART_BAUD = 115200
 UART_READ_TIMEOUT_SECONDS = 0.1
@@ -576,7 +581,8 @@ class UdpFrames:
         if not (0 < size <= UDP_PAYLOAD_BYTES and len(packet) == UDP_HEADER.size + size):
             return False
         if is_parity:
-            groups = min(total, UDP_FEC_GROUP_SIZE)
+            group_size = udp_fec_group_size(total)
+            groups = min(total, group_size)
             group_start = sequence
             return (sequence < groups and offset == group_start * UDP_PAYLOAD_BYTES
                     and size == UDP_PAYLOAD_BYTES and offset < frame_size)
@@ -591,14 +597,15 @@ class UdpFrames:
         self.frame_id = None
 
     def _recover(self):
-        group_count = min(self.total, UDP_FEC_GROUP_SIZE)
+        group_size = udp_fec_group_size(self.total)
+        group_count = min(self.total, group_size)
         for group_index in range(group_count):
-            members = range(group_index, self.total, UDP_FEC_GROUP_SIZE)
+            members = range(group_index, self.total, group_size)
             missing = [seq for seq in members if seq not in self.parts]
             if len(missing) != 1 or group_index not in self.parity:
                 continue
             recovered = bytearray(self.parity[group_index])
-            for seq in range(group_index, self.total, UDP_FEC_GROUP_SIZE):
+            for seq in range(group_index, self.total, group_size):
                 if seq == missing[0]:
                     continue
                 part = self.parts.get(seq)
@@ -814,7 +821,8 @@ class UdpFrames:
             require(0 < size <= UDP_PAYLOAD_BYTES and len(packet) == UDP_HEADER.size + size,
                     "HIL_UDP_SIZE")
             if is_parity:
-                group_count = min(total, UDP_FEC_GROUP_SIZE)
+                group_size = udp_fec_group_size(total)
+                group_count = min(total, group_size)
                 group_start = sequence
                 require(sequence < group_count and offset == group_start * UDP_PAYLOAD_BYTES
                         and size == UDP_PAYLOAD_BYTES and offset < frame_size,

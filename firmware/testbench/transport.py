@@ -96,14 +96,15 @@ class Reassembler:
             self.drop("expired")
 
     def _recover(self):
-        group_count = min(self.total, WIRE.UDP_FEC_GROUP_SIZE)
+        group_size = WIRE.udp_fec_group_size(self.total)
+        group_count = min(self.total, group_size)
         for group_index in range(group_count):
-            members = range(group_index, self.total, WIRE.UDP_FEC_GROUP_SIZE)
+            members = range(group_index, self.total, group_size)
             missing = [seq for seq in members if seq not in self.parts]
             if len(missing) != 1 or group_index not in self.parity:
                 continue
             recovered = bytearray(self.parity[group_index])
-            for seq in range(group_index, self.total, WIRE.UDP_FEC_GROUP_SIZE):
+            for seq in range(group_index, self.total, group_size):
                 if seq == missing[0]:
                     continue
                 part = self.parts.get(seq)
@@ -163,7 +164,8 @@ class Reassembler:
             return None
 
         if is_parity:
-            group_count = min(total, WIRE.UDP_FEC_GROUP_SIZE)
+            group_size = WIRE.udp_fec_group_size(total)
+            group_count = min(total, group_size)
             group_start = sequence
             if (sequence >= group_count or offset != group_start * WIRE.UDP_PAYLOAD_BYTES
                     or size != WIRE.UDP_PAYLOAD_BYTES or offset >= frame_size):

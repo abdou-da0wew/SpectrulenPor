@@ -33,10 +33,16 @@ typedef struct {
     uint32_t ble_session;
     uint32_t frames_sent;
     uint32_t frame_errors;
+    uint32_t last_capture_ms;
+    uint32_t last_send_ms;
+    uint32_t last_frame_ms;
+    uint32_t last_packet_pace_ms;
+    uint32_t last_stream_interval_ms;
     int64_t next_frame;
     uint32_t next_stream_interval_ms;
     uint8_t udp_profile;
     bool udp_profile_initialized;
+    bool udp_profile_manual;
     int64_t udp_profile_hold_until;
     int64_t next_link_log;
     firmware_wifi_credentials_t credentials;
@@ -90,14 +96,52 @@ static void send_connection_status_response(bool from_ble, uint32_t session)
     char ip_str[IPV4_TEXT_CAPACITY];
     wifi_local_ip_str(ip_str, sizeof(ip_str));
 
+    const int rssi = wifi_is_connected() ? wifi_rssi_dbm() : -127;
+    const int wifi_channel = wifi_channel_number();
+    as7265x_reading_t sensor_reading = {0};
+    const bool sensor_valid = sensors_available() &&
+        sensors_read_spectrum(&sensor_reading) == ESP_OK && sensor_reading.available;
+    static const uint16_t spectral_wavelengths[AS7265X_CHANNEL_COUNT] = {
+        410U, 435U, 460U, 485U, 510U, 535U,
+        560U, 585U, 610U, 645U, 680U, 705U,
+        730U, 760U, 810U, 860U, 900U, 940U,
+    };
+    char spectrum[256] = {0};
+    if (sensor_valid) {
+        size_t used = 0;
+        for (size_t index = 0; index < AS7265X_CHANNEL_COUNT; ++index) {
+            const int written = snprintf(spectrum + used, sizeof(spectrum) - used,
+                "%s%u:%u", index == 0 ? "" : ";",
+                (unsigned)spectral_wavelengths[index],
+                (unsigned)sensor_reading.raw[index]);
+            if (written < 0 || (size_t)written >= sizeof(spectrum) - used) {
+                spectrum[0] = '\0';
+                break;
+            }
+            used += (size_t)written;
+        }
+    }
+
     char buf[STATUS_TEXT_CAPACITY];
     int n = snprintf(buf, sizeof(buf),
-        "$STATUS:bt=%d,wifi=%s,ip=%s,flash=%d,stream=%d,camera=%d,sensor=%d,"
+        "$STATUS:bt=%d,wifi=%s,ip=%s,rssi=%d,channel=%d,profile=%u,flash=%d,stream=%d,"
+        "camera=%d,sensor=%d,sensor_valid=%d,sensor_410=%u,sensor_940=%u,spectrum=%s,"
+        "temp_as72653=%d,temp_as72652=%d,temp_as72651=%d,manual_profile=%d,"
         "psram=%zu,frames=%" PRIu32 ",errors=%" PRIu32
+        ",capture_ms=%" PRIu32 ",send_ms=%" PRIu32 ",frame_ms=%" PRIu32
+        ",pace_ms=%" PRIu32 ",interval_ms=%" PRIu32
         ",notify_errors=%" PRIu32 ",heap=%zu,min_heap=%zu,standby=%d\n",
-        ble_is_connected(), wifi_status_string(), ip_str, flashlight_is_on(),
-        s_app.streaming, camera_is_ready(), sensors_available(),
+        ble_is_connected(), wifi_status_string(), ip_str, rssi, wifi_channel,
+        (unsigned)s_app.udp_profile, flashlight_is_on(), s_app.streaming,
+        camera_is_ready(), sensors_available(), sensor_valid,
+        (unsigned)sensor_reading.raw[0],
+        (unsigned)sensor_reading.raw[AS7265X_CHANNEL_COUNT - 1U], spectrum,
+        (int)sensor_reading.temperature_c[0],
+        (int)sensor_reading.temperature_c[1],
+        (int)sensor_reading.temperature_c[2], s_app.udp_profile_manual,
         camera_psram_bytes(), s_app.frames_sent, s_app.frame_errors,
+        s_app.last_capture_ms, s_app.last_send_ms, s_app.last_frame_ms,
+        s_app.last_packet_pace_ms, s_app.last_stream_interval_ms,
         ble_notification_errors(),
         heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
         heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
@@ -208,6 +252,39 @@ static void handle_command(const firmware_command_t *command, bool from_ble,
             err = ESP_ERR_INVALID_ARG;
         } else {
             send_transport_text(false, session, "$CMD:keepalive\n");
+        }
+        break;
+
+    case CMD_SET_VIDEO_PROFILE:
+        if (from_ble) {
+            send_error(true, session, "VIDEO_PROFILE_REQUIRES_UDP");
+            err = ESP_ERR_INVALID_ARG;
+            break;
+        }
+        if (!wifi_is_connected() || !camera_is_ready()) {
+            send_error(false, session, "WIFI_OR_CAMERA_UNAVAILABLE");
+            err = ESP_ERR_INVALID_STATE;
+            break;
+        }
+        if (command->video_profile == UINT8_MAX) {
+            s_app.udp_profile_manual = false;
+            s_app.udp_profile_initialized = false;
+            s_app.udp_profile_hold_until = 0;
+            send_transport_text(false, session, "$CMD:video_profile=auto,manual=0\n");
+        } else if (command->video_profile <= 4U) {
+            s_app.udp_profile = command->video_profile;
+            s_app.udp_profile_initialized = true;
+            s_app.udp_profile_manual = true;
+            s_app.udp_profile_hold_until = INT64_MAX;
+            char profile_ack[64];
+            const int ack_len = snprintf(profile_ack, sizeof(profile_ack),
+                "$CMD:video_profile=%u,manual=1\n", (unsigned)s_app.udp_profile);
+            if (ack_len > 0 && (size_t)ack_len < sizeof(profile_ack)) {
+                send_transport_text(false, session, profile_ack);
+            }
+        } else {
+            err = ESP_ERR_INVALID_ARG;
+            send_error(false, session, "INVALID_VIDEO_PROFILE");
         }
         break;
 
@@ -335,7 +412,7 @@ static void handle_command(const firmware_command_t *command, bool from_ble,
 }
 
 /* RSSI hysteresis prevents frame-size churn when the AP signal fluctuates
- * around a profile boundary. 0=XGA, 1=SVGA, 2=VGA, 3=QVGA fallback. */
+ * around a profile boundary. 0=XGA, 1=SVGA, 2=VGA, 3=QVGA, 4=QQVGA. */
 static uint8_t select_udp_profile(int rssi, bool has_psram)
 {
     if (!has_psram) {
@@ -343,6 +420,7 @@ static uint8_t select_udp_profile(int rssi, bool has_psram)
     }
     if (!s_app.udp_profile_initialized) {
         s_app.udp_profile_initialized = true;
+        if (rssi < UDP_RSSI_ULTRA_DBM) return 4;
         if (rssi < UDP_RSSI_LOW_DBM) return 3;
         if (rssi < UDP_RSSI_MEDIUM_DBM) return 2;
         if (rssi < UDP_RSSI_HIGH_DBM) return 1;
@@ -352,8 +430,9 @@ static uint8_t select_udp_profile(int rssi, bool has_psram)
     const int64_t now = esp_timer_get_time();
     if (now < s_app.udp_profile_hold_until) {
         uint8_t signal_profile = 0;
-        if (rssi < UDP_RSSI_LOW_DBM) signal_profile = 3;
-        else if (rssi < UDP_RSSI_MEDIUM_DBM) signal_profile = 2;
+        if (rssi < UDP_RSSI_ULTRA_DBM - 3) signal_profile = 4;
+        else if (rssi < UDP_RSSI_LOW_DBM - 3) signal_profile = 3;
+        else if (rssi < UDP_RSSI_MEDIUM_DBM - 3) signal_profile = 2;
         else if (rssi < UDP_RSSI_HIGH_DBM) signal_profile = 1;
         return s_app.udp_profile > signal_profile
                    ? s_app.udp_profile
@@ -372,9 +451,13 @@ static uint8_t select_udp_profile(int rssi, bool has_psram)
         if (rssi >= UDP_RSSI_MEDIUM_DBM + 3) return 1;
         if (rssi < UDP_RSSI_LOW_DBM - 3) return 3;
         return 2;
-    default:
+    case 3:
         if (rssi >= UDP_RSSI_LOW_DBM + 3) return 2;
+        if (rssi < UDP_RSSI_ULTRA_DBM - 3) return 4;
         return 3;
+    default:
+        if (rssi >= UDP_RSSI_ULTRA_DBM + 3) return 3;
+        return 4;
     }
 }
 
@@ -382,7 +465,7 @@ static void reduce_udp_profile(uint8_t failed_profile,
                                const char *reason,
                                uint32_t frame_ms)
 {
-    if (failed_profile >= 3U) return;
+    if (s_app.udp_profile_manual || failed_profile >= 4U) return;
 
     const uint8_t reduced_profile = failed_profile + 1U;
     s_app.udp_profile = reduced_profile;
@@ -392,7 +475,8 @@ static void reduce_udp_profile(uint8_t failed_profile,
     switch (reduced_profile) {
     case 1: s_app.next_stream_interval_ms = UDP_INTERVAL_MEDIUM_MS; break;
     case 2: s_app.next_stream_interval_ms = UDP_INTERVAL_LOW_MS; break;
-    default: s_app.next_stream_interval_ms = UDP_INTERVAL_MINIMAL_MS; break;
+    case 3: s_app.next_stream_interval_ms = UDP_INTERVAL_MINIMAL_MS; break;
+    default: s_app.next_stream_interval_ms = UDP_INTERVAL_ULTRA_MS; break;
     }
     ESP_LOGW(TAG,
              "operation=video.profile outcome=degraded from=%u to=%u reason=%s frame_ms=%" PRIu32,
@@ -414,7 +498,9 @@ static void capture_and_send(bool single)
     }
 
     const int rssi = wifi_rssi_dbm();
-    const uint8_t profile = select_udp_profile(rssi, camera_psram_bytes() > 0);
+    const uint8_t profile = s_app.udp_profile_manual
+        ? s_app.udp_profile
+        : select_udp_profile(rssi, camera_psram_bytes() > 0);
     framesize_t target_size = FRAMESIZE_XGA;
     int jpeg_quality = UDP_QUALITY_HIGH;
     uint32_t interval_ms = UDP_INTERVAL_HIGH_MS;
@@ -437,6 +523,12 @@ static void capture_and_send(bool single)
         jpeg_quality = UDP_QUALITY_MINIMAL;
         interval_ms = UDP_INTERVAL_MINIMAL_MS;
         packet_pace_ms = UDP_PACKET_PACE_MINIMAL_MS;
+        break;
+    case 4:
+        target_size = FRAMESIZE_QQVGA;
+        jpeg_quality = UDP_QUALITY_ULTRA;
+        interval_ms = UDP_INTERVAL_ULTRA_MS;
+        packet_pace_ms = UDP_PACKET_PACE_ULTRA_MS;
         break;
     default:
         break;
@@ -475,19 +567,23 @@ static void capture_and_send(bool single)
         (uint32_t)((completed_at - captured_at) / 1000LL);
     const uint32_t frame_ms =
         (uint32_t)((completed_at - frame_started) / 1000LL);
+    s_app.last_capture_ms = capture_ms;
+    s_app.last_send_ms = send_ms;
+    s_app.last_frame_ms = frame_ms;
+    s_app.last_packet_pace_ms = packet_pace_ms;
+    s_app.last_stream_interval_ms = interval_ms;
     if (sent) {
         ++s_app.frames_sent;
         if (s_app.frames_sent <= 12U) {
             ESP_LOGI(TAG,
                      "operation=frame.timing frame=%" PRIu32
                      " capture_ms=%" PRIu32 " send_ms=%" PRIu32
-                     " total_ms=%" PRIu32 " bytes=%zu profile=%u",
+                     " total_ms=%" PRIu32 " bytes=%zu profile=%u"
+                     " pace_ms=%" PRIu32 " interval_ms=%" PRIu32,
                      s_app.frames_sent, capture_ms, send_ms, frame_ms,
-                     fb->len, (unsigned)profile);
+                     fb->len, (unsigned)profile, packet_pace_ms, interval_ms);
         }
-        const uint32_t frame_budget_ms = profile == 1U
-            ? UDP_FRAME_BUDGET_SVGA_MS : UDP_FRAME_BUDGET_MS;
-        if (frame_ms > frame_budget_ms) {
+        if (frame_ms > UDP_FRAME_BUDGET_MS) {
             reduce_udp_profile(profile, "frame_budget", frame_ms);
         }
         if (single || s_app.frames_sent == 1) {
@@ -649,14 +745,14 @@ static void run_application(void)
 /*
  * Project author: Malak Adel Sayed Hassan.
  * Main software developer and original application/firmware code author:
- * Abdou (عبد الرحمن أيمن محمد).
+ * Abdoul-Rahman Ayman (GitHub: abdou-da0wew).
  */
 void app_main(void)
 {
     ESP_LOGI(TAG, "SpectruLenPor firmware %s", FIRMWARE_VERSION);
     ESP_LOGI(TAG, "Project author: %s", PROJECT_AUTHOR_NAME);
-    ESP_LOGI(TAG, "Software developer and code author: %s (@%s)",
-             FIRMWARE_DEVELOPER_NAME, FIRMWARE_DEVELOPER_GITHUB);
+    ESP_LOGI(TAG, "Software developer and code author: %s",
+             FIRMWARE_DEVELOPER_NAME);
     ESP_LOGI(TAG, "Developer profile: %s", FIRMWARE_DEVELOPER_URL);
     esp_err_t err = nvs_flash_init();
     /* Failed NVS initialization must preserve saved commissioning data.

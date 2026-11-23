@@ -60,8 +60,19 @@ protocol_result_t protocol_parse_command(const uint8_t *data, size_t len,
     if (data == NULL || len == 0 || len > COMMAND_MAX_BYTES) {
         return PROTOCOL_INVALID_LENGTH;
     }
-    if (data[0] > CMD_UDP_KEEPALIVE) {
+    if (data[0] > CMD_SET_VIDEO_PROFILE) {
         return PROTOCOL_UNKNOWN_COMMAND;
+    }
+    if (data[0] == CMD_SET_VIDEO_PROFILE) {
+        if (len != 2U) {
+            return PROTOCOL_INVALID_LENGTH;
+        }
+        if (data[1] != UINT8_MAX && data[1] > 4U) {
+            return PROTOCOL_INVALID_PAYLOAD;
+        }
+        out->code = data[0];
+        out->video_profile = data[1];
+        return PROTOCOL_OK;
     }
     if (data[0] == CMD_WIFI_CONFIG_PUT) {
         const uint8_t *ssid = data + 1;
@@ -124,7 +135,8 @@ bool protocol_command_allowed_over_udp(uint8_t code)
 {
     return code <= CMD_FLASH_OFF || code == CMD_RESTART ||
            code == CMD_SHUTDOWN || code == CMD_CONNECTION_STATUS ||
-           code == CMD_REBOOT || code == CMD_UDP_KEEPALIVE;
+           code == CMD_REBOOT || code == CMD_UDP_KEEPALIVE ||
+           code == CMD_SET_VIDEO_PROFILE;
 }
 
 bool protocol_command_allowed_over_ble_setup(uint8_t code)
@@ -158,6 +170,12 @@ size_t protocol_udp_packet_count(size_t frame_len)
         return 0;
     }
     return 1U + (frame_len - 1U) / UDP_PAYLOAD_BYTES;
+}
+
+size_t protocol_udp_fec_group_size(size_t total)
+{
+    return total > 0 && total <= UDP_FEC_GROUP_SIZE
+        ? 1U : UDP_FEC_GROUP_SIZE;
 }
 
 static void write_u32_le(uint8_t *out, uint32_t value)
@@ -212,8 +230,9 @@ bool protocol_udp_encode_parity_packet(const uint8_t *parity,
     }
     *packet_len = 0;
     size_t expected_total = protocol_udp_packet_count(frame_len);
-    size_t group_count = expected_total < UDP_FEC_GROUP_SIZE
-        ? expected_total : UDP_FEC_GROUP_SIZE;
+    const size_t group_size = protocol_udp_fec_group_size(expected_total);
+    size_t group_count = expected_total < group_size
+        ? expected_total : group_size;
     if (parity == NULL || packet == NULL || expected_total == 0 ||
         total != expected_total || group_index >= group_count ||
         group_index > 0x7FFFFFFFU ||
