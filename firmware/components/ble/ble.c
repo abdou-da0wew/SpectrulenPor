@@ -305,7 +305,7 @@ esp_err_t ble_send_bytes_for_session(uint32_t session, const uint8_t *data, size
 
 /*
  * Project author: Malak Adel Sayed Hassan.
- * BLE firmware and original code author: Abdou (عبد الرحمن أيمن محمد).
+ * BLE firmware and original code author: Abdoul-Rahman Ayman (GitHub: abdou-da0wew).
  */
 static void ble_advertise(void)
 {
@@ -314,8 +314,8 @@ static void ble_advertise(void)
     static const ble_uuid16_t service_uuid = BLE_UUID16_INIT(BLE_SVC_UUID16);
     static uint8_t identity_service_data[] = {
         0xE0, 0xFF,
-        'D', 'E', 'V', ':', 'A', 'b', 'd', 'o', 'u', ';',
-        'P', 'R', 'O', 'J', 'E', 'C', 'T', ':', 'M', 'a', 'l', 'a', 'k',
+        'D', 'E', 'V', ':', 'a', 'b', 'd', 'o', 'u', '-', 'd', 'a', '0', 'w', 'e', 'w', ';',
+        'P', ':', 'M', 'a', 'l', 'a', 'k',
     };
     _Static_assert(sizeof(identity_service_data) + 2U <= 31U,
                    "BLE identity scan response must fit legacy advertising limits");

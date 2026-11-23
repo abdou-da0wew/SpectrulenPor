@@ -3,7 +3,7 @@
 Thanks for your interest in improving this student research project.
 
 Project author: Malak Adel Sayed Hassan. Software and firmware developer and
-original code author: Abdou (عبد الرحمن أيمن محمد).
+original code author: **Abdoul-Rahman Ayman** (`abdou-da0wew`).
 
 ## How to contribute
 
@@ -37,7 +37,15 @@ The project currently has no open-source license (all rights reserved by the aut
 
 ## Project authorship
 
-Malak Adel Sayed Hassan is the project author. Abdou (عبد الرحمن أيمن محمد)
-is the software and firmware developer and author of the original application
-and firmware code. Third-party libraries and upstream components retain their
+Malak Adel Sayed Hassan is the project author. Abdoul-Rahman Ayman (`abdou-da0wew`) is the main software and firmware developer and author of the original application and firmware code. Third-party libraries and upstream components retain their
 own authorship and license notices.
+
+## Commit message co-author hook
+
+This repository includes a commit-message hook that preserves the DiveeAgent co-author trailer. Enable it in each clone with:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+The hook adds the trailer only when it is missing, so repeated runs do not create duplicates.

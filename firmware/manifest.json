@@ -12,18 +12,17 @@
     }
   },
   "creator": {
-    "name": "Abdou",
-    "displayName": "Abdou",
-    "nameArabic": "عبد الرحمن أيمن محمد",
+    "name": "Abdoul-Rahman Ayman",
+    "displayName": "Abdoul-Rahman Ayman",
     "github": "abdou-da0wew",
     "profile": "https://github.com/abdou-da0wew",
-    "role": "Software and firmware developer; original firmware code author",
-    "codeAuthorship": "All original firmware source and integration code was written by Abdou."
+    "role": "Main software and firmware developer; original firmware code author",
+    "codeAuthorship": "Original firmware source and integration code authored by Abdoul-Rahman Ayman (GitHub: abdou-da0wew)."
   },
   "maintainers": [
     {
-      "name": "Abdou",
-      "displayName": "Abdou",
+      "name": "Abdoul-Rahman Ayman",
+      "displayName": "Abdoul-Rahman Ayman",
       "github": "abdou-da0wew",
       "role": "Primary developer and firmware maintainer"
     }
@@ -31,8 +30,8 @@
   "deviceIdentity": {
     "bleScanResponse": {
       "serviceUuid16": "0xFFE0",
-      "serviceData": "DEV:Abdou;PROJECT:Malak",
-      "developer": "Abdou",
+      "serviceData": "DEV:abdou-da0wew;P:Malak",
+      "developer": "abdou-da0wew",
       "developerGithub": "abdou-da0wew"
     },
     "udp": {

@@ -1,6 +1,6 @@
 # SpectruLenPor ESP32-CAM Firmware
 
-**Project author:** Malak Adel Sayed Hassan. **Main software and firmware developer / original code author:** Abdou (Abdou; عبد الرحمن أيمن محمد, [`@abdou-da0wew`](https://github.com/abdou-da0wew)). Attribution details are recorded in [`MAINTAINERS.md`](MAINTAINERS.md) and [`manifest.json`](manifest.json).
+**Project author:** Malak Adel Sayed Hassan. **Main software and firmware developer / original code author:** Abdoul-Rahman Ayman ([`abdou-da0wew`](https://github.com/abdou-da0wew)). Attribution details are recorded in [`MAINTAINERS.md`](MAINTAINERS.md) and [`manifest.json`](manifest.json).
 
 ESP-IDF firmware for the AI-Thinker ESP32-CAM. BLE handles initial setup; saved WiFi credentials select WiFi-only operation on the next boot. The application entry point is [`components/main/main.c`](components/main/main.c).
 
@@ -67,7 +67,7 @@ WiFi retries are bounded by `WIFI_MAX_RETRIES` in `config.h`. Exhaustion reports
 
 TX is control/status text only. BLE never carries JPEG bytes or image fragments. The maximum notification payload is the smaller of 500 bytes and negotiated MTU minus 3. BLE is used for pairing, WiFi provisioning, provisioning status, and basic commissioning controls; after credentials are saved the ESP reboots into WiFi-only mode and does not initialize BLE.
 
-During setup-mode advertising, the primary advertisement keeps the existing `SpectruLenPor-ESP32` name and FFE0 service UUID. Its scan response includes FFE0 service data `DEV:Abdou;PROJECT:Malak`, identifying Abdou as software/firmware developer and Malak as project author. Active BLE scanning can read the scan response. This identity payload does not change the GATT UUIDs or provisioning commands.
+During setup-mode advertising, the primary advertisement keeps the existing `SpectruLenPor-ESP32` name and FFE0 service UUID. Its scan response includes FFE0 service data `DEV:abdou-da0wew;P:Malak`, identifying the developer GitHub handle and the project author; the full developer name and role are recorded in the manifest and maintainer metadata. Active BLE scanning can read the scan response. This identity payload does not change the GATT UUIDs or provisioning commands.
 
 | Command | BLE | UDP | Effect |
 |---|---|---|---|

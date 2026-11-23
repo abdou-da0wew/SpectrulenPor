@@ -8,7 +8,7 @@
 
 **Smart scientific glasses for object-aware chemistry and spectrum exploration**
 
-**Project author:** Malak Adel Sayed Hassan · **Main software developer and original code author:** Abdou (عبد الرحمن أيمن محمد).
+**Project author:** Malak Adel Sayed Hassan · **Main software developer and original code author:** Abdoul-Rahman Ayman (`abdou-da0wew`).
 
 [![App version](https://img.shields.io/badge/app-5.5.1%2B16-7D5A78?style=flat)](pubspec.yaml)
 ![Flutter](https://img.shields.io/badge/Flutter-3.19%2B-02569B?style=flat&logo=flutter&logoColor=white)
@@ -67,7 +67,7 @@ These screenshots were captured from the Flutter Web UI in a phone-sized browser
 
 *Editable source: [docs/diagrams/architecture.html](docs/diagrams/architecture.html) - a self-contained HTML + inline SVG document using the [diagram-design](https://github.com/cathrynlavery/diagram-design) editorial design system. The PNG is rendered from this source.*
 
-The important boundary is intentional: camera preview and YOLO inference run on the phone. A user-triggered analysis sends the selected capture to configured cloud services. BLE is used for setup and commissioning; it is **not** the video transport. In setup mode, the BLE scan response also exposes the compact identity tags `DEV:Abdou;PROJECT:Malak`; the primary device name and GATT UUIDs are unchanged.
+The important boundary is intentional: camera preview and YOLO inference run on the phone. A user-triggered analysis sends the selected capture to configured cloud services. BLE is used for setup and commissioning; it is **not** the video transport. In setup mode, the BLE scan response also exposes the compact identity tags `DEV:abdou-da0wew;P:Malak`; the primary device name and GATT UUIDs are unchanged.
 
 ## Capture and analysis flow
 
@@ -239,8 +239,8 @@ The renderer uses Chromium/Google Chrome. Set CHROME_BIN if the executable is in
 | Name | Contribution |
 |---|---|
 | **Malak Adel Sayed Hassan** | Project author and student researcher, Ashmounin Secondary School, Egypt |
-| **Abdou** (عبد الرحمن أيمن محمد) · [@abdou-da0wew](https://github.com/abdou-da0wew) | Main software and firmware developer; author of all original application and firmware code |
+| **abdou-da0wew** · [GitHub](https://github.com/abdou-da0wew) | Main software and firmware developer; author of all original application and firmware code |
 
-Malak is credited as the project author. Abdou is credited as the main software developer and author of the original application and firmware code. Third-party dependencies and upstream components retain their own authorship and licenses.
+Malak is credited as the project author. `abdou-da0wew` is credited as the main software developer and author of the original application and firmware code. Third-party dependencies and upstream components retain their own authorship and licenses.
 
 This repository currently has no open-source license. Unless a license file is added, all rights remain with the rights holders; do not assume that the code may be redistributed under an open-source license.

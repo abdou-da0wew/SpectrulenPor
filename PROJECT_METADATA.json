@@ -9,25 +9,25 @@
   },
   "software": {
     "developer": {
-      "name": "Abdou",
-      "displayName": "Abdou",
-      "nameArabic": "عبد الرحمن أيمن محمد",
+      "name": "Abdoul-Rahman Ayman",
+      "displayName": "Abdoul-Rahman Ayman",
       "github": "abdou-da0wew",
       "profile": "https://github.com/abdou-da0wew",
-      "role": "Software and firmware developer; original code author"
+      "role": "Main software and firmware developer; original code author"
     },
     "codeAuthorship": {
-      "author": "Abdou",
+      "author": "abdou-da0wew",
       "github": "abdou-da0wew",
-      "statement": "All original application, firmware, and integration code in this repository was written by Abdou. Third-party libraries, frameworks, models, and upstream components retain their own authorship and licenses."
+      "statement": "All original application, firmware, and integration code in this repository was written by Abdoul-Rahman Ayman (GitHub: abdou-da0wew). Third-party libraries, frameworks, models, and upstream components retain their own authorship and licenses.",
+      "developerName": "Abdoul-Rahman Ayman"
     }
   },
   "deviceIdentity": {
     "ble": {
       "mode": "scan-response service data",
       "serviceUuid16": "0xFFE0",
-      "value": "DEV:Abdou;PROJECT:Malak",
-      "developer": "Abdou",
+      "value": "DEV:abdou-da0wew;P:Malak",
+      "developer": "abdou-da0wew",
       "github": "abdou-da0wew",
       "note": "The compact BLE value is kept within the legacy advertising payload limit. Full attribution is in this metadata and the firmware manifest."
     },
