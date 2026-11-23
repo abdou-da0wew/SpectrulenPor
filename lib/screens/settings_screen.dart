@@ -24,6 +24,7 @@ import '../services/yolo_detector.dart';
 import '../utils/app_theme.dart' as palette;
 import '../utils/app_typography.dart';
 import 'diagnostics_db_screen.dart';
+import 'benchmark_lab_screen.dart';
 import 'history_screen.dart';
 import '../utils/app_icons.dart';
 import '../widgets/openrouter_model_selector.dart';
@@ -678,6 +679,29 @@ Built at: $_buildDate''';
                                       MaterialPageRoute(
                                         builder: (_) =>
                                             const DiagnosticsDbScreen(),
+                                      ),
+                                    ),
+                                  ),
+                                  const Divider(height: 1),
+                                  ListTile(
+                                    leading: const Icon(
+                                      AppIcons.speed,
+                                      color: palette.AppColors.dustyLavender,
+                                    ),
+                                    title: Text(
+                                      isAr ? 'مختبر الأداء والدقة' : 'Benchmark Lab',
+                                      style: const TextStyle(fontWeight: FontWeight.w600),
+                                    ),
+                                    subtitle: Text(
+                                      isAr
+                                          ? 'قياس السرعة والدقة والصوت والنماذج مع تقارير JSON'
+                                          : 'Measure latency, accuracy, speech engines and models; export JSON reports',
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                    trailing: const Icon(AppIcons.chevronRightRounded),
+                                    onTap: () => Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => const BenchmarkLabScreen(),
                                       ),
                                     ),
                                   ),
