@@ -78,8 +78,8 @@ void main() {
     // zone, and real file IO only progresses under tester.runAsync. Mock
     // the two channels the DB service touches and prime the singletons
     // inside runAsync so History/Diagnostics render with data.
-    final messenger = TestDefaultBinaryMessengerBinding.instance
-        .defaultBinaryMessenger;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     const dbChannel = MethodChannel('com.spectraglass/db');
     messenger.setMockMethodCallHandler(dbChannel, (call) async => null);
     const ppChannel = MethodChannel('plugins.flutter.io/path_provider');
@@ -104,8 +104,7 @@ void main() {
     // Open History & Scientific Docs screen
     await tester.tap(find.byTooltip('History & Scientific Docs'));
     await tester.pumpAndSettle(const Duration(milliseconds: 100),
-        EnginePhase.sendSemanticsUpdate,
-        const Duration(seconds: 2));
+        EnginePhase.sendSemanticsUpdate, const Duration(seconds: 2));
     expect(find.text('History & Scientific Docs'), findsOneWidget);
     expect(find.text('Saved Chats'), findsOneWidget);
     expect(find.text('Knowledge Docs'), findsOneWidget);
@@ -113,13 +112,13 @@ void main() {
     // Navigate back to Home -> open Settings -> verify Cloud-only toggle & Search Mode
     await tester.pageBack();
     await tester.pumpAndSettle(const Duration(milliseconds: 100),
-        EnginePhase.sendSemanticsUpdate,
-        const Duration(seconds: 2));
+        EnginePhase.sendSemanticsUpdate, const Duration(seconds: 2));
 
     await tester.tap(find.byTooltip('Settings'));
     await tester.pumpAndSettle(const Duration(milliseconds: 100),
-        EnginePhase.sendSemanticsUpdate,
-        const Duration(seconds: 2));
+        EnginePhase.sendSemanticsUpdate, const Duration(seconds: 2));
+    await tester.tap(find.text('General'));
+    await tester.pump(const Duration(milliseconds: 150));
     expect(
       find.text('Cloud-only models (except YOLO26-Nano)'),
       findsOneWidget,
@@ -128,19 +127,13 @@ void main() {
     expect(find.text('Detailed'), findsOneWidget);
     expect(find.text('Semantic'), findsOneWidget);
 
-    // Open Internal DB & Diagnostics screen from Settings
-    await tester.scrollUntilVisible(
-      find.text('Database, Cache, Logs, Hangs & Traces'),
-      250,
-      scrollable: find.byType(Scrollable).first,
-    );
+    // Data tools are a separate settings category.
+    await tester.tap(find.text('Data'));
     await tester.pumpAndSettle(const Duration(milliseconds: 100),
-        EnginePhase.sendSemanticsUpdate,
-        const Duration(seconds: 2));
+        EnginePhase.sendSemanticsUpdate, const Duration(seconds: 2));
     await tester.tap(find.text('Database, Cache, Logs, Hangs & Traces'));
     await tester.pumpAndSettle(const Duration(milliseconds: 100),
-        EnginePhase.sendSemanticsUpdate,
-        const Duration(seconds: 2));
+        EnginePhase.sendSemanticsUpdate, const Duration(seconds: 2));
     expect(find.text('Internal DB & Diagnostics'), findsOneWidget);
     expect(find.text('Table Row Counts (9 Tables)'), findsOneWidget);
   });

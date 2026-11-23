@@ -66,13 +66,13 @@ class _FakeDatagramSocket extends Stream<RawSocketEvent>
 
 List<Uint8List> _packetize(Uint8List jpeg, {required int frameId}) {
   const payloadSize = WifiUdpVideoService.payloadBytes;
-  const groupSize = WifiUdpVideoService.fecGroupSize;
   final total = (jpeg.length + payloadSize - 1) ~/ payloadSize;
+  final groupSize = WifiUdpVideoService.fecGroupSizeForFrame(total);
   final packets = <Uint8List>[];
 
-  // Data fragments are transmitted in sequence order. Parity groups are
-  // strided by sequence modulo groupSize, so adjacent RF losses map to
-  // independent recovery groups: {0,4,8...}, {1,5,9...}, etc.
+  // Small frames use one parity group across all fragments to avoid
+  // singleton duplicates. Larger frames use four strided groups so adjacent
+  // RF losses can still be recovered independently.
   for (var sequence = 0; sequence < total; sequence++) {
     final offset = sequence * payloadSize;
     final end = (offset + payloadSize).clamp(0, jpeg.length);
@@ -150,6 +150,33 @@ Uint8List _testJpeg() {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final peer = InternetAddress('192.0.2.20');
+
+  test('QVGA JPEG fits two data datagrams at the IPv4 UDP MTU budget', () {
+    const qvgaJpegBytes = 2893;
+    expect(WifiUdpVideoService.payloadBytes, 1448);
+    expect(
+      WifiUdpVideoService.udpHeaderLen + WifiUdpVideoService.payloadBytes,
+      WifiUdpVideoService.udpMtuSafe,
+    );
+
+    final packets = _packetize(
+      Uint8List(qvgaJpegBytes),
+      frameId: 41,
+    );
+    expect(packets, hasLength(3));
+    expect(packets.map((packet) => packet.length).reduce((a, b) => a > b ? a : b),
+        WifiUdpVideoService.udpMtuSafe);
+
+    final first = ByteData.sublistView(packets[0]);
+    final second = ByteData.sublistView(packets[1]);
+    final parity = ByteData.sublistView(packets[2]);
+    expect(first.getUint32(4, Endian.little), 2);
+    expect(first.getUint32(0, Endian.little), 0);
+    expect(second.getUint32(0, Endian.little), 1);
+    expect(second.getUint32(8, Endian.little), 1448);
+    expect(parity.getUint32(0, Endian.little),
+        WifiUdpVideoService.paritySequenceFlag);
+  });
 
   test('V2 frame is reconstructed when UDP datagrams arrive out of order',
       () async {

@@ -429,8 +429,10 @@ class BluetoothCameraService {
   }
 
   @visibleForTesting
-  void debugDisconnectSession() =>
-      _sessionManager.debugDisconnectCurrentSession();
+  void debugDisconnectSession() {
+    _onDisconnected(observed: true);
+    _sessionManager.debugDisconnectCurrentSession();
+  }
 
   @visibleForTesting
   void debugFeedNotification(List<int> chunk) =>

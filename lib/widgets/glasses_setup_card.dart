@@ -170,11 +170,9 @@ class _GlassesSetupCardState extends State<GlassesSetupCard> {
                 key: const ValueKey('glasses-udp-start'),
                 onPressed: !state.setupBusy &&
                         !state.udpVideo.isActive &&
-                        (_ip.text.trim().isEmpty ||
-                            WifiUdpVideoService.parsePeerAddress(
-                                    _ip.text.trim()) !=
-                                null)
-                    ? () => state.startUdpVideo(_ip.text)
+                        WifiUdpVideoService.parsePeerAddress(_ip.text.trim()) !=
+                            null
+                    ? () => state.startUdpVideo(_ip.text.trim())
                     : null,
                 icon: const Icon(AppIcons.wifiRounded),
                 label: Text(l.startUdpVideo),

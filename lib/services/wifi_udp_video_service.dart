@@ -32,9 +32,11 @@ class WifiUdpVideoService {
 
   static const int udpVideoPort = 8888;
   static const int udpHeaderLen = 24;
-  static const int udpMtuSafe = 1280;
-  static const int payloadBytes = 1200;
+  static const int udpMtuSafe = 1472;
+  static const int payloadBytes = 1448;
   static const int fecGroupSize = 4;
+  static int fecGroupSizeForFrame(int total) =>
+      total > 0 && total <= fecGroupSize ? 1 : fecGroupSize;
   static const int paritySequenceFlag = 0x80000000;
   static const int paritySequenceMask = 0x7fffffff;
   static const int maxFrameBytes = 512 * 1024;
@@ -668,7 +670,8 @@ class WifiUdpVideoService {
     }
 
     if (isParity) {
-      final groupCount = total < fecGroupSize ? total : fecGroupSize;
+      final groupSize = fecGroupSizeForFrame(total);
+      final groupCount = total < groupSize ? total : groupSize;
       final groupStart = sequence;
       if (sequence >= groupCount ||
           offset != groupStart * payloadBytes ||
@@ -723,12 +726,13 @@ class WifiUdpVideoService {
   void _tryRecoverAndAssemble() {
     if (_frameId == null || _frameTotal == 0) return;
 
-    final groupCount = _frameTotal < fecGroupSize ? _frameTotal : fecGroupSize;
+    final groupSize = fecGroupSizeForFrame(_frameTotal);
+    final groupCount = _frameTotal < groupSize ? _frameTotal : groupSize;
     for (var groupIndex = 0; groupIndex < groupCount; groupIndex++) {
       final missing = <int>[
         for (var sequence = groupIndex;
             sequence < _frameTotal;
-            sequence += fecGroupSize)
+            sequence += groupSize)
           if (!_framePackets.containsKey(sequence)) sequence,
       ];
       if (missing.length != 1) continue;
@@ -738,7 +742,7 @@ class WifiUdpVideoService {
       final recovered = Uint8List.fromList(parity);
       for (var sequence = groupIndex;
           sequence < _frameTotal;
-          sequence += fecGroupSize) {
+          sequence += groupSize) {
         if (sequence == missing.single) continue;
         final part = _framePackets[sequence];
         if (part == null) continue;

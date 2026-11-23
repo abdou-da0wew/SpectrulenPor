@@ -78,20 +78,47 @@ class _OpenRouterModelSelectorState extends State<OpenRouterModelSelector> {
         forceRefresh: force,
       );
       if (!mounted) return;
+      if (models.isEmpty) {
+        throw const OpenRouterCatalogException(
+          'OpenRouter currently has no matching free text-chat models.',
+        );
+      }
+
+      final availableIds = models.map((model) => model.id).toSet();
       final customIds =
           widget.preferences.getStringList('openrouter_custom_free_models') ??
               const <String>[];
-      final availableIds = models.map((model) => model.id).toSet();
-      final selected = _selectedId;
+      final validCustomIds =
+          customIds.where(availableIds.contains).toList(growable: false);
+      final savedPrimary =
+          widget.preferences.getString('openrouter_primary_model');
+      final String selected =
+          _selectedId != null && availableIds.contains(_selectedId)
+              ? _selectedId!
+              : savedPrimary != null && availableIds.contains(savedPrimary)
+                  ? savedPrimary
+                  : models.first.id;
+      final savedChain =
+          widget.preferences.getStringList('openrouter_model_chain') ??
+              widget.service.activeModelChain;
+      final chain = <String>{
+        selected,
+        ...savedChain.where(availableIds.contains),
+        ...models.map((model) => model.id),
+      }.take(3).toList(growable: false);
+
+      // A model can disappear or lose its free variant. Never keep it in the
+      // saved failover chain or allow a stale custom ID to remain selectable.
+      await widget.preferences
+          .setStringList('openrouter_custom_free_models', validCustomIds);
+      await widget.preferences.setString('openrouter_primary_model', selected);
+      await widget.preferences.setStringList('openrouter_model_chain', chain);
+      widget.service.configureModelChain(chain);
+
+      if (!mounted) return;
       setState(() {
         _models = models;
-        _selectedId = selected != null &&
-                (availableIds.contains(selected) ||
-                    customIds.contains(selected))
-            ? selected
-            : models.isNotEmpty
-                ? models.first.id
-                : null;
+        _selectedId = selected;
         _loading = false;
       });
     } catch (error) {
@@ -107,10 +134,14 @@ class _OpenRouterModelSelectorState extends State<OpenRouterModelSelector> {
     final selected = _selectedId;
     if (selected == null) return;
     setState(() => _saving = true);
-    final chain = <String>[
+    final availableIds = _models.map((model) => model.id).toSet();
+    final chain = <String>{
       selected,
-      ...widget.service.activeModelChain.where((id) => id != selected),
-    ];
+      ...widget.service.activeModelChain.where(
+        (id) => id != selected && availableIds.contains(id),
+      ),
+      ..._models.map((model) => model.id),
+    }.take(3).toList(growable: false);
     await widget.preferences.setString('openrouter_primary_model', selected);
     await widget.preferences.setStringList('openrouter_model_chain', chain);
     widget.service.configureModelChain(chain);
@@ -275,7 +306,7 @@ class _OpenRouterModelSelectorState extends State<OpenRouterModelSelector> {
             ),
             const SizedBox(height: 10),
             DropdownButtonFormField<String>(
-              value: _selectedId != null &&
+              initialValue: _selectedId != null &&
                       visible.any((model) => model.id == _selectedId)
                   ? _selectedId
                   : null,

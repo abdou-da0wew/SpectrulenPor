@@ -154,7 +154,7 @@ void main() {
   });
 
   testWidgets(
-      'settings route shows key fields, chain, diagnostics, credits & version card',
+      'settings categories expose model controls, diagnostics and attribution',
       (tester) async {
     final prefs = await mockPrefs();
     await pumpApp(
@@ -167,74 +167,41 @@ void main() {
       },
     );
 
-    // Tall viewport: the settings screen is a lazy ListView — a phone-sized
-    // test surface leaves the API-key cards unbuilt (unfindable). A tall
-    // surface builds the whole column at once.
-    tester.view.physicalSize = const Size(1080, 3200);
+    tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
     await tester.tap(find.byTooltip('Settings'));
     await tester.pumpAndSettle(const Duration(milliseconds: 600));
 
+    // AI settings live in their own category. No mega-scroll is required.
+    await tester.tap(find.text('AI & Models'));
+    await tester.pump(const Duration(milliseconds: 150));
     expect(find.text('MOONDREAM3 CLOUD — PRIMARY VISION'), findsOneWidget);
     expect(find.text('OPENROUTER API'), findsOneWidget);
+    expect(find.text('OpenRouter free models'), findsOneWidget);
+    expect(find.text('Test model'), findsOneWidget);
+    expect(find.text('Add custom free model'), findsOneWidget);
 
-    // Seeded keys are preserved as the real values (not placeholder strings).
-    // Tall viewport builds the lazy ListView's API-key cards up front.
     final fields =
         tester.widgetList<TextField>(find.byType(TextField)).toList();
-    expect(fields.length, greaterThanOrEqualTo(3));
+    expect(fields.length, greaterThanOrEqualTo(4));
     expect(
-      fields.map((f) => f.controller?.text),
+      fields.map((field) => field.controller?.text),
       containsAllInOrder(<String>['md-secret', 'llm-secret', 'tts-secret']),
     );
 
-    await tester.scrollUntilVisible(
-      find.textContaining('gemma-4-26b-a4b-it:free'),
-      250,
-      scrollable: find.byType(Scrollable).first,
-    );
+    // Diagnostics are in Data, while release metadata is in About.
+    await tester.tap(find.text('Data'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('gemma-4-26b-a4b-it:free'), findsOneWidget);
-    expect(find.textContaining('inkling-small:free'), findsOneWidget);
+    expect(find.text('Database, Cache, Logs, Hangs & Traces'), findsOneWidget);
+    // The Data category exposes the dedicated diagnostics route without
+    // mixing it into the main settings scroll.
+    expect(find.text('Database, Cache, Logs, Hangs & Traces'), findsOneWidget);
 
-    await tester.scrollUntilVisible(
-      find.textContaining('nemotron-3-nano'),
-      250,
-      scrollable: find.byType(Scrollable).first,
-    );
+    await tester.tap(find.text('About'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('nemotron-3-nano'), findsOneWidget);
-
-    await tester.scrollUntilVisible(
-      find.textContaining('DIAGNOSTICS'),
-      300,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.pumpAndSettle();
-    expect(find.textContaining('DIAGNOSTICS'), findsWidgets);
-
-    // Scroll down to About + Build & Version card.
-    await tester.scrollUntilVisible(
-      find.textContaining('Malak Adel Sayed Hassan'),
-      400,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.pumpAndSettle();
-    expect(
-      find.textContaining('fish-audio/s2.1-pro-free:free'),
-      findsWidgets,
-    );
     expect(find.textContaining('Malak Adel Sayed Hassan'), findsOneWidget);
-
-    // '(build ' is unique to the version card (the about text also contains
-    // 'SpectruLenPor v…', which would break the finder's single-match rule).
-    await tester.scrollUntilVisible(
-      find.textContaining('(build '),
-      300,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.pumpAndSettle();
+    expect(find.textContaining('Abdoul-Rahman Ayman'), findsOneWidget);
     expect(find.textContaining('(build '), findsOneWidget);
   });
 }

@@ -381,7 +381,9 @@ class RecognitionState extends ChangeNotifier {
     } else {
       if (_wifiIp.isNotEmpty) {
         await startUdpVideo(_wifiIp);
-      } else if (bluetooth.isConnected) {
+      } else if (bluetooth.isConnected && !_credentialsSaved) {
+        // Before WiFi provisioning the user may explicitly start BLE setup.
+        // A provisioned WiFi-only device needs its manually entered IPv4 first.
         await resumeGlassesStream();
       }
     }
