@@ -202,6 +202,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('Malak Adel Sayed Hassan'), findsOneWidget);
     expect(find.textContaining('Abdoul-Rahman Ayman'), findsOneWidget);
-    expect(find.textContaining('(build '), findsOneWidget);
+    expect(
+      find.textContaining('SpectruLenPor v5.5.1 (build 16)'),
+      findsOneWidget,
+    );
   });
 }

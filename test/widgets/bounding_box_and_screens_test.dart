@@ -123,6 +123,12 @@ void main() {
       find.text('Cloud-only models (except YOLO26-Nano)'),
       findsOneWidget,
     );
+    await tester.scrollUntilVisible(
+      find.text('Strict'),
+      250,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.pumpAndSettle(const Duration(milliseconds: 100));
     expect(find.text('Strict'), findsOneWidget);
     expect(find.text('Detailed'), findsOneWidget);
     expect(find.text('Semantic'), findsOneWidget);
