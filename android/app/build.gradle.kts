@@ -1,6 +1,6 @@
 import java.util.Properties
 import java.io.FileInputStream
-
+import com.android.build.api.dsl.ApplicationExtension
 plugins {
     id("com.android.application")
     id("dev.flutter.flutter-gradle-plugin")
@@ -19,7 +19,7 @@ val keystoreProperties = Properties().apply {
 }
 val hasReleaseKeystore = keystoreProperties["storeFile"] != null
 
-android {
+extensions.configure<ApplicationExtension>("android") {
     ndkVersion = "25.2.9519653"
     namespace = "com.spectraglass.app"
     compileSdk = 37
@@ -47,6 +47,7 @@ android {
         targetSdk = 36
         versionCode = 16
         versionName = "5.5.1"
+        manifestPlaceholders["benchmarkProfileable"] = "false"
     }
 
     buildTypes {
@@ -61,6 +62,18 @@ android {
             // covering com.microsoft.onnxruntime once validated on-device.
             isMinifyEnabled = false
             isShrinkResources = false
+        }
+        // Release-equivalent target for AndroidX Macrobenchmark. The separate
+        // instrumentation module runs tests against this variant, while the
+        // ordinary `release` APK and its signing behavior remain unchanged.
+        create("benchmark") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".benchmark"
+            versionNameSuffix = "-benchmark"
+            isDebuggable = false
+            signingConfig = signingConfigs.getByName("debug")
+            manifestPlaceholders["benchmarkProfileable"] = "true"
+            matchingFallbacks += listOf("release")
         }
     }
 }
@@ -79,6 +92,8 @@ flutter {
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
     implementation("androidx.core:core-ktx:1.19.0")
+    // ProfileInstaller is included only in the dedicated benchmark target.
+    add("benchmarkImplementation", "androidx.profileinstaller:profileinstaller:1.4.1")
     // ONNX Runtime for YOLO26-Nano on-device inference. Direct Maven dep
     // (NOT via flutter_onnxruntime plugin — that had a gradle subproject
     // build conflict on AGP 9.x). The native .so files are bundled in the AAR.

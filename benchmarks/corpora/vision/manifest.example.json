@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "corpus": "spectrulenpor-vision-reference",
+  "coordinateFormat": "pixel xyxy: [x1, y1, x2, y2]",
+  "images": [
+    {
+      "id": "lab-001",
+      "file": "images/lab-001.jpg",
+      "width": 1280,
+      "height": 720,
+      "annotations": [
+        {
+          "classId": 0,
+          "label": "person",
+          "box": [120, 80, 420, 690]
+        }
+      ],
+      "predictions": [
+        {
+          "classId": 0,
+          "label": "person",
+          "confidence": 0.93,
+          "box": [125, 82, 418, 688]
+        }
+      ]
+    }
+  ]
+}

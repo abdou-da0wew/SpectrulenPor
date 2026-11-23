@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "corpus": "spectrulenpor-stt-reference",
+  "sampleRateHz": 16000,
+  "format": "mono PCM WAV",
+  "samples": [
+    {
+      "id": "en-001",
+      "language": "en-US",
+      "audio": "audio/en-001.wav",
+      "reference": "Turn on the ultraviolet sensor.",
+      "hypothesis": "replace with Vosk or SpeechRecognizer output"
+    },
+    {
+      "id": "ar-eg-001",
+      "language": "ar-EG",
+      "audio": "audio/ar-eg-001.wav",
+      "reference": "شغل مستشعر الأشعة فوق البنفسجية.",
+      "hypothesis": "replace with Vosk or SpeechRecognizer output"
+    }
+  ]
+}

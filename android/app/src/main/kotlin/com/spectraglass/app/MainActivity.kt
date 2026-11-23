@@ -23,5 +23,6 @@ class MainActivity : FlutterActivity() {
         YoloInferenceChannel.register(flutterEngine, applicationContext)
         VoskSpeechChannel.register(flutterEngine, applicationContext)
         SupertonicTtsChannel.register(flutterEngine, applicationContext)
+        BenchmarkMetricsChannel.register(flutterEngine, applicationContext)
     }
 }

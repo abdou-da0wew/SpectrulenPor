@@ -1,5 +1,24 @@
 allprojects {
     repositories {
+        maven {
+            url = uri("/tmp/spectrulenpor-benchmark-maven")
+            content {
+                includeGroup("androidx.benchmark")
+                includeGroup("androidx.datastore")
+                includeGroup("androidx.room")
+                includeGroup("androidx.sqlite")
+                includeGroup("androidx.arch.core")
+                includeGroup("androidx.collection")
+                includeGroup("androidx.concurrent")
+                includeGroup("androidx.lifecycle")
+                includeGroup("androidx.tracing")
+                includeGroup("com.squareup.moshi")
+                includeGroup("com.squareup.okio")
+                includeGroup("com.squareup.wire")
+                includeGroup("junit")
+                includeGroup("org.hamcrest")
+            }
+        }
         google()
         mavenCentral()
     }

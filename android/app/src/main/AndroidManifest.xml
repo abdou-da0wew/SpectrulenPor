@@ -65,12 +65,15 @@
         android:icon="@mipmap/ic_launcher"
         android:enableOnBackInvokedCallback="true">
 
+        <!-- Only the dedicated benchmark target is shell-profileable; the normal
+             release APK keeps its original profiling/debuggability behavior. -->
+        <profileable android:shell="${benchmarkProfileable}" />
+
         <meta-data android:name="com.spectrulenpor.PROJECT_AUTHOR" android:value="Malak Adel Sayed Hassan" />
-        <meta-data android:name="com.spectrulenpor.SOFTWARE_DEVELOPER" android:value="Abdou" />
-        <meta-data android:name="com.spectrulenpor.DEVELOPER_DISPLAY_NAME" android:value="Abdou" />
+        <meta-data android:name="com.spectrulenpor.SOFTWARE_DEVELOPER" android:value="Abdoul-Rahman Ayman" />
+        <meta-data android:name="com.spectrulenpor.DEVELOPER_DISPLAY_NAME" android:value="Abdoul-Rahman Ayman" />
         <meta-data android:name="com.spectrulenpor.DEVELOPER_GITHUB" android:value="https://github.com/abdou-da0wew" />
-        <meta-data android:name="com.spectrulenpor.DEVELOPER_NAME_AR" android:value="عبد الرحمن أيمن محمد" />
-        <meta-data android:name="com.spectrulenpor.CODE_AUTHORSHIP" android:value="All original application and firmware code authored by Abdou" />
+        <meta-data android:name="com.spectrulenpor.CODE_AUTHORSHIP" android:value="All original application and firmware code authored by Abdoul-Rahman Ayman (GitHub: abdou-da0wew)" />
 
         <activity
             android:name=".MainActivity"
